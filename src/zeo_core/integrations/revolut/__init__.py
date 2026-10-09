@@ -1,6 +1,7 @@
 """Read-only Revolut Business client; credential custody belongs to the caller."""
 
 from .client import RevolutBusinessClient
+from .hosted import HostedRevolutBusinessClient
 from .models import (
     MAX_EXPENSE_COUNT,
     MAX_LABEL_LIMIT,
@@ -51,6 +52,7 @@ __all__ = [
     "ExpensePage",
     "ExpenseQuery",
     "ExpenseSplit",
+    "HostedRevolutBusinessClient",
     "Label",
     "LabelGroup",
     "LabelGroupPage",
