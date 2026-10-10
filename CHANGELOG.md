@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`make setup` and CI install exactly what `uv.lock` pins** (`make sync`, which
+  runs `uv sync --locked` with every gate extra plus dev, lint and docs). Before
+  this, `uv pip install -e .[extras]` resolved the newest releases, so CI could
+  test dependencies a release never ships (pydantic 2.14 against the locked
+  2.13.4 on super PR #100). A stale lock now fails setup instead of drifting.
+
 ## [0.12.0] - 2026-10-08
 
 ### Added
