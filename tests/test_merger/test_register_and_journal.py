@@ -124,3 +124,28 @@ def test_a_damaged_journal_refuses_to_open(tmp_path: Path) -> None:
     path.write_text('{"receipt_id": "x", "action": "attempted"}\nnot json\n')
     with pytest.raises(ValueError, match="line 2"):
         FileJournal(path)
+
+
+def test_only_one_process_can_hold_the_journal(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    path = tmp_path / "journal.jsonl"
+    holder = FileJournal(path)
+    probe = (
+        "import sys\n"
+        "from zeo_core.merger import FileJournal, JournalHeldError\n"
+        "try:\n"
+        "    FileJournal(sys.argv[1])\n"
+        "except JournalHeldError:\n"
+        "    sys.exit(3)\n"
+    )
+    held = subprocess.run(  # noqa: S603 -- our own interpreter and probe
+        [sys.executable, "-c", probe, str(path)], check=False
+    )
+    assert held.returncode == 3
+    holder.close()
+    free = subprocess.run(  # noqa: S603 -- our own interpreter and probe
+        [sys.executable, "-c", probe, str(path)], check=False
+    )
+    assert free.returncode == 0

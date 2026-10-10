@@ -32,7 +32,7 @@ from .decision import (
     Status,
     decide,
 )
-from .journal import FileJournal, Journal
+from .journal import FileJournal, Journal, JournalHeldError
 from .queue import Candidate, Register, RegisterError, parse_register
 from .run import Pass
 
@@ -51,6 +51,7 @@ __all__ = [
     "FileJournal",
     "GitHubReads",
     "Journal",
+    "JournalHeldError",
     "MergeUnclearError",
     "Pass",
     "PullRequest",

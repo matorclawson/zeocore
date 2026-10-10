@@ -6,6 +6,7 @@ is on disk before any merge call. (Port of zeomerger internal/journal.)
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import threading
@@ -25,14 +26,31 @@ class Journal(Protocol):
         ...
 
 
+class JournalHeldError(RuntimeError):
+    """Another merger process holds the journal: this one must not run."""
+
+
 class FileJournal:
-    """One 0600 file. An unreadable line refuses to open the journal at all."""
+    """One 0600 file, held by exactly one process at a time.
+
+    Opening takes an exclusive, non-blocking ``flock`` and refuses if another
+    process holds it, so two merger runs can never each make one call for the
+    same receipt (Architect M2). An unreadable line refuses to open the journal.
+    The lock is released by ``close`` or when the process exits.
+    """
 
     def __init__(self, path: str | Path) -> None:
         self._path = Path(path)
         self._lock = threading.Lock()
         self._attempted: set[str] = set()
         descriptor = os.open(self._path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(descriptor)
+            raise JournalHeldError(
+                f"{self._path} is held by another merger process"
+            ) from None
         self._file = os.fdopen(descriptor, "r+", encoding="utf-8")
         self._file.seek(0)
         for number, line in enumerate(self._file, start=1):
