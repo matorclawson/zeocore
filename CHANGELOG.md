@@ -167,7 +167,6 @@ These change what a caller sees. The session store API and the
   live sandbox run. **So every `ExpensePage` reports
   `completeness="unverified"`**, and a run that reaches `next_to=None` is not
   proof of a complete window (org #787, council ruling on E4).
-
 - **The `zeocore` command**, for callers that don't import Python: the ZEOconnect
   Broker and WEB, TypeScript pipelines, scripts. JSON on stdin and JSON lines on
   stdout with the result last. Exit codes are the YouTube publish command's
@@ -193,6 +192,42 @@ These change what a caller sees. The session store API and the
     until the person decides.
   - `KeychainSecureSessionStore(profile=...)` keeps one entry per profile. No
     profile keeps today's entry.
+- **The runtime-host names are a supported tier** (planned for 0.15.0, after
+  0.14.0). `zeo_core.adapters.runtime_host.canonical`, `.catalogue`, `.channel`
+  and `.host` now declare `__all__`: `canonical_bytes`, `digest`, `parse_json`,
+  `manifest_inventory`, `MAX_BYTES`, `ProtocolError`, `InvalidRequestError`,
+  `CandidateCatalogue`, `validate_inventory`, `RuntimeChannel`, `EffectPort`,
+  `ManagedHost`, `parse_result` and `prepare_request`. Until this release they
+  were internal, with no stability promise. Nothing about them changes.
+  `zeo_core.contracts.runtime.RUNTIME_HOST_PROTOCOL_VERSION` (1) names the
+  version every versioned runtime-host-v1 model carries, so a consumer can bound
+  compatibility on it. The `contracts/runtime-host-v1` schemas and vectors are
+  still not in the wheel; pin them by sha256 from the source tag.
+  **The promise, from 0.15.0:** while zeocore is 0.x, removing one of these
+  names or changing it incompatibly happens only in a minor release (0.y.0),
+  never in a patch, and is listed under "Breaking" in that release's entry.
+  From 1.0.0 it needs a major version. A wire-incompatible change to a
+  runtime-host-v1 model also raises `RUNTIME_HOST_PROTOCOL_VERSION`.
+- **The merger's decision core, ported into zeocore** (`zeo_core.merger`). This
+  follows the operator's ruling that the merger is a zeocore app; ZEO-LEDGER owns
+  the decision contract and reviews the port.
+  - It's a port of zeomerger's register reader, decision core, pass and journal.
+  - It is held to ZEO-LEDGER's 34 language-neutral parity fixtures, committed byte
+    for byte under `contracts/merger-v1/`: 25 decision cases and 9 whole-run cases.
+  - It never writes the register, makes exactly one merge call per receipt with
+    `sha` set to the approved head, journals its intent durably before the call,
+    and reconciles a lost answer by reading.
+  - The GitHub adapter and the `zeocore merger` command follow.
+- **GitHub App installation tokens for an isolated principal**
+  (`zeo_core.integrations.github.app_tokens`, `github-app` extra). These are
+  for the merger, which by the operator's ruling is a zeocore app whose key is
+  kept outside ZEOconnect.
+  - It signs an RS256 App JWT and mints a token for exactly one repository and
+    exactly the requested permissions. A broader grant is revoked and refused.
+  - It sends one attempt and never retries.
+  - The key is read only from the running user's own Keychain item, or from
+    `FileAppKeySource`: the user's own regular file with no group or other access,
+    never a symlink.
 
 ### Fixed
 
@@ -217,6 +252,12 @@ These change what a caller sees. The session store API and the
   where before it was waited out. That is E5's choice. When the Broker is
   reachable again, append a `released` event and the next run resumes the
   upload.
+- **A GitHub effect is sent once, never retried.** `make_request` retried every
+  method on a 5xx, a rate limit, a timeout or a dropped connection. So one
+  ambiguous reply could open a second pull request, post a second comment or
+  issue, write a file twice, or merge twice. Only GET and HEAD are retried now.
+  POST, PUT, PATCH and DELETE are sent exactly once, and an unknown outcome is
+  raised for the caller to reconcile by reading back.
 
 ### Changed
 
@@ -227,6 +268,11 @@ These change what a caller sees. The session store API and the
   No other `HostedClientError` message changes, and neither do the session
   store API or the `ZEOconnectHTTPTransport` constructor. Callers that match
   on the old message for a headerless response must match on the new one.
+- **Breaking: `merge_pull_request` needs the head `sha` and merges only by
+  `merge`.** `sha` is a required keyword, the full 40-hex commit the merge was
+  approved for, and GitHub refuses the merge if the head has moved. `squash`
+  and `rebase` are refused. Nothing in zeocore called it. In ZEO, merging is
+  zeomerger's alone (operator decision, 2026-10-10).
 
 ### Known issues
 
@@ -236,78 +282,6 @@ These change what a caller sees. The session store API and the
   changes relay failure handling. It does not claim conformance to Broker
   contract `1.0.0` and does not repair the hosted origin; both are for 0.14.0
   (org #791).
-
-- **The runtime-host names are a supported tier** (planned for 0.15.0, after
-  0.14.0). `zeo_core.adapters.runtime_host.canonical`, `.catalogue`, `.channel`
-  and `.host` now declare `__all__`: `canonical_bytes`, `digest`, `parse_json`,
-  `manifest_inventory`, `MAX_BYTES`, `ProtocolError`, `InvalidRequestError`,
-  `CandidateCatalogue`, `validate_inventory`, `RuntimeChannel`, `EffectPort`,
-  `ManagedHost`, `parse_result` and `prepare_request`. Until this release they
-  were internal, with no stability promise. Nothing about them changes.
-  `zeo_core.contracts.runtime.RUNTIME_HOST_PROTOCOL_VERSION` (1) names the
-  version every versioned runtime-host-v1 model carries, so a consumer can bound
-  compatibility on it. The `contracts/runtime-host-v1` schemas and vectors are
-  still not in the wheel; pin them by sha256 from the source tag.
-  **The promise, from 0.15.0:** while zeocore is 0.x, removing one of these
-  names or changing it incompatibly happens only in a minor release (0.y.0),
-  never in a patch, and is listed under "Breaking" in that release's entry.
-  From 1.0.0 it needs a major version. A wire-incompatible change to a
-  runtime-host-v1 model also raises `RUNTIME_HOST_PROTOCOL_VERSION`.
-
-- **The `zeocore` command**, for callers that don't import Python: the ZEOconnect
-  Broker and WEB, TypeScript pipelines, scripts. JSON on stdin and JSON lines on
-  stdout with the result last. Exit codes are the YouTube publish command's
-  family: 0, 2, 10, 11, 20, plus 12 not paired and 13 ambiguous
-  (`docs/reference/cli.md`).
-  - `zeocore schema list` and `zeocore schema <name>` give the public contract
-    models as JSON Schema 2020-12 under stable names, among them
-    `hosted.operation-request`, `hosted.operation-response` and
-    `connections.normalized-error`. The same schemas are committed under
-    `contracts/zeocore-v1/`, and a test fails if a model drifts from its file.
-  - `zeocore validate <name>` checks a value and answers the normalized form.
-    Its errors carry location and type only, never input values.
-  - `zeocore digest` is the sha256 of a value's RFC 8785 canonical bytes.
-  - `zeocore version` names the release and the protocols.
-
-### Fixed
-
-- **A GitHub effect is sent once, never retried.** `make_request` retried every
-  method on a 5xx, a rate limit, a timeout or a dropped connection. So one
-  ambiguous reply could open a second pull request, post a second comment or
-  issue, write a file twice, or merge twice. Only GET and HEAD are retried now.
-  POST, PUT, PATCH and DELETE are sent exactly once, and an unknown outcome is
-  raised for the caller to reconcile by reading back.
-
-### Added
-
-- **The merger's decision core, ported into zeocore** (`zeo_core.merger`). This
-  follows the operator's ruling that the merger is a zeocore app; ZEO-LEDGER owns
-  the decision contract and reviews the port.
-  - It's a port of zeomerger's register reader, decision core, pass and journal.
-  - It is held to ZEO-LEDGER's 34 language-neutral parity fixtures, committed byte
-    for byte under `contracts/merger-v1/`: 25 decision cases and 9 whole-run cases.
-  - It never writes the register, makes exactly one merge call per receipt with
-    `sha` set to the approved head, journals its intent durably before the call,
-    and reconciles a lost answer by reading.
-  - The GitHub adapter and the `zeocore merger` command follow.
-- **GitHub App installation tokens for an isolated principal**
-  (`zeo_core.integrations.github.app_tokens`, `github-app` extra). These are
-  for the merger, which by the operator's ruling is a zeocore app whose key is
-  kept outside ZEOconnect.
-  - It signs an RS256 App JWT and mints a token for exactly one repository and
-    exactly the requested permissions. A broader grant is revoked and refused.
-  - It sends one attempt and never retries.
-  - The key is read only from the running user's own Keychain item, or from
-    `FileAppKeySource`: the user's own regular file with no group or other access,
-    never a symlink.
-
-### Changed
-
-- **Breaking: `merge_pull_request` needs the head `sha` and merges only by
-  `merge`.** `sha` is a required keyword, the full 40-hex commit the merge was
-  approved for, and GitHub refuses the merge if the head has moved. `squash`
-  and `rebase` are refused. Nothing in zeocore called it. In ZEO, merging is
-  zeomerger's alone (operator decision, 2026-10-10).
 
 ## [0.12.0] - 2026-10-08
 
