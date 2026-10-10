@@ -13,6 +13,9 @@ Commands:
 - ``zeocore digest``: the sha256 of stdin's RFC 8785 canonical bytes.
 - ``zeocore login | logout | whoami | connections | invoke | artifact get``:
   the ZEOconnect Broker client (``zeo_core.cli.client``).
+- ``zeocore release sign | verify | pack | receive | send | serve``: the
+  shared signing step
+  (``zeo_core.cli.release``).
 
 Rules every command keeps (``cli_protocol`` 1):
 
@@ -45,7 +48,7 @@ from zeo_core.adapters.runtime_host.canonical import (
     parse_json,
 )
 
-from . import client
+from . import client, release
 from .protocol import (
     CLI_PROTOCOL,
     EXIT_AMBIGUOUS,
@@ -176,12 +179,13 @@ COMMANDS: Final[dict[str, Command]] = {
     "invoke": client.invoke,
     "login": client.login,
     "logout": client.logout,
+    "release": release.release,
     "whoami": client.whoami,
     "schema": _schema,
     "validate": _validate,
     "version": _version,
 }
-_READS_STDIN: Final = frozenset({"artifact", "digest", "invoke", "validate"})
+_READS_STDIN: Final = frozenset({"artifact", "digest", "invoke", "release", "validate"})
 
 
 def run(argv: Sequence[str], stdin: Callable[[], bytes]) -> Answer:
