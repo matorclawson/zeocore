@@ -92,6 +92,11 @@ class GitHubReads(Protocol):
 
     def commits(self, repo: str, number: int) -> Sequence[Commit]: ...
 
+    def required_checks(self, repo: str, branch: str) -> tuple[bool, bool]:
+        """For the branch's live rules: whether any status check is required, and
+        whether checks are strict (up to date) or a merge queue is in force."""
+        ...
+
     def vetoes(self) -> tuple[frozenset[str], str]:
         """The operator's veto list as ``owner/repo#N`` entries, and its revision."""
         ...
@@ -214,6 +219,24 @@ def decide(  # noqa: C901 -- line-by-line port of the Go core, for parity review
         return refuse(
             f"base moved from {short(candidate.base_sha)} to {short(pr.base_sha)},"
             " and this repository proves no checks on a new base"
+        )
+    # GitHub reports mergeable_state "clean" even when nothing is required, so
+    # the base branch's rules are read too: with no required checks only the
+    # operator merges (r12 §2 item 2), and a checks-on-current-base policy must
+    # be backed by strict checks or a merge queue (QUEUE-SPEC-v2 §3). There is
+    # no fallback to unchanged-base (Architect M1, ZEO-LEDGER SOW-152).
+    try:
+        present, strict = github.required_checks(candidate.repo, pr.base_ref)
+    except Exception as error:  # noqa: BLE001
+        return hold(f"reading the base branch rules: {error}")
+    if not present:
+        return refuse(
+            "the base branch requires no status checks; only the operator merges here"
+        )
+    if repo.base_policy == CHECKS_ON_CURRENT_BASE and not strict:
+        return refuse(
+            "base policy checks-on-current-base, but the base branch neither"
+            " requires up-to-date branches nor uses a merge queue"
         )
     for path in pr.files:
         for prefix in config.protected_paths:

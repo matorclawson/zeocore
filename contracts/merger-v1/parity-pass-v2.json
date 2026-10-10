@@ -1,0 +1,184 @@
+{
+  "cases": [
+    {
+      "name": "live merge: intent before the call",
+      "live": true,
+      "register_loads": [
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ],
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ]
+      ],
+      "remove_status_on_recheck": false,
+      "prior_attempt": false,
+      "merge_answer": "ok",
+      "expect_journal_actions": [
+        "attempted",
+        "merged"
+      ],
+      "expect_merge_calls": 1,
+      "expect_run_error": false
+    },
+    {
+      "name": "plan mode never calls merge",
+      "live": false,
+      "register_loads": [
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ]
+      ],
+      "remove_status_on_recheck": false,
+      "prior_attempt": false,
+      "merge_answer": "ok",
+      "expect_journal_actions": [
+        "would-merge"
+      ],
+      "expect_merge_calls": 0,
+      "expect_run_error": false
+    },
+    {
+      "name": "approval withdrawn before the call",
+      "live": true,
+      "register_loads": [
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ],
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}",
+          "{\"v\":1,\"event\":\"withdrawn\",\"time\":\"t\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"reason\":\"changes requested\"}"
+        ]
+      ],
+      "remove_status_on_recheck": false,
+      "prior_attempt": false,
+      "merge_answer": "ok",
+      "expect_journal_actions": [
+        "refused"
+      ],
+      "expect_merge_calls": 0,
+      "expect_run_error": false
+    },
+    {
+      "name": "approval status removed before the call",
+      "live": true,
+      "register_loads": [
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ],
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ]
+      ],
+      "remove_status_on_recheck": true,
+      "prior_attempt": false,
+      "merge_answer": "ok",
+      "expect_journal_actions": [
+        "refused"
+      ],
+      "expect_merge_calls": 0,
+      "expect_run_error": false
+    },
+    {
+      "name": "no durable intent, no call",
+      "live": true,
+      "register_loads": [
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ],
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ]
+      ],
+      "remove_status_on_recheck": false,
+      "prior_attempt": false,
+      "journal_fails_on": "attempted",
+      "merge_answer": "ok",
+      "expect_journal_actions": null,
+      "expect_merge_calls": 0,
+      "expect_run_error": true
+    },
+    {
+      "name": "GitHub refuses the call",
+      "live": true,
+      "register_loads": [
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ],
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ]
+      ],
+      "remove_status_on_recheck": false,
+      "prior_attempt": false,
+      "merge_answer": "refused-409",
+      "expect_journal_actions": [
+        "attempted",
+        "refused"
+      ],
+      "expect_merge_calls": 1,
+      "expect_run_error": false
+    },
+    {
+      "name": "lost answer, merge had landed",
+      "live": true,
+      "register_loads": [
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ],
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ]
+      ],
+      "remove_status_on_recheck": false,
+      "prior_attempt": false,
+      "merge_answer": "unclear-landed",
+      "expect_journal_actions": [
+        "attempted",
+        "already-handled"
+      ],
+      "expect_merge_calls": 1,
+      "expect_run_error": false
+    },
+    {
+      "name": "lost answer, merge had not landed",
+      "live": true,
+      "register_loads": [
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ],
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ]
+      ],
+      "remove_status_on_recheck": false,
+      "prior_attempt": false,
+      "merge_answer": "unclear-not-landed",
+      "expect_journal_actions": [
+        "attempted",
+        "unclear"
+      ],
+      "expect_merge_calls": 1,
+      "expect_run_error": false
+    },
+    {
+      "name": "prior attempt: reconcile only, never a second call",
+      "live": true,
+      "register_loads": [
+        [
+          "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+        ]
+      ],
+      "remove_status_on_recheck": false,
+      "prior_attempt": true,
+      "merge_answer": "ok",
+      "expect_journal_actions": [
+        "unclear"
+      ],
+      "expect_merge_calls": 0,
+      "expect_run_error": false
+    }
+  ],
+  "note": "Each case is one merger run over PR o/r#85 at the decide fixture's healthy GitHub state (parity-decide-v2 case 'allowed', whose base branch requires strict checks). register_loads[0] is read at the start, register_loads[1] immediately before the merge call. expect_journal_actions excludes a pre-existing prior attempt.",
+  "spec": "zeomerger-parity-pass/v2"
+}

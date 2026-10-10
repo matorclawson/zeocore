@@ -69,6 +69,8 @@ class FakeGitHub:
     commits_by_pr: dict[int, list[Commit]]
     veto_list: frozenset[str] = frozenset()
     veto_error: str = ""
+    base_rules: dict[str, tuple[bool, bool]] = field(default_factory=dict)
+    base_rules_error: str = ""
     merge_answer: str = "ok"
     merges: list[str] = field(default_factory=list)
 
@@ -107,6 +109,11 @@ class FakeGitHub:
             },
             veto_list=frozenset(case.get("vetoes") or ()),
             veto_error=case.get("veto_error") or "",
+            base_rules={
+                key: (rule["required_checks_present"], rule["strict_or_merge_queue"])
+                for key, rule in (case.get("base_rules") or {}).items()
+            },
+            base_rules_error=case.get("base_rules_error") or "",
         )
 
     def pull_request(self, repo: str, number: int) -> PullRequest:
@@ -119,6 +126,11 @@ class FakeGitHub:
 
     def commits(self, repo: str, number: int) -> list[Commit]:
         return self.commits_by_pr.get(number, [])
+
+    def required_checks(self, repo: str, branch: str) -> tuple[bool, bool]:
+        if self.base_rules_error:
+            raise RuntimeError(self.base_rules_error)
+        return self.base_rules.get(f"{repo}@{branch}", (False, False))
 
     def vetoes(self) -> tuple[frozenset[str], str]:
         if self.veto_error:
@@ -139,14 +151,15 @@ class FakeGitHub:
         return OTHER_SHA
 
 
-DECIDE = _load("parity-decide-v1.json")
-PASS = _load("parity-pass-v1.json")
+# v2 supersedes v1 for decide and pass (ZEO-LEDGER SOW-152: Architect M1).
+DECIDE = _load("parity-decide-v2.json")
+PASS = _load("parity-pass-v2.json")
 
 
 def test_the_specs_are_the_ones_ported() -> None:
-    assert DECIDE["spec"] == "zeomerger-parity/v1"
-    assert PASS["spec"] == "zeomerger-parity-pass/v1"
-    assert len(DECIDE["cases"]) == 25
+    assert DECIDE["spec"] == "zeomerger-parity/v2"
+    assert PASS["spec"] == "zeomerger-parity-pass/v2"
+    assert len(DECIDE["cases"]) == 29
     assert len(PASS["cases"]) == 9
 
 
