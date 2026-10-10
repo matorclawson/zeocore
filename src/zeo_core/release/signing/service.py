@@ -35,7 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Final
 
-from .admission import ALLOWLIST, MAX_REQUESTS_PER_HOUR, GitHubReads, Grant, admit
+from .admission import ALLOWLIST, GitHubReads, Grant, Limits, admit
 from .pack import MAX_PACK_BYTES, PackError, create_response, open_request
 from .step import WorkDir, sign
 from .toolchain import Runner, Toolchain, run_tool
@@ -121,6 +121,7 @@ class SigningService:
         signing_host: str | None,
         *,
         allowlist: dict[str, dict[str, Grant]] | None = None,
+        limits: Limits | None = None,
         now: Clock = _now,
     ) -> None:
         self._state = state
@@ -128,6 +129,7 @@ class SigningService:
         self._github = github
         self._host = signing_host
         self._allowlist = ALLOWLIST if allowlist is None else allowlist
+        self._limits = Limits() if limits is None else limits
         self._now = now
         self._lock = threading.Lock()
         for name in ("packs", "opened", "work", "responses"):
@@ -194,7 +196,7 @@ class SigningService:
                 "refused", "caller_unadmitted", "this node is not allowed", None
             )
         since = self._now() - timedelta(hours=1)
-        if self._journal.recent(node, since) >= MAX_REQUESTS_PER_HOUR:
+        if self._journal.recent(node, since) >= self._limits.max_requests_per_hour:
             return _json_reply(
                 "held", "rate_limited", "too many requests this hour", None
             )
@@ -214,7 +216,7 @@ class SigningService:
         except PackError as error:
             status = "invalid" if error.reason == "request_invalid" else "refused"
             return self._settle(request_id, status, error.reason, str(error))
-        refusal = admit(opened, node, self._github, self._allowlist)
+        refusal = admit(opened, node, self._github, self._allowlist, self._limits)
         if refusal is not None:
             return self._settle(
                 request_id, refusal.status, refusal.reason, refusal.message

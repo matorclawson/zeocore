@@ -49,7 +49,7 @@ from zeo_core.release.signing import (
     sign,
     verify,
 )
-from zeo_core.release.signing.admission import GhCli
+from zeo_core.release.signing.admission import GhCli, Limits
 from zeo_core.release.signing.service import (
     SigningService,
     Whois,
@@ -235,6 +235,10 @@ def _serve(
         tailnet_address(request["listen"])
     except ValueError as error:
         return invalid(str(error))
+    try:
+        limits = Limits.from_environ(environ)
+    except ValueError as error:
+        return invalid(str(error))
     host = environ.get(SIGNING_HOST_VARIABLE)
     if not host:
         return EXIT_HELD, {
@@ -244,15 +248,17 @@ def _serve(
             "message": "set ZEOCORE_SIGNING_HOST to the signing host's name",
         }
     emit({"event": "serving", "listen": request["listen"]})
-    serve_with(request["listen"], Path(request["state_dir"]), host)
+    serve_with(request["listen"], Path(request["state_dir"]), host, limits)
     return EXIT_DONE, {"ok": True, "outcome": "stopped"}
 
 
-Serve = Callable[[str, Path, str], None]
+Serve = Callable[[str, Path, str, Limits], None]
 
 
-def _serve_forever(listen: str, state: Path, host: str) -> None:  # pragma: no cover
-    service = SigningService(state, DarwinToolchain(), GhCli(), host)
+def _serve_forever(
+    listen: str, state: Path, host: str, limits: Limits
+) -> None:  # pragma: no cover
+    service = SigningService(state, DarwinToolchain(), GhCli(), host, limits=limits)
     try:
         serve(listen, service, Whois())
     except KeyboardInterrupt:

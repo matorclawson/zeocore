@@ -28,6 +28,7 @@ from zeo_core.release.signing.admission import (
     MAX_REQUESTS_PER_HOUR,
     GhCli,
     Grant,
+    Limits,
     ReviewUnreadableError,
     admit,
 )
@@ -630,10 +631,10 @@ def test_send_never_overwrites(tmp_path: Path) -> None:
 def test_serve_needs_a_tailnet_address_and_the_signing_host(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    served: list[tuple[str, Path, str]] = []
+    served: list[tuple[str, Path, str, Limits]] = []
 
-    def serve_with(listen: str, state: Path, host: str) -> None:
-        served.append((listen, state, host))
+    def serve_with(listen: str, state: Path, host: str, limits: Limits) -> None:
+        served.append((listen, state, host, limits))
 
     request = {"listen": "100.123.206.49:7744", "state_dir": str(tmp_path / "s")}
     command = make_command(
@@ -643,7 +644,7 @@ def test_serve_needs_a_tailnet_address_and_the_signing_host(
         0,
         {"ok": True, "outcome": "stopped"},
     )
-    assert served == [("100.123.206.49:7744", tmp_path / "s", HOST)]
+    assert served == [("100.123.206.49:7744", tmp_path / "s", HOST, Limits())]
     assert json.loads(capsys.readouterr().out)["event"] == "serving"
 
     unconfigured = make_command(FakeToolchain, {}, serve_with=serve_with)
@@ -653,3 +654,62 @@ def test_serve_needs_a_tailnet_address_and_the_signing_host(
     )
     loopback = {**request, "listen": "127.0.0.1:7744"}
     assert command(["serve"], json.dumps(loopback).encode())[0] == 2
+
+
+def test_limits_can_be_tightened_never_loosened() -> None:
+    tight = Limits.from_environ(
+        {
+            "ZEOCORE_SIGNING_MAX_EXECUTABLES": "4",
+            "ZEOCORE_SIGNING_MAX_REQUESTS_PER_HOUR": "2",
+        }
+    )
+    assert (tight.max_executables, tight.max_requests_per_hour) == (4, 2)
+    assert Limits.from_environ({}) == Limits()
+    for environ in (
+        {"ZEOCORE_SIGNING_MAX_EXECUTABLES": "17"},
+        {"ZEOCORE_SIGNING_MAX_REQUESTS_PER_HOUR": "0"},
+        {"ZEOCORE_SIGNING_MAX_EXECUTABLES": "many"},
+    ):
+        with pytest.raises(ValueError):
+            Limits.from_environ(environ)
+
+
+def test_a_tightened_rate_limit_applies(tmp_path: Path, clock: list[datetime]) -> None:
+    service = SigningService(
+        tmp_path / "state",
+        FakeToolchain(),
+        FakeGitHub(),
+        HOST,
+        allowlist=GRANTS,
+        limits=Limits(max_requests_per_hour=1),
+        now=lambda: clock[0],
+    )
+    try:
+        service.handle(NODE, b"junk")
+        limited = service.handle(NODE, b"junk")
+    finally:
+        service.close()
+    assert json.loads(limited.body)["outcome"] == "rate_limited"
+    assert [entry["outcome"] for entry in _journal(tmp_path)] == [
+        "request_invalid",
+        "rate_limited",
+    ]
+
+
+def test_a_tightened_executable_count_applies(release: Release, tmp_path: Path) -> None:
+    pack, built = _pack(release, tmp_path, {"name": "pomar"}, {"name": "pomar-host"})
+    refusal = admit(
+        open_request(pack, tmp_path / "in"),
+        NODE,
+        _reviewed(built),
+        GRANTS,
+        Limits(max_executables=1),
+    )
+    assert refusal is not None and refusal.reason == "request_invalid"
+
+
+def test_serve_refuses_a_loosened_limit(tmp_path: Path) -> None:
+    request = {"listen": "100.123.206.49:7744", "state_dir": str(tmp_path / "s")}
+    environ = {"ZEOCORE_SIGNING_HOST": HOST, "ZEOCORE_SIGNING_MAX_EXECUTABLES": "99"}
+    command = make_command(FakeToolchain, environ, serve_with=lambda *_: None)
+    assert command(["serve"], json.dumps(request).encode())[0] == 2

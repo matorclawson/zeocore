@@ -103,6 +103,8 @@ before any signer is used:
 - every binding is internal: the Developer ID is never signed unattended;
 - every identifier is one declared for that product on that node;
 - at most 512 MiB, 16 executables, and 12 requests per node per hour.
+  `ZEOCORE_SIGNING_MAX_EXECUTABLES` and `ZEOCORE_SIGNING_MAX_REQUESTS_PER_HOUR`
+  can tighten the last two, never loosen them.
 
 Every request, admitted or refused, is journaled in `state_dir/requests.jsonl`.
 A locked keychain is held as `signing_keychain_locked`, and is never unlocked.

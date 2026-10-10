@@ -23,8 +23,41 @@ from urllib.parse import quote
 from .pack import OpenedRequest
 from .toolchain import Runner, run_tool
 
+#: The bounds in SOW-24 §1(f). Configuration may tighten them, never loosen
+#: them: the ruling that carries the rule states these numbers.
 MAX_EXECUTABLES: Final = 16
 MAX_REQUESTS_PER_HOUR: Final = 12
+MAX_EXECUTABLES_VARIABLE: Final = "ZEOCORE_SIGNING_MAX_EXECUTABLES"
+MAX_REQUESTS_VARIABLE: Final = "ZEOCORE_SIGNING_MAX_REQUESTS_PER_HOUR"
+
+
+@dataclass(frozen=True)
+class Limits:
+    max_executables: int = MAX_EXECUTABLES
+    max_requests_per_hour: int = MAX_REQUESTS_PER_HOUR
+
+    def __post_init__(self) -> None:
+        if not 0 < self.max_executables <= MAX_EXECUTABLES:
+            raise ValueError(f"max_executables must be 1 to {MAX_EXECUTABLES}")
+        if not 0 < self.max_requests_per_hour <= MAX_REQUESTS_PER_HOUR:
+            raise ValueError(
+                f"max_requests_per_hour must be 1 to {MAX_REQUESTS_PER_HOUR}"
+            )
+
+    @classmethod
+    def from_environ(cls, environ: Mapping[str, str]) -> Limits:
+        """Read the tightened bounds; an unset variable keeps the ruling's."""
+        values = {}
+        for field, variable in (
+            ("max_executables", MAX_EXECUTABLES_VARIABLE),
+            ("max_requests_per_hour", MAX_REQUESTS_VARIABLE),
+        ):
+            if variable in environ:
+                try:
+                    values[field] = int(environ[variable])
+                except ValueError:
+                    raise ValueError(f"{variable} must be a whole number") from None
+        return cls(**values)
 
 
 @dataclass(frozen=True)
@@ -56,6 +89,9 @@ ALLOWLIST: Final[Mapping[str, Mapping[str, Grant]]] = {
         )
     }
 }
+
+
+RULING_LIMITS: Final = Limits()
 
 
 class ReviewUnreadableError(RuntimeError):
@@ -143,6 +179,7 @@ def admit(
     node: str,
     github: GitHubReads,
     allowlist: Mapping[str, Mapping[str, Grant]] = ALLOWLIST,
+    limits: Limits = RULING_LIMITS,
 ) -> Refusal | None:
     """None when the request may be signed; otherwise why not (SOW-24 §1)."""
     request, manifest = opened.request, opened.manifest.signing
@@ -151,7 +188,7 @@ def admit(
         return Refusal(
             "refused", "caller_unadmitted", "this node may not ask for this product"
         )
-    if len(manifest.executables) > MAX_EXECUTABLES:
+    if len(manifest.executables) > limits.max_executables:
         return Refusal(
             "refused", "request_invalid", "too many executables in one request"
         )
