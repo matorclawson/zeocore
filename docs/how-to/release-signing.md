@@ -53,6 +53,31 @@ $ echo '{"manifest": "release.yaml", "work_dir": "/path/to/work"}' | zeocore rel
 - `verify` is read-only and runs on any host. A release counts as signed only
   when `verify` passes.
 
+## Signing from another host
+
+The operator's decision: signing happens on matormini only, and no second copy
+of the key is made. A build host sends a request pack there and gets a
+response pack back (ZEOCORE-SOW-23).
+
+```console
+$ echo '{"manifest": "release.yaml", "out": "request.tar",
+        "repo": "owner/repo", "commit": "<40-hex merged commit>",
+        "manifest_path": "release.yaml"}' | zeocore release pack
+$ echo '{"manifest": "release.yaml", "response": "response.tar",
+        "work_dir": "/path/to/new/dir"}' | zeocore release receive
+```
+
+- `pack` holds `request.json` (where the manifest was reviewed), the manifest,
+  and every file it lists, and nothing else. It is deterministic, and its
+  sha256 is the request id.
+- `receive` unpacks the signed candidates and their receipts into an empty
+  directory, then runs `verify` on this host. A release counts as signed only
+  when that passes.
+- Opening a pack refuses links, absolute paths, `..`, duplicates, unlisted
+  files and any digest that differs.
+- The service that carries packs to matormini is not built yet. It waits on
+  the Architect's ruling on how a request is admitted (`zeocore#23#signing-admission`).
+
 ## What verify checks
 
 A valid Apple signature alone is not enough. For every executable:

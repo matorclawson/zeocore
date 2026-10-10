@@ -106,6 +106,7 @@ class LoadedManifest(BaseModel):
     signing: SigningManifest
     root: Path
     sha256: Sha256
+    manifest_path: Path
 
     def resolve(self, relative: str) -> Path:
         return self.root / relative
@@ -131,4 +132,5 @@ def load(path: Path) -> LoadedManifest:
         signing=signing,
         root=path.resolve().parent,
         sha256=hashlib.sha256(content).hexdigest(),
+        manifest_path=path.resolve(),
     )

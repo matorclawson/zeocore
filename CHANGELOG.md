@@ -161,6 +161,9 @@ These change what a caller sees. The session store API and the
     requirement names the pin, a bare cdhash, another certificate (including
     the other audience's), and entitlements that differ from the manifest's.
   - A locked keychain is reported only when its settings establish it.
+  - Request and response packs (`zeocore release pack | receive`) for signing
+    on matormini from another host. The service that carries them waits on
+    the admission ruling (ZEOCORE-SOW-23 §3).
 
 - **Revolut Business reads for expenses, receipts and labels**
   (`zeo_core.integrations.revolut`), approved by the zeocore elders as an
