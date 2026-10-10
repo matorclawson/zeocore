@@ -280,6 +280,16 @@ These change what a caller sees. The session store API and the
 
 ### Added
 
+- **The merger's decision core, ported into zeocore** (`zeo_core.merger`). This
+  follows the operator's ruling that the merger is a zeocore app; ZEO-LEDGER owns
+  the decision contract and reviews the port.
+  - It's a port of zeomerger's register reader, decision core, pass and journal.
+  - It is held to ZEO-LEDGER's 34 language-neutral parity fixtures, committed byte
+    for byte under `contracts/merger-v1/`: 25 decision cases and 9 whole-run cases.
+  - It never writes the register, makes exactly one merge call per receipt with
+    `sha` set to the approved head, journals its intent durably before the call,
+    and reconciles a lost answer by reading.
+  - The GitHub adapter and the `zeocore merger` command follow.
 - **GitHub App installation tokens for an isolated principal**
   (`zeo_core.integrations.github.app_tokens`, `github-app` extra). These are
   for the merger, which by the operator's ruling is a zeocore app whose key is
@@ -287,7 +297,9 @@ These change what a caller sees. The session store API and the
   - It signs an RS256 App JWT and mints a token for exactly one repository and
     exactly the requested permissions. A broader grant is revoked and refused.
   - It sends one attempt and never retries.
-  - The key is read only from the running user's own Keychain item.
+  - The key is read only from the running user's own Keychain item, or from
+    `FileAppKeySource`: the user's own regular file with no group or other access,
+    never a symlink.
 
 ### Changed
 

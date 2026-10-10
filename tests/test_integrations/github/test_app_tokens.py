@@ -6,6 +6,7 @@ import base64
 import json
 import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -265,3 +266,25 @@ def test_a_keychain_that_does_not_answer_is_unavailable(
     with pytest.raises(AppTokenError) as caught:
         KeychainAppKeySource(service="mator-merger").load()
     assert caught.value.outcome == "unavailable"
+
+
+def test_the_key_file_must_be_the_users_own_0600_regular_file(tmp_path: Path) -> None:
+    from zeo_core.integrations.github.app_tokens import FileAppKeySource
+
+    key = tmp_path / "merger.pem"
+    key.write_text(PEM.get_secret_value())
+    key.chmod(0o600)
+    assert (
+        FileAppKeySource(key).load().get_secret_value()
+        == PEM.get_secret_value().strip()
+    )
+    key.chmod(0o640)
+    with pytest.raises(AppTokenError, match="no group or other"):
+        FileAppKeySource(key).load()
+    key.chmod(0o600)
+    link = tmp_path / "link.pem"
+    link.symlink_to(key)
+    with pytest.raises(AppTokenError, match="regular file"):
+        FileAppKeySource(link).load()
+    with pytest.raises(AppTokenError, match="missing"):
+        FileAppKeySource(tmp_path / "absent.pem").load()
