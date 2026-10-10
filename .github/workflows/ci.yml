@@ -81,7 +81,7 @@ jobs:
       - name: Install Pandoc for real authoring receipt tests
         run: sudo apt-get update && sudo apt-get install -y pandoc
 
-      - name: make setup (env + install-all + install-dev + install-lint)
+      - name: make setup (uv sync --locked from uv.lock)
         run: make setup PYTHON_VERSION=${{ matrix.python-version }}
 
       - name: make verify (format-check, lint, mypy strict, arch-check, hygiene-check, hygiene-secrets, plugin-boundary, tests+coverage)
