@@ -261,6 +261,11 @@ These change what a caller sees. The session store API and the
 
 ### Changed
 
+- **`make setup` and CI install exactly what `uv.lock` pins** (`make sync`, which
+  runs `uv sync --locked` with every gate extra plus dev, lint and docs). Before
+  this, `uv pip install -e .[extras]` resolved the newest releases, so CI could
+  test dependencies a release never ships (pydantic 2.14 against the locked
+  2.13.4 on super PR #100). A stale lock now fails setup instead of drifting.
 - **One hosted error message is new.** A Broker response with no
   `ZEOconnect-Protocol-Version` header now raises `HostedClientError("hosted
   response did not come from the Broker")`. Before, it raised "hosted protocol
