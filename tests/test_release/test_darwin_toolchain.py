@@ -243,3 +243,31 @@ def test_real_unsigned_file_is_not_signed(tmp_path: Path) -> None:
     script = tmp_path / "tool"
     script.write_text("#!/bin/sh\n")
     assert DarwinToolchain().inspect(script).signed is False
+
+
+@darwin
+def test_real_requirement_test_passes_fails_and_errors_distinctly(binary: Path) -> None:
+    # Reaches satisfies() with real codesign: the requirement must be bare.
+    _adhoc(binary, "-i", "ac.zeo.pomar.pomar")
+    tools = DarwinToolchain()
+    assert tools.satisfies(binary, 'identifier "ac.zeo.pomar.pomar"') is True
+    assert tools.satisfies(binary, 'identifier "ac.zeo.pomar.other"') is False
+    # The internal pin is a real non-match on an ad-hoc file, not an error.
+    pinned = designated_requirement("ac.zeo.pomar.pomar", INTERNAL)
+    assert tools.satisfies(binary, pinned) is False
+    with pytest.raises(ToolError):
+        tools.satisfies(binary, "designated => " + pinned)
+
+
+@pytest.mark.parametrize(("code", "expected"), [(0, True), (3, False)])
+def test_satisfies_reads_codesigns_exit_status(code: int, expected: bool) -> None:
+    runner = Runner(done(code))
+    assert DarwinToolchain(runner).satisfies(Path("/x"), 'identifier "a"') is expected
+    assert runner.calls[0][3] == '-R=identifier "a"'
+
+
+def test_a_requirement_syntax_error_is_a_tool_error() -> None:
+    with pytest.raises(ToolError):
+        DarwinToolchain(Runner(done(1, err=b"Requirement syntax error"))).satisfies(
+            Path("/x"), "r"
+        )

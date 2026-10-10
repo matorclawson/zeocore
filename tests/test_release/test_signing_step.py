@@ -388,3 +388,70 @@ def test_the_journal_reopens_with_open_intents(tmp_path: Path) -> None:
     reopened = SigningJournal(path)
     assert reopened.is_open("a") and not reopened.is_open("b")
     reopened.close()
+
+
+# -- corrupt records are classified, never an internal error -----------------------
+
+
+def test_a_corrupt_receipt_is_refused_by_sign_and_verify(
+    release: Release, work: WorkDir
+) -> None:
+    loaded, tools = _signed(release, work)
+    for content in ("not json", "[1, 2]"):
+        work.receipt_path("pomar").write_text(content)
+        assert sign(loaded, work, tools, HOST).reason == "receipt_invalid"
+        assert verify(loaded, work, tools).reason == "receipt_invalid"
+
+
+def test_a_corrupt_companion_receipt_is_refused_by_verify(
+    release: Release, work: WorkDir
+) -> None:
+    loaded, tools = _signed(release, work, {"name": "pomar"}, {"name": "pomar-host"})
+    work.receipt_path("pomar").unlink()
+    work.receipt_path("pomar-host").write_text("not json")
+    assert verify(loaded, work, tools).reason == "receipt_invalid"
+
+
+def test_a_reviewed_entitlements_file_that_isnt_a_plist_is_refused(
+    release: Release, work: WorkDir, tmp_path: Path
+) -> None:
+    import hashlib
+
+    import yaml
+
+    loaded = release({"name": "pomar-host", "entitlements": VIRTUALIZATION})
+    bad = b"not a property list"
+    (loaded.root / "pomar-host.entitlements").write_bytes(bad)
+    document = yaml.safe_load(loaded.manifest_path.read_text())
+    entry = document["signing"]["executables"][0]
+    entry["entitlements"]["sha256"] = hashlib.sha256(bad).hexdigest()
+    loaded.manifest_path.write_text(yaml.safe_dump(document))
+    from zeo_core.release.signing import load
+
+    relabelled = load(loaded.manifest_path)
+    tools = FakeToolchain()
+    outcome = sign(relabelled, work, tools, HOST)
+    assert (outcome.status, outcome.reason) == ("refused", "entitlements_invalid")
+    assert tools.sign_calls == []
+
+
+def test_an_unreadable_journal_holds_signing(release: Release, work: WorkDir) -> None:
+    work.prepare()
+    (work.root / "journal.jsonl").write_text("not json\n")
+    tools = FakeToolchain()
+    outcome = sign(release(), work, tools, HOST)
+    assert (outcome.status, outcome.reason) == ("held", "journal_unreadable")
+    assert tools.sign_calls == []
+
+
+def test_a_requirement_tool_error_holds_rather_than_refuses(
+    release: Release, work: WorkDir
+) -> None:
+    from zeo_core.release.signing import ToolError
+
+    class Erroring(FakeToolchain):
+        def satisfies(self, path: Path, requirement: str) -> bool:
+            raise ToolError("syntax")
+
+    outcome = sign(release(), work, Erroring(), HOST)
+    assert (outcome.status, outcome.reason) == ("held", "signing_failed_unknown")

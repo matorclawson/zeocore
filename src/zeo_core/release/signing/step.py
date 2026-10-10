@@ -54,6 +54,14 @@ class Outcome:
     executable: str | None = None
 
 
+class RecordInvalidError(ValueError):
+    """A receipt or a reviewed entitlements file that can't be read as one."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 def _stop(
     status: Status, reason: str, message: str, name: str | None = None
 ) -> Outcome:
@@ -98,8 +106,14 @@ class WorkDir:
             value = json.loads(self.receipt_path(name).read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
+        except OSError, ValueError:
+            raise RecordInvalidError(
+                "receipt_invalid", f"{name}: the sign receipt can't be read"
+            ) from None
         if not isinstance(value, dict):
-            raise ValueError(f"{name}: the sign receipt is not an object")
+            raise RecordInvalidError(
+                "receipt_invalid", f"{name}: the sign receipt is not an object"
+            )
         return value
 
     def write_receipt(self, name: str, receipt: dict[str, Any]) -> None:
@@ -119,9 +133,15 @@ def _expected_entitlements(
 ) -> dict[str, Any] | None:
     if item.entitlements == "none":
         return None
-    value = plistlib.loads(loaded.resolve(item.entitlements.path).read_bytes())
+    try:
+        value = plistlib.loads(loaded.resolve(item.entitlements.path).read_bytes())
+    except Exception:  # plistlib raises several unrelated types
+        value = None
     if not isinstance(value, dict):
-        raise ValueError(f"{item.name}: the entitlements file is not a dictionary")
+        raise RecordInvalidError(
+            "entitlements_invalid",
+            f"{item.name}: the entitlements file is not a property-list dictionary",
+        )
     return value or None
 
 
@@ -246,13 +266,24 @@ def sign(
                 "an input is missing or its digest differs from the manifest",
                 item.name,
             )
-        entitlements[item.name] = _expected_entitlements(loaded, item)
+        try:
+            entitlements[item.name] = _expected_entitlements(loaded, item)
+        except RecordInvalidError as error:
+            return _stop("refused", error.reason, str(error), item.name)
 
     work.prepare()
-    journal = SigningJournal(work.root / "journal.jsonl")
+    try:
+        journal = SigningJournal(work.root / "journal.jsonl")
+    except ValueError:
+        # Which attempts are open can't be known, so nothing is signed.
+        return _stop(
+            "held", "journal_unreadable", "the signing journal has an unreadable line"
+        )
     try:
         run = _Run(loaded, work, toolchain, journal, entitlements, signing_host, now)
         return run.sign_all()
+    except RecordInvalidError as error:
+        return _stop("refused", error.reason, str(error))
     finally:
         journal.close()
 
@@ -477,6 +508,15 @@ def verify(
     loaded: LoadedManifest, work: WorkDir, toolchain: Toolchain, *, now: Clock = _now
 ) -> Outcome:
     """Read-only: every executable's signed candidate against its binding."""
+    try:
+        return _verify_all(loaded, work, toolchain, now)
+    except RecordInvalidError as error:
+        return _stop("refused", error.reason, str(error))
+
+
+def _verify_all(
+    loaded: LoadedManifest, work: WorkDir, toolchain: Toolchain, now: Clock
+) -> Outcome:
     receipts: list[dict[str, Any]] = []
     executables = loaded.signing.executables
     for item in executables:
@@ -519,15 +559,16 @@ def verify(
                 "the unsigned original no longer matches the manifest",
                 item.name,
             )
+        expected_entitlements = _expected_entitlements(loaded, item)
         try:
             refusal, facts = _check_signature(
                 candidate,
                 item,
                 for_audience(item.audience),
-                _expected_entitlements(loaded, item),
+                expected_entitlements,
                 toolchain,
             )
-        except ToolError, OSError, ValueError:
+        except ToolError, OSError:
             return _stop(
                 "held",
                 "verify_unreadable",

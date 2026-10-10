@@ -90,7 +90,8 @@ A valid Apple signature alone is not enough. For every executable:
 - the leaf certificate's SHA-1 is the audience's pin. The other audience's
   certificate is `wrong_audience`; any other certificate is `identity_mismatch`;
 - the designated requirement is exactly the binding's, and `codesign --verify
-  --strict` accepts the file against it;
+  --strict -R` accepts the file against it. Only codesign's exit 3 is a
+  non-match; a syntax or tool error holds as unreadable;
 - the signed entitlements equal the manifest's file: none dropped, none added.
 
 The link between the signed file and the unsigned original is the receipt
@@ -107,8 +108,8 @@ held or refused.
 | `signed`, `verified` | 0 | done |
 | `signing_keychain_locked` | 11 | "unlock the login keychain". Reported only when the keychain's settings say so, never guessed from a codesign error |
 | `signing_attempt_unreconciled` | 13 | an attempt's answer was lost. Nothing is signed again until the candidate is reconciled |
-| `signing_identity_missing`, `signing_failed_unknown`, `signing_host_*`, `notarisation_unbuilt`, `legacy_policy_unpinned`, `verify_unreadable`, `signing_in_progress` | 20 | held |
-| `not_signed`, `identity_mismatch`, `wrong_audience`, `entitlements_mismatch`, `companion_unsigned`, `input_mismatch`, `signed_digest_mismatch`, `receipt_mismatch`, `platform_signature_unadopted`, `legacy_policy_verify_only` | 20 | refused |
+| `signing_identity_missing`, `signing_failed_unknown`, `journal_unreadable`, `signing_host_*`, `notarisation_unbuilt`, `legacy_policy_unpinned`, `verify_unreadable`, `signing_in_progress` | 20 | held |
+| `not_signed`, `identity_mismatch`, `wrong_audience`, `entitlements_mismatch`, `companion_unsigned`, `input_mismatch`, `signed_digest_mismatch`, `receipt_mismatch`, `receipt_invalid`, `entitlements_invalid`, `platform_signature_unadopted`, `legacy_policy_verify_only` | 20 | refused |
 
 ## Custody
 

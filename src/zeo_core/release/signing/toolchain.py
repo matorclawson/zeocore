@@ -73,7 +73,11 @@ class Toolchain(Protocol):
     ) -> SignCause: ...
 
     def satisfies(self, path: Path, requirement: str) -> bool:
-        """``codesign --verify --strict`` against an explicit requirement."""
+        """``codesign --verify --strict`` against an explicit requirement.
+
+        False only for a real non-match. A tool or syntax error raises
+        ``ToolError``, so it is held rather than read as "not signed".
+        """
         ...
 
     def inspect(self, path: Path) -> Inspection: ...
@@ -108,6 +112,9 @@ _LOGIN_KEYCHAIN: Final = Path.home() / "Library" / "Keychains" / "login.keychain
 # one answers with errSecInteractionNotAllowed, so this text establishes a
 # lock. Any other failure leaves the state unknown, never "locked".
 _LOCKED_TEXT: Final = b"User interaction is not allowed"
+# codesign's exit status when the code is valid but fails the -R requirement.
+# Any other non-zero status is a tool or syntax error, never a non-match.
+_UNSATISFIED: Final = 3
 _MISSING_TEXT: Final = (b"no identity found", b"could not be found in the keychain")
 
 
@@ -195,11 +202,17 @@ class DarwinToolchain:
                 _CODESIGN,
                 "--verify",
                 "--strict",
-                f"-R=designated => {requirement}",
+                # The bare requirement: codesign's -R grammar has no
+                # "designated =>" prefix, and refuses it as a syntax error.
+                f"-R={requirement}",
                 str(path),
             ]
         )
-        return done.returncode == 0
+        if done.returncode == 0:
+            return True
+        if done.returncode == _UNSATISFIED:
+            return False
+        raise ToolError("codesign could not test the requirement")
 
     def inspect(self, path: Path) -> Inspection:
         details = self._read([_CODESIGN, "-d", "-vv", str(path)])
