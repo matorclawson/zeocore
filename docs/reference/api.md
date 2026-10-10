@@ -974,6 +974,26 @@ Wire models live in `zeo_core.contracts.runtime`: `ProviderBinding`,
 `AttemptBinding`, `LaunchContext`, `InvocationRequest`, `EffectRequest`,
 `RuntimeReply` and `HostResult`.
 
+Public from 0.15.0, each in its module's `__all__`:
+
+| Module | Public names |
+|---|---|
+| `zeo_core.adapters.runtime_host.canonical` | `canonical_bytes` (RFC 8785 bytes), `digest` (`sha256:` of those bytes), `parse_json` (bounded strict decode), `manifest_inventory`, `MAX_BYTES`, `ProtocolError`, `InvalidRequestError` |
+| `zeo_core.adapters.runtime_host.catalogue` | `CandidateCatalogue`, `validate_inventory` |
+| `zeo_core.adapters.runtime_host.channel` | `RuntimeChannel` |
+| `zeo_core.adapters.runtime_host.host` | `ManagedHost`, `EffectPort`, `parse_result`, `prepare_request` |
+| `zeo_core.contracts.runtime` | `RUNTIME_HOST_PROTOCOL_VERSION` (1), with the wire models above |
+
+Bound compatibility on both the zeocore release and
+`RUNTIME_HOST_PROTOCOL_VERSION`. The schemas and vectors are not in the wheel:
+pin them by sha256 from the source tree at the release tag.
+
+From 0.15.0, while zeocore is 0.x, a removal or an incompatible change to
+these names lands only in a minor release, never a patch, and is listed
+under "Breaking" in [CHANGELOG.md](../../CHANGELOG.md). From 1.0.0 it needs a
+major version. A wire-incompatible change to a runtime-host-v1 model also
+raises `RUNTIME_HOST_PROTOCOL_VERSION`.
+
 The executable [schemas and canonical vectors](../../contracts/runtime-host-v1/)
 and [protocol guide](../how-to/runtime-host.md) define this candidate surface.
 It ships in 0.11.0; joint Runtime/ZEOconnect interoperability acceptance is still required.
@@ -1002,7 +1022,7 @@ installation; others require the extra shown below. The parent package
 | `zeo_core.integrations.revolut.local` | `revolut`, from 0.12.0 | `LocalRevolutEnrollment`, `LocalCredentialStore`, `EnrollmentState`, `LocalEnrollmentError`, `LocalStoreError`; local enrollment of your own account |
 | `zeo_core.integrations.google.youtube` | `youtube`, from 0.12.0 | `GoogleYouTubeService`, `VideoMetadata`, `VideoSessionRequest`, `ThumbnailSessionRequest`, `CaptionSessionRequest`, `Privacy`, `VideoStatus`; the `job`, `publish`, `transfer` and `retention` submodules; [YouTube](../integrations/youtube.md) |
 | `zeo_core.integrations.notebook` | `notebook` | `execute_notebook`; [execution guide](../integrations/notebook-execution.md) |
-| `zeo_core.integrations.hosted` | base install | `ServiceRequirement`, `ServiceResolver`, `HostedServiceRegistry`, `ExecutionProfile`, resolution states, `build_hosted_runtime`, `ZEOconnectHTTPTransport`, `KeychainSecureSessionStore`, hosted service proxies |
+| `zeo_core.integrations.hosted` | base install | `ServiceRequirement`, `ServiceResolver`, `HostedServiceRegistry`, `ExecutionProfile`, resolution states, `build_hosted_runtime`, `ZEOconnectHTTPTransport`, `KeychainSecureSessionStore`, hosted service proxies; from 0.14.0 `HostedStoppedError`, `HostedUnavailableError`, `HostedUnreachableError`, `HostedUpgradeRequiredError`, `ZEOCONNECT_CAPABILITIES_HEADER`; with contract 1.2.0, `HostedExpectedBinding`, `HostedFenceUnsupportedError`, `HostedConnectionChangedError`, `binding_mismatch_of`; with contract 1.2.1, `HostedRequestChangedError`, `request_changed_of` |
 | `zeo_core.integrations.notion` | `notion` | `NotionIntegration`, `NotionClient`, `NotionOperation`, `NotionAPIError`, `NotionPageResult`, typed page/database/data-source/block/user models |
 | `zeo_core.integrations.llms` | `llms` | `LLMClient`, `OpenAIClient`, `AnthropicClient`, `OllamaClient`, `MockLLMClient`, `FallbackLLMClient`, `LLMConfig`, `ChatMessage`, `FunctionCall` |
 | `zeo_core.integrations.pandoc` | `pandoc` | `PandocIntegration`, `DocumentConverter`, `PandocConfig`, `ConversionMetrics`, `ConversionTask`, `FileInfo`, `create_integration` |

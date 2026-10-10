@@ -48,6 +48,7 @@ dependencies = [
 
 [project.scripts]
 zeo-capability = "zeo_core.adapters.runtime_host.__main__:main"
+zeocore = "zeo_core.cli.__main__:main"
 
 [project.optional-dependencies]
 # HTTP Adapter dependencies
@@ -173,6 +174,8 @@ ffmpeg = ["ffmpeg-zeo>=0.1.0"]
 # Local Revolut Business enrollment: client key, certificate and RS256 assertion.
 # The read client itself needs no extra.
 revolut = ["cryptography>=45", "platformdirs>=4.0.0"]
+# GitHub App installation tokens for an isolated principal (the merger): RS256 App JWT.
+github-app = ["cryptography>=45"]
 jupytext = ["jupytext>=1.16.0", "nbformat>=5.10.0"]
 notebook = ["nbclient>=0.11,<0.12", "ipykernel>=7.3,<8", "psutil>=7.2,<8"]
 all = [

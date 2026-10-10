@@ -141,6 +141,27 @@ constructs it with a current access token:
 | Paging loop, checkpoints, deduplication, evidence storage, matching | The consuming application |
 
 Hosted enrollment is not yet admitted; the setup catalogue reports its state.
+
+From 0.14.0, `HostedRevolutBusinessClient` makes the same two reads through
+ZEOconnect, with the credential held by the Broker (Broker contract `1.0.0`
+§6). It is read-only and never makes a payment. Pass it a
+`HostedConnectionClient` and the connection's id:
+
+```python
+from zeo_core.integrations.revolut import (
+    HostedRevolutBusinessClient,
+    TransactionQuery,
+)
+
+revolut = HostedRevolutBusinessClient(client, connection_id=connection_id)
+accounts = revolut.list_accounts()
+page = revolut.list_transactions(TransactionQuery(from_=since, count=200))
+```
+
+Paging works as with the direct client. Two wire rules apply: the query's
+start field is sent as `from`, and every amount must arrive as an exact
+decimal string. A result that carries a JSON number is refused, not rounded. A
+Broker stop raises `HostedStoppedError`.
 Error codes from the client are sanitized categories, not diagnoses:
 `AUTHENTICATION` (401) does not establish that a token expired, and `ACCESS`
 (403) does not establish that a connection was revoked.
@@ -169,6 +190,48 @@ finally:
 
 `token` is a `SecretStr` supplied by the credential owner. `environment`
 selects one of two fixed origins; a caller can never supply a provider URL.
+
+## Expenses, receipts and labels (from 0.13.0)
+
+Read-only, like the rest of the client. **Offline contract only:** the shapes
+come from Revolut's published OpenAPI contract, and none of these reads has
+been made against a real account.
+
+```python
+from zeo_core.integrations.revolut import ExpenseQuery, LabelQuery
+
+page = client.list_expenses(ExpenseQuery(from_=since, count=200))
+expense = client.get_expense(page.expenses[0].id)
+receipt = client.download_receipt(expense.id, expense.receipt_ids[0])
+groups = client.list_label_groups(LabelQuery(limit=100))
+labels = client.list_labels(str(groups.label_groups[0].id))
+```
+
+- **Expenses** page like transactions: one page per call, with `next_to` as the
+  next `to`, `PAGINATION_STALLED` when a full page does not advance, and `count`
+  up to 500. Replace stored expenses by `id`.
+- **Which date the window filters on is not stated** in Revolut's published
+  contract. `next_to` is derived from the oldest `expense_date`, and that
+  choice is **unverified until a live sandbox run**. If it is wrong, a page can
+  start past expenses that were never returned. Replacing by `id` removes
+  duplicates, but it cannot recover a skipped expense.
+- **So an expense read is never reported complete.** Every `ExpensePage`
+  carries `completeness="unverified"`. Reaching `next_to=None` means Revolut
+  returned a short page, not that every expense in the window was read. Record
+  an expense sync as potentially incomplete, and do not use it to conclude that
+  an expense does not exist.
+- **Labels and label groups** page by an opaque `next_page_token`. Pass it back
+  unchanged as `LabelQuery(page_token=...)`. `limit` goes up to 500, and a token
+  that does not change raises `PAGINATION_STALLED`.
+- **A receipt** is read whole and bounded **while it is read**, to
+  `MAX_RECEIPT_BYTES` (10 MiB, equal to the hosted artifact limit). It is
+  returned as `Receipt(content, media_type, sha256, observed_at)`. Its bytes are
+  never parsed, logged or shown in `repr`.
+- **Redirects are never followed.** A 3xx is refused (`HTTP`, with its status
+  code), so the access token goes only to Revolut's fixed origin, never to a
+  host a response names.
+- An identifier that is not a single safe path segment (`[A-Za-z0-9_-]`, at most
+  100 characters) is refused **before any request is sent**.
 
 ## Paging contract
 
@@ -218,6 +281,8 @@ Results carry `normalization_version = "revolut-business-read-1"`.
   card `id` is kept: card number, holder name and phone are discarded.
 - Provider enumerations (`type`, `state`, `account_type`) are kept as bounded
   lowercase tokens, so a new provider value does not fail a whole page.
+- From an expense, `payer` (a person's name) is dropped, as a card holder's
+  name is.
 
 This output is normalized application data. It is not raw provider evidence
 and must not be stored or labelled as raw.
