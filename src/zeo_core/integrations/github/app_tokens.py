@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
+import stat
 import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Final, Literal, Protocol
 
 import httpx
@@ -107,6 +110,37 @@ def _pem(stored: str) -> str:
         if text.startswith("-----BEGIN "):
             return text
     raise AppTokenError("refused", "the Keychain item is not a PEM private key")
+
+
+@dataclass(frozen=True)
+class FileAppKeySource:
+    """The principal's own key file, for custody that uses a file (the merger's).
+
+    Refused unless it is a regular file (never a symlink), owned by the
+    running user, with no group or other access (0600 or 0400). This is the
+    Go core's apptoken check (RULING-467 amendment 3 r12 §1).
+    """
+
+    path: Path
+
+    def load(self) -> SecretStr:
+        try:
+            info = os.lstat(self.path)
+        except OSError:
+            raise AppTokenError("refused", "the App key file is missing") from None
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise AppTokenError("refused", "the App key must be a regular file")
+        if info.st_uid != os.getuid():
+            raise AppTokenError("refused", "the App key is not owned by this user")
+        if info.st_mode & 0o077:
+            raise AppTokenError(
+                "refused", "the App key file must allow no group or other access"
+            )
+        try:
+            text = self.path.read_text(encoding="utf-8").strip()
+        except OSError, UnicodeError:
+            raise AppTokenError("refused", "the App key file is unreadable") from None
+        return SecretStr(_pem(text))
 
 
 @dataclass(frozen=True)
@@ -264,6 +298,7 @@ __all__ = [
     "GITHUB_API",
     "AppKeySource",
     "AppTokenError",
+    "FileAppKeySource",
     "InstallationToken",
     "InstallationTokens",
     "KeychainAppKeySource",
