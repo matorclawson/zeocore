@@ -22,6 +22,9 @@ HELD: Final = "held"  # a condition could not be established
 BLOCKED: Final = "blocked"  # an after entry has not merged yet
 ATTEMPTED: Final = "attempted"  # the intent, journaled before the merge call
 UNCLEAR: Final = "unclear"  # outcome unknown, and reconciliation couldn't settle it
+# The merge call provably never left this host: no token, or no connection.
+# It refuses this pass and releases the intent, so a later pass may decide again.
+NOT_SENT: Final = "not-sent"
 DONE: Final = "already-handled"
 
 # Base policies (QUEUE-SPEC-v2 §3).
@@ -33,6 +36,15 @@ APPROVE_CONTEXT: Final = "architect/approve"
 
 class MergeUnclearError(RuntimeError):
     """A merge call whose outcome is unknown. Never called again; reconciled."""
+
+
+class MergeNotSentError(RuntimeError):
+    """A merge call that provably sent no byte to GitHub: safe to decide again.
+
+    Only for failures before the request exists on the wire: the token could
+    not be minted, or the connection was never established. Anything that may
+    have arrived is ``MergeUnclearError`` instead.
+    """
 
 
 @dataclass(frozen=True)
@@ -104,7 +116,8 @@ class GitHubReads(Protocol):
     def merge(self, repo: str, number: int, sha: str) -> str:
         """Merge only if the head is still ``sha``; return the merge commit.
 
-        An outcome it can't establish raises ``MergeUnclearError``.
+        An outcome it can't establish raises ``MergeUnclearError``; a call that
+        provably never left the host raises ``MergeNotSentError``.
         """
         ...
 

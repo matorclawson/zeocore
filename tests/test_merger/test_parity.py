@@ -19,8 +19,11 @@ import pytest
 
 from zeo_core.merger import (
     ATTEMPTED,
+    MERGED,
+    NOT_SENT,
     Commit,
     Config,
+    MergeNotSentError,
     MergeUnclearError,
     Pass,
     PullRequest,
@@ -144,6 +147,8 @@ class FakeGitHub:
             self.prs[number] = replace(
                 self.prs[number], state="closed", merged=True, merge_commit=OTHER_SHA
             )
+        if self.merge_answer == "not-sent":
+            raise MergeNotSentError("merge call not sent: token for repo: locked")
         if self.merge_answer == "refused-409":
             raise RuntimeError("409 head sha didn't match")
         if self.merge_answer.startswith("unclear"):
@@ -183,9 +188,11 @@ class MemoryJournal:
         self.records.append(receipt)
 
     def attempted(self, receipt_id: str) -> bool:
-        return any(
-            r.receipt_id == receipt_id and r.action == ATTEMPTED for r in self.records
-        )
+        held = False
+        for r in self.records:
+            if r.receipt_id == receipt_id and r.action in (ATTEMPTED, NOT_SENT):
+                held = r.action == ATTEMPTED
+        return held
 
 
 ALLOWED = next(case for case in DECIDE["cases"] if case["name"] == "allowed")
@@ -239,6 +246,37 @@ def test_pass_parity(case: dict[str, Any]) -> None:
     assert len(github.merges) == case["expect_merge_calls"]
     for merge in github.merges:
         assert merge.endswith("@" + head)  # always the approved head
+
+
+def test_a_call_that_was_never_sent_releases_its_intent() -> None:
+    """Architect P1 on #101; zeocore's own case until the parity fixtures carry it.
+
+    A token failure (or no connection) leaves no byte on the wire, so the
+    receipt is not blocked: the next pass decides again and merges once.
+    """
+    github = FakeGitHub.from_case(ALLOWED)
+    journal = MemoryJournal()
+    lines = ALLOWED["register_lines"]
+
+    def run() -> list[str]:
+        Pass(
+            config=_config(ALLOWED["config"], live=True),
+            github=github,
+            journal=journal,
+            load=lambda: parse_register("\n".join(lines)),
+            now=lambda: datetime(1970, 1, 1, tzinfo=UTC),
+        ).run()
+        return [r.action for r in journal.records]
+
+    github.merge_answer = "not-sent"
+    assert run() == [ATTEMPTED, NOT_SENT]
+    assert "a later pass may retry" in journal.records[-1].reasons[-1]
+    github.merge_answer = "ok"
+    assert run() == [ATTEMPTED, NOT_SENT, ATTEMPTED, MERGED]
+    assert len(github.merges) == 2
+    # Merged now: a third pass only reconciles, it never calls again.
+    run()
+    assert len(github.merges) == 2
 
 
 REGISTER = _load("parity-register-v1.json")

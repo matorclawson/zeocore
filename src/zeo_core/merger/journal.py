@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from typing import Protocol
 
-from .decision import ATTEMPTED, Receipt
+from .decision import ATTEMPTED, NOT_SENT, Receipt
 
 
 class Journal(Protocol):
@@ -22,7 +22,11 @@ class Journal(Protocol):
         ...
 
     def attempted(self, receipt_id: str) -> bool:
-        """Whether an intent was ever journaled for the receipt id."""
+        """Whether an intent is journaled for the receipt id and not released.
+
+        Only a later ``not-sent`` record releases an intent: the call provably
+        never left the host.
+        """
         ...
 
 
@@ -66,6 +70,8 @@ class FileJournal:
                 ) from None
             if record.get("action") == ATTEMPTED:
                 self._attempted.add(receipt_id)
+            elif record.get("action") == NOT_SENT:
+                self._attempted.discard(receipt_id)
 
     def append(self, receipt: Receipt) -> None:
         line = json.dumps(receipt.record(), separators=(",", ":")) + "\n"
@@ -75,6 +81,8 @@ class FileJournal:
             os.fsync(self._file.fileno())
             if receipt.action == ATTEMPTED:
                 self._attempted.add(receipt.receipt_id)
+            elif receipt.action == NOT_SENT:
+                self._attempted.discard(receipt.receipt_id)
 
     def attempted(self, receipt_id: str) -> bool:
         with self._lock:

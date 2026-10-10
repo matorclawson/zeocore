@@ -107,3 +107,9 @@ ZEOconnect. Install the `github-app` extra.
 - The key comes only from an `AppKeySource`. `KeychainAppKeySource` reads the
   running user's own Keychain item, so run it as the merger's own OS user. It
   never reads the key from the environment or a file in a repository.
+
+The merger reads a base branch's required checks from its **rulesets only**.
+A branch protected by classic branch protection reads as requiring no checks,
+so the merger refuses it ("only the operator merges here"). That fails closed,
+as the generated-rulesets policy intends: protect merger-managed branches with
+rulesets.

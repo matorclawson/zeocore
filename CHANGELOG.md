@@ -217,7 +217,12 @@ These change what a caller sees. The session store API and the
   - It never writes the register, makes exactly one merge call per receipt with
     `sha` set to the approved head, journals its intent durably before the call,
     and reconciles a lost answer by reading.
-  - The GitHub adapter and the `zeocore merger` command follow.
+  - A merge call that provably never left the host (no token, or no
+    connection) is journaled `not-sent`. That releases the intent, so a later
+    pass decides again; anything that may have arrived stays `unclear`.
+  - The base branch's required checks are read from its rulesets only, so a
+    branch under classic branch protection is refused (it fails closed).
+  - The GitHub adapter is in; the `zeocore merger` command follows.
 - **GitHub App installation tokens for an isolated principal**
   (`zeo_core.integrations.github.app_tokens`, `github-app` extra). These are
   for the merger, which by the operator's ruling is a zeocore app whose key is

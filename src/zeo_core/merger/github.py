@@ -13,7 +13,12 @@ A port of zeomerger's internal/github client, under ZEO-LEDGER's adapter rules
 - a missing or unreadable veto list holds;
 - the merge body is ``sha`` plus ``merge_method: merge``. A 5xx, a dropped
   connection or an answer without ``merged: true`` is unclear; refused is a
-  4xx only. It is sent once, never retried.
+  4xx only. It is sent once, never retried. A call that provably sent nothing
+  (no token, or the connection was never made) is not sent, and may be
+  decided again on a later pass.
+- the base branch's required checks are read from its rulesets only. Classic
+  branch protection reads as "no required checks", so a repository protected
+  that way is refused: it fails closed, as the generated-rulesets policy wants.
 """
 
 from __future__ import annotations
@@ -27,7 +32,13 @@ from urllib.parse import quote
 
 import httpx
 
-from .decision import Commit, MergeUnclearError, PullRequest, Status
+from .decision import (
+    Commit,
+    MergeNotSentError,
+    MergeUnclearError,
+    PullRequest,
+    Status,
+)
 
 GITHUB_API: Final = "https://api.github.com"
 MAX_BODY: Final = 8 << 20
@@ -41,8 +52,10 @@ class TokenSource(Protocol):
 
 
 class GitHubError(RuntimeError):
-    def __init__(self, message: str, status: int = 0) -> None:
+    def __init__(self, message: str, status: int = 0, *, sent: bool = True) -> None:
         self.status = status
+        #: False only when provably no byte of the request reached GitHub.
+        self.sent = sent
         super().__init__(message)
 
 
@@ -82,7 +95,7 @@ class GitHubClient:
         try:
             token = self._tokens.token(repo)
         except Exception as error:  # noqa: BLE001
-            raise GitHubError(f"token for {repo}: {error}") from None
+            raise GitHubError(f"token for {repo}: {error}", sent=False) from None
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
@@ -96,6 +109,11 @@ class GitHubClient:
             response = self._http.request(
                 method, path, content=content, headers=headers
             )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as error:
+            # No connection, so no request: nothing reached GitHub.
+            raise GitHubError(
+                f"transport: {type(error).__name__}", 0, sent=False
+            ) from None
         except httpx.TransportError as error:
             raise GitHubError(f"transport: {type(error).__name__}", 0) from None
         raw = response.content
@@ -242,6 +260,8 @@ class GitHubClient:
                 {"sha": sha, "merge_method": "merge"},
             )
         except GitHubError as error:
+            if not error.sent:
+                raise MergeNotSentError(f"merge call not sent: {error}") from None
             if error.status == 0 or error.status >= 500:
                 raise MergeUnclearError(f"merge outcome unclear: {error}") from None
             raise

@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 import pytest
 
-from zeo_core.merger import MergeUnclearError
+from zeo_core.merger import MergeNotSentError, MergeUnclearError
 from zeo_core.merger.github import GITHUB_API, GitHubClient, GitHubError, parse_vetoes
 
 REPO = "zeroemployeeorg/zeocore"
@@ -194,6 +194,42 @@ def test_an_unknown_merge_outcome_is_unclear_and_sent_once(
     with pytest.raises(MergeUnclearError):
         client.merge(REPO, 85, HEAD)
     assert len(seen) == 1
+
+
+@pytest.mark.parametrize(
+    "failure", [httpx.ConnectError("refused"), httpx.ConnectTimeout("no route")]
+)
+def test_a_merge_that_never_connected_is_not_sent(failure: Exception) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise failure
+
+    client, _, _ = _client(handler)
+    with pytest.raises(MergeNotSentError):
+        client.merge(REPO, 85, HEAD)
+
+
+def test_a_merge_without_a_token_is_not_sent() -> None:
+    class NoTokens:
+        def token(self, repository: str) -> str:
+            raise RuntimeError("keychain locked")
+
+    seen: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"merged": True, "sha": "1" * 40})
+
+    client = GitHubClient(
+        tokens=NoTokens(),
+        veto_repo="rodriveracom/org-zeroemployeeorg",
+        veto_path="operator/veto-list.md",
+        http_client=httpx.Client(
+            base_url=GITHUB_API, transport=httpx.MockTransport(record)
+        ),
+    )
+    with pytest.raises(MergeNotSentError, match="keychain locked"):
+        client.merge(REPO, 85, HEAD)
+    assert seen == []
 
 
 @pytest.mark.parametrize("status", [405, 409, 422])

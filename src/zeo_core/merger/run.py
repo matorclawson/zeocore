@@ -5,7 +5,9 @@ re-checked just before the call (the register and the approval are read
 again), its intent is journaled durably, and exactly one merge call is made
 with ``sha`` set to the approved head. A lost answer is reconciled by reading
 the PR, never by calling again; a receipt with a prior intent is only ever
-reconciled.
+reconciled. The one exception is a call that provably never left the host
+(no token, or no connection): it is journaled ``not-sent``, which releases the
+intent, so a later pass decides again (Architect P1 on #101).
 """
 
 from __future__ import annotations
@@ -18,11 +20,13 @@ from .decision import (
     ATTEMPTED,
     DONE,
     MERGED,
+    NOT_SENT,
     REFUSED,
     UNCLEAR,
     WOULD_MERGE,
     Config,
     GitHubReads,
+    MergeNotSentError,
     MergeUnclearError,
     Receipt,
     approval,
@@ -86,6 +90,11 @@ class Pass:
             record(receipt.with_(action=ATTEMPTED))
             try:
                 commit = self.github.merge(candidate.repo, candidate.pr, candidate.head)
+            except MergeNotSentError as error:
+                outcome = receipt.with_(
+                    action=NOT_SENT,
+                    reasons=(*receipt.reasons, f"{error}; a later pass may retry"),
+                )
             except MergeUnclearError as error:
                 outcome = self._reconcile(candidate, str(error))
             except Exception as error:  # noqa: BLE001

@@ -9,6 +9,8 @@ import pytest
 
 from zeo_core.merger import (
     ATTEMPTED,
+    NOT_SENT,
+    UNCLEAR,
     FileJournal,
     Receipt,
     RegisterError,
@@ -117,6 +119,19 @@ def test_an_intent_survives_a_reopen(tmp_path: Path) -> None:
     assert oct(path.stat().st_mode & 0o777) == "0o600"
     record = json.loads(path.read_text().splitlines()[0])
     assert record["action"] == "attempted" and "merge_commit" not in record
+
+
+def test_only_a_not_sent_record_releases_an_intent(tmp_path: Path) -> None:
+    path = tmp_path / "journal.jsonl"
+    receipt_id = f"apr1-1337139177-85-{HEAD}"
+    journal = FileJournal(path)
+    journal.append(_receipt(ATTEMPTED))
+    journal.append(_receipt(UNCLEAR))
+    assert journal.attempted(receipt_id)
+    journal.append(_receipt(NOT_SENT))
+    assert not journal.attempted(receipt_id)
+    journal.close()
+    assert not FileJournal(path).attempted(receipt_id)
 
 
 def test_a_damaged_journal_refuses_to_open(tmp_path: Path) -> None:
