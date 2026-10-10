@@ -243,6 +243,16 @@ def test_a_4xx_merge_answer_is_a_refusal(status: int) -> None:
     assert caught.value.status == status
 
 
+def test_an_injected_client_that_follows_redirects_is_refused() -> None:
+    with pytest.raises(ValueError, match="must not follow redirects"):
+        GitHubClient(
+            tokens=Tokens(),
+            veto_repo="rodriveracom/org-zeroemployeeorg",
+            veto_path="operator/veto-list.md",
+            http_client=httpx.Client(base_url=GITHUB_API, follow_redirects=True),
+        )
+
+
 def test_redirects_are_never_followed_and_bodies_are_bounded() -> None:
     client, _, seen = _client(
         lambda r: httpx.Response(302, headers={"Location": "https://evil.example"})

@@ -1,7 +1,7 @@
 """The port is held to ZEO-LEDGER's language-neutral parity fixtures.
 
 ``contracts/merger-v1/`` is committed byte for byte from records/zeo-ledger
-(44d67dfe, pass v3 added), with its SHA256SUMS. Each decide case is one
+(b04327d2, pass v4 added), with its SHA256SUMS. Each decide case is one
 candidate against GitHub's state; each pass case is one whole run over PR #85
 at the decide fixture's healthy state ('allowed').
 """
@@ -156,14 +156,15 @@ class FakeGitHub:
 
 
 # v2 supersedes v1 for decide (ZEO-LEDGER SOW-152: Architect M1); pass v3
-# supersedes v2 (ZEO-LEDGER SOW-156: not-sent, Architect P1 on #101).
+# supersedes v2 (ZEO-LEDGER SOW-156: not-sent, Architect P1 on #101), and v4
+# supersedes v3 (the not-sent reason, and a pass after the merge).
 DECIDE = _load("parity-decide-v2.json")
-PASS = _load("parity-pass-v3.json")
+PASS = _load("parity-pass-v4.json")
 
 
 def test_the_specs_are_the_ones_ported() -> None:
     assert DECIDE["spec"] == "zeomerger-parity/v2"
-    assert PASS["spec"] == "zeomerger-parity-pass/v3"
+    assert PASS["spec"] == "zeomerger-parity-pass/v4"
     assert len(DECIDE["cases"]) == 29
     assert len(PASS["cases"]) == 11
 
@@ -245,6 +246,15 @@ def test_pass_parity(case: dict[str, Any]) -> None:
     assert len(github.merges) == case["expect_merge_calls"]
     for merge in github.merges:
         assert merge.endswith("@" + head)  # always the approved head
+    if "expect_last_reason_contains" in case:
+        reasons = "; ".join(journal.records[-1].reasons)
+        assert case["expect_last_reason_contains"] in reasons
+    if then := case.get("then_pass"):
+        before_records, before_merges = len(journal.records), len(github.merges)
+        run.run()
+        actions = [r.action for r in journal.records][before_records:]
+        assert actions == then["expect_journal_actions"]
+        assert len(github.merges) - before_merges == then["expect_merge_calls"]
 
 
 REGISTER = _load("parity-register-v1.json")

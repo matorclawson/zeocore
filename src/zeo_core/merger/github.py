@@ -5,8 +5,9 @@ A port of zeomerger's internal/github client, under ZEO-LEDGER's adapter rules
 
 - the token is a single-repository installation token from a ``TokenSource``
   (``zeo_core.integrations.github.app_tokens``), never a broader one;
-- the origin is fixed, redirects are never followed, every body is bounded to
-  8 MiB, and every call has a timeout;
+- the origin is fixed, redirects are never followed (an injected client that
+  follows them is refused), every body is bounded to 8 MiB, and every call
+  has a timeout;
 - a PR's changed files include ``previous_filename``, so a rename out of a
   protected path is seen; more than 3000 files or 250 commits holds, because
   GitHub truncates there;
@@ -75,6 +76,10 @@ class GitHubClient:
         veto_path: str,
         http_client: httpx.Client | None = None,
     ) -> None:
+        if http_client is not None and http_client.follow_redirects:
+            # A followed redirect would send a second request, so a later
+            # connect error could no longer prove that nothing was sent.
+            raise ValueError("the merger's GitHub client must not follow redirects")
         self._tokens = tokens
         self._veto_repo = veto_repo
         self._veto_path = veto_path
