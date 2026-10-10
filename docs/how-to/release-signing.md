@@ -75,8 +75,42 @@ $ echo '{"manifest": "release.yaml", "response": "response.tar",
   when that passes.
 - Opening a pack refuses links, absolute paths, `..`, duplicates, unlisted
   files and any digest that differs.
-- The service that carries packs to matormini is not built yet. It waits on
-  the Architect's ruling on how a request is admitted (`zeocore#23#signing-admission`).
+### The service on matormini
+
+```console
+$ export ZEOCORE_SIGNING_HOST=mac-mini
+$ echo '{"listen": "100.x.y.z:7744", "state_dir": "/path/to/state"}' | zeocore release serve
+```
+
+On the build host:
+
+```console
+$ echo '{"pack": "request.tar", "service": "100.x.y.z:7744", "out": "response.tar"}' \
+    | zeocore release send
+```
+
+The service listens only on a tailnet `100.x` address and takes the caller's
+node from `tailscale whois`. Sending the same pack again is safe: a signed
+request gets the same answer and is never signed twice. It admits a request
+only when every condition of the admission rule (ZEOCORE-SOW-24 §1) holds,
+before any signer is used:
+
+- the caller's node may ask for that product, on zeocore's reviewed allowlist;
+- matormini reads the manifest from GitHub at the request's commit itself,
+  and it is byte-identical; the commit is on the default branch; and the repo
+  comes from the allowlist;
+- every file matches the manifest, and no unlisted file is accepted;
+- every binding is internal: the Developer ID is never signed unattended;
+- every identifier is one declared for that product on that node;
+- at most 512 MiB, 16 executables, and 12 requests per node per hour.
+
+Every request, admitted or refused, is journaled in `state_dir/requests.jsonl`.
+A locked keychain is held as `signing_keychain_locked`, and is never unlocked.
+Only a signed answer is stored: a refusal is worked out again, so a manifest
+refused as unreviewed is admitted once its commit merges.
+
+The rule is the operator's to sign. The service does not run against the
+ZEO Runtime key until the code-signing ruling that carries it is signed.
 
 ## What verify checks
 

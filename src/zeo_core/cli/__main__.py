@@ -13,7 +13,8 @@ Commands:
 - ``zeocore digest``: the sha256 of stdin's RFC 8785 canonical bytes.
 - ``zeocore login | logout | whoami | connections | invoke | artifact get``:
   the ZEOconnect Broker client (``zeo_core.cli.client``).
-- ``zeocore release sign | verify``: the shared signing step
+- ``zeocore release sign | verify | pack | receive | send | serve``: the
+  shared signing step
   (``zeo_core.cli.release``).
 
 Rules every command keeps (``cli_protocol`` 1):

@@ -162,8 +162,13 @@ These change what a caller sees. The session store API and the
     the other audience's), and entitlements that differ from the manifest's.
   - A locked keychain is reported only when its settings establish it.
   - Request and response packs (`zeocore release pack | receive`) for signing
-    on matormini from another host. The service that carries them waits on
-    the admission ruling (ZEOCORE-SOW-23 §3).
+    on matormini from another host.
+  - The signing service on matormini (`zeocore release serve`) and its client
+    (`zeocore release send`). It is tailnet-only and identifies callers by
+    `tailscale whois`. It admits a request only under ZEOCORE-SOW-24 §1: a
+    node, product and identifier allowlist; the manifest read from GitHub at
+    a merged commit; internal audience only; size, count and rate bounds; and
+    a durable journal of every request.
 
 - **Revolut Business reads for expenses, receipts and labels**
   (`zeo_core.integrations.revolut`), approved by the zeocore elders as an
