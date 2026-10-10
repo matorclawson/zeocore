@@ -421,6 +421,44 @@ def test_http_refuses_unknown_paths_and_empty_bodies(
     assert httpx.request(method, f"{base}{path}", content=body).status_code == status
 
 
+def test_http_refuses_an_unlisted_node_before_reading_the_body(
+    tmp_path: Path, clock: list[datetime]
+) -> None:
+    import socket
+
+    service = _service(tmp_path, FakeGitHub(), FakeToolchain(), clock)
+    callers = {"127.0.0.1": "rodimac.tail29b7b0.ts.net"}
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(service, callers.get))
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        # Announce a large body and send none of it: the refusal must still come.
+        with socket.create_connection(
+            ("127.0.0.1", httpd.server_address[1]), timeout=5
+        ) as conn:
+            conn.sendall(
+                b"POST /v1/sign HTTP/1.1\r\nHost: x\r\n"
+                b"Content-Length: 500000000\r\n\r\n"
+            )
+            # The server closes the connection after refusing: read it all.
+            answer = b""
+            while chunk := conn.recv(4096):
+                answer += chunk
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        service.close()
+    assert answer.startswith(b"HTTP/1.0 403")
+    assert b"caller_unadmitted" in answer
+    assert _journal(tmp_path)[0]["outcome"] == "caller_unadmitted"
+
+
+def test_the_handler_bounds_each_socket_read() -> None:
+    from zeo_core.release.signing.service import _Handler
+
+    assert _Handler.timeout == 30
+
+
 def test_http_refuses_an_unknown_caller(tmp_path: Path, clock: list[datetime]) -> None:
     service = _service(tmp_path, FakeGitHub(), FakeToolchain(), clock)
     httpd = ThreadingHTTPServer(

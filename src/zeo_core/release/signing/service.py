@@ -145,6 +145,22 @@ class SigningService:
     def close(self) -> None:
         os.close(self._held)
 
+    def allows(self, node: str) -> bool:
+        return node in self._allowlist
+
+    def record_refusal(self, node: str, reason: str) -> None:
+        """Journal a refusal made before the request reached ``handle``."""
+        with self._lock:
+            self._journal.append(
+                {
+                    "at": self._now().isoformat(),
+                    "node": node,
+                    "request_id": None,
+                    "http_status": int(HTTPStatus.FORBIDDEN),
+                    "outcome": reason,
+                }
+            )
+
     def _settled(self, request_id: str) -> Reply | None:
         response = self._state / "responses" / f"{request_id}.tar"
         if response.is_file():
@@ -281,6 +297,8 @@ def tailnet_address(listen: str) -> tuple[str, int]:
 
 class _Handler(BaseHTTPRequestHandler):
     server_version = "zeocore-signing/1"
+    # A slow client can't hold a thread: each socket read gives up after this.
+    timeout = 30
     service: SigningService
     whois: Callable[[str], str | None]
 
@@ -307,6 +325,15 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - http.server's name
         node = self._node()
         if node is None:
+            return
+        if not self.service.allows(node):
+            # Refused before the body is read: an unlisted node can't make the
+            # service read up to MAX_PACK_BYTES first.
+            self.close_connection = True
+            self._send(
+                _json_reply("refused", "caller_unadmitted", "unknown caller", None)
+            )
+            self.service.record_refusal(node, "caller_unadmitted")
             return
         if self.path != "/v1/sign":
             self._send(_json_reply("invalid", "request_invalid", "unknown path", None))
