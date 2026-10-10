@@ -35,7 +35,7 @@ PROJECT_NAME := zeocore
 REPO_ROOT := $(shell pwd)
 PYTHON := $(REPO_ROOT)/$(VENV_NAME)/bin/python
 # The optional integrations a full development environment carries. One list,
-# used by install-all and by verify-env, so the two can never drift apart.
+# used by sync (make setup), install-all and verify-env, so they never drift apart.
 SETUP_EXTRAS := gmail,notion,supabase,google,drive,calendar,pandoc,llms,github,bluesky,http,ffmpeg,jupytext,notebook,mcp,mcp-dev,runtime-host,revolut
 comma := ,
 SRC := src
@@ -129,13 +129,18 @@ install-lint: ## Install Tier-1 architecture linters (.[lint] extra — import-l
 	uv pip install -e ".[lint]" --python $(PYTHON)
 	@echo "${GREEN}Architecture linters installed${RESET}"
 
+.PHONY: sync
+sync: ## Install exactly what uv.lock pins (every gate extra, dev, lint, docs); refuses a stale lock
+	@echo "${BLUE}Installing the locked environment from uv.lock...${RESET}"
+	uv sync --locked --python $(PYTHON_VERSION) \
+		$(foreach extra,$(subst $(comma), ,$(SETUP_EXTRAS)) dev lint,--extra $(extra)) \
+		--group documentation
+	@$(PYTHON) -c "import zeo_core; print(f'OK: zeo_core at {zeo_core.__file__}')"
+
 .PHONY: setup
-setup: ## Create environment and install full development dependencies
+setup: ## Create the development environment from uv.lock (what CI and releases test)
 	@echo "${BLUE}Creating complete development environment...${RESET}"
-	$(MAKE) --no-print-directory env
-	$(MAKE) --no-print-directory install-all
-	$(MAKE) --no-print-directory install-dev
-	$(MAKE) --no-print-directory install-lint
+	$(MAKE) --no-print-directory sync
 	@echo ""
 	@echo "${GREEN}Setup complete. Activate: source .venv/bin/activate${RESET}"
 
@@ -250,9 +255,7 @@ verify: verify-env ## The doctrine gate: format-check + ruff + mypy + hygiene + 
 verify-full: ## verify, preceded by clean caches + fresh editable install (slow, complete)
 	@echo "${BLUE}Running FULL verification (fresh install, no stale state)...${RESET}"
 	@$(MAKE) --no-print-directory clean-caches
-	@$(MAKE) --no-print-directory install-all
-	@$(MAKE) --no-print-directory install-dev
-	@$(MAKE) --no-print-directory install-lint
+	@$(MAKE) --no-print-directory sync
 	@$(MAKE) --no-print-directory verify
 	@echo ""
 	@echo "${GREEN}✓ verify-full complete: system is healthy on a clean install${RESET}"
