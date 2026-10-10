@@ -1,9 +1,9 @@
 """The port is held to ZEO-LEDGER's language-neutral parity fixtures.
 
 ``contracts/merger-v1/`` is committed byte for byte from records/zeo-ledger
-(46c50845f), with its SHA256SUMS. Each decide case is one candidate against
-GitHub's state; each pass case is one whole run over PR #85 at the decide
-fixture's healthy state ('allowed').
+(b04327d2, pass v4 added), with its SHA256SUMS. Each decide case is one
+candidate against GitHub's state; each pass case is one whole run over PR #85
+at the decide fixture's healthy state ('allowed').
 """
 
 from __future__ import annotations
@@ -19,8 +19,10 @@ import pytest
 
 from zeo_core.merger import (
     ATTEMPTED,
+    NOT_SENT,
     Commit,
     Config,
+    MergeNotSentError,
     MergeUnclearError,
     Pass,
     PullRequest,
@@ -69,6 +71,8 @@ class FakeGitHub:
     commits_by_pr: dict[int, list[Commit]]
     veto_list: frozenset[str] = frozenset()
     veto_error: str = ""
+    base_rules: dict[str, tuple[bool, bool]] = field(default_factory=dict)
+    base_rules_error: str = ""
     merge_answer: str = "ok"
     merges: list[str] = field(default_factory=list)
 
@@ -107,6 +111,11 @@ class FakeGitHub:
             },
             veto_list=frozenset(case.get("vetoes") or ()),
             veto_error=case.get("veto_error") or "",
+            base_rules={
+                key: (rule["required_checks_present"], rule["strict_or_merge_queue"])
+                for key, rule in (case.get("base_rules") or {}).items()
+            },
+            base_rules_error=case.get("base_rules_error") or "",
         )
 
     def pull_request(self, repo: str, number: int) -> PullRequest:
@@ -120,6 +129,11 @@ class FakeGitHub:
     def commits(self, repo: str, number: int) -> list[Commit]:
         return self.commits_by_pr.get(number, [])
 
+    def required_checks(self, repo: str, branch: str) -> tuple[bool, bool]:
+        if self.base_rules_error:
+            raise RuntimeError(self.base_rules_error)
+        return self.base_rules.get(f"{repo}@{branch}", (False, False))
+
     def vetoes(self) -> tuple[frozenset[str], str]:
         if self.veto_error:
             raise RuntimeError(self.veto_error)
@@ -132,6 +146,8 @@ class FakeGitHub:
             self.prs[number] = replace(
                 self.prs[number], state="closed", merged=True, merge_commit=OTHER_SHA
             )
+        if self.merge_answer == "not-sent":
+            raise MergeNotSentError("merge call not sent: token for repo: locked")
         if self.merge_answer == "refused-409":
             raise RuntimeError("409 head sha didn't match")
         if self.merge_answer.startswith("unclear"):
@@ -139,15 +155,18 @@ class FakeGitHub:
         return OTHER_SHA
 
 
-DECIDE = _load("parity-decide-v1.json")
-PASS = _load("parity-pass-v1.json")
+# v2 supersedes v1 for decide (ZEO-LEDGER SOW-152: Architect M1); pass v3
+# supersedes v2 (ZEO-LEDGER SOW-156: not-sent, Architect P1 on #101), and v4
+# supersedes v3 (the not-sent reason, and a pass after the merge).
+DECIDE = _load("parity-decide-v2.json")
+PASS = _load("parity-pass-v4.json")
 
 
 def test_the_specs_are_the_ones_ported() -> None:
-    assert DECIDE["spec"] == "zeomerger-parity/v1"
-    assert PASS["spec"] == "zeomerger-parity-pass/v1"
-    assert len(DECIDE["cases"]) == 25
-    assert len(PASS["cases"]) == 9
+    assert DECIDE["spec"] == "zeomerger-parity/v2"
+    assert PASS["spec"] == "zeomerger-parity-pass/v4"
+    assert len(DECIDE["cases"]) == 29
+    assert len(PASS["cases"]) == 11
 
 
 @pytest.mark.parametrize("case", DECIDE["cases"], ids=lambda case: case["name"])
@@ -170,9 +189,11 @@ class MemoryJournal:
         self.records.append(receipt)
 
     def attempted(self, receipt_id: str) -> bool:
-        return any(
-            r.receipt_id == receipt_id and r.action == ATTEMPTED for r in self.records
-        )
+        held = False
+        for r in self.records:
+            if r.receipt_id == receipt_id and r.action in (ATTEMPTED, NOT_SENT):
+                held = r.action == ATTEMPTED
+        return held
 
 
 ALLOWED = next(case for case in DECIDE["cases"] if case["name"] == "allowed")
@@ -184,7 +205,8 @@ def test_pass_parity(case: dict[str, Any]) -> None:
     github.merge_answer = case["merge_answer"]
     journal = MemoryJournal(fail_on=case.get("journal_fails_on") or "")
     head = github.prs[85].head_sha
-    if case["prior_attempt"]:
+    prior = case["prior_journal_actions"] or []
+    for action in prior:
         journal.records.append(
             Receipt(
                 v=1,
@@ -194,7 +216,7 @@ def test_pass_parity(case: dict[str, Any]) -> None:
                 base_ref="main",
                 receipt_id=f"apr1-1337139177-85-{head}",
                 register_line=1,
-                action=ATTEMPTED,
+                action=action,
             )
         )
     loads = [parse_register("\n".join(lines)) for lines in case["register_loads"]]
@@ -219,10 +241,33 @@ def test_pass_parity(case: dict[str, Any]) -> None:
             run.run()
     else:
         run.run()
-    actions = [r.action for r in journal.records]
-    if case["prior_attempt"]:
-        actions = actions[1:]
+    actions = [r.action for r in journal.records][len(prior) :]
     assert actions == (case["expect_journal_actions"] or [])
     assert len(github.merges) == case["expect_merge_calls"]
     for merge in github.merges:
         assert merge.endswith("@" + head)  # always the approved head
+    if "expect_last_reason_contains" in case:
+        reasons = "; ".join(journal.records[-1].reasons)
+        assert case["expect_last_reason_contains"] in reasons
+    if then := case.get("then_pass"):
+        before_records, before_merges = len(journal.records), len(github.merges)
+        run.run()
+        actions = [r.action for r in journal.records][before_records:]
+        assert actions == then["expect_journal_actions"]
+        assert len(github.merges) - before_merges == then["expect_merge_calls"]
+
+
+REGISTER = _load("parity-register-v1.json")
+
+
+@pytest.mark.parametrize("case", REGISTER["cases"], ids=lambda case: case["name"])
+def test_register_parity(case: dict[str, Any]) -> None:
+    from zeo_core.merger import RegisterError
+
+    assert REGISTER["spec"] == "zeomerger-parity-register/v1"
+    if case["expect_accept"]:
+        register = parse_register(case["text"])
+        assert len(register.events) == case.get("expect_events", 0)
+    else:
+        with pytest.raises(RegisterError):
+            parse_register(case["text"])

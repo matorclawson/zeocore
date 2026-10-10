@@ -9,6 +9,8 @@ import pytest
 
 from zeo_core.merger import (
     ATTEMPTED,
+    NOT_SENT,
+    UNCLEAR,
     FileJournal,
     Receipt,
     RegisterError,
@@ -119,8 +121,46 @@ def test_an_intent_survives_a_reopen(tmp_path: Path) -> None:
     assert record["action"] == "attempted" and "merge_commit" not in record
 
 
+def test_only_a_not_sent_record_releases_an_intent(tmp_path: Path) -> None:
+    path = tmp_path / "journal.jsonl"
+    receipt_id = f"apr1-1337139177-85-{HEAD}"
+    journal = FileJournal(path)
+    journal.append(_receipt(ATTEMPTED))
+    journal.append(_receipt(UNCLEAR))
+    assert journal.attempted(receipt_id)
+    journal.append(_receipt(NOT_SENT))
+    assert not journal.attempted(receipt_id)
+    journal.close()
+    assert not FileJournal(path).attempted(receipt_id)
+
+
 def test_a_damaged_journal_refuses_to_open(tmp_path: Path) -> None:
     path = tmp_path / "journal.jsonl"
     path.write_text('{"receipt_id": "x", "action": "attempted"}\nnot json\n')
     with pytest.raises(ValueError, match="line 2"):
         FileJournal(path)
+
+
+def test_only_one_process_can_hold_the_journal(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    path = tmp_path / "journal.jsonl"
+    holder = FileJournal(path)
+    probe = (
+        "import sys\n"
+        "from zeo_core.merger import FileJournal, JournalHeldError\n"
+        "try:\n"
+        "    FileJournal(sys.argv[1])\n"
+        "except JournalHeldError:\n"
+        "    sys.exit(3)\n"
+    )
+    held = subprocess.run(  # noqa: S603 -- our own interpreter and probe
+        [sys.executable, "-c", probe, str(path)], check=False
+    )
+    assert held.returncode == 3
+    holder.close()
+    free = subprocess.run(  # noqa: S603 -- our own interpreter and probe
+        [sys.executable, "-c", probe, str(path)], check=False
+    )
+    assert free.returncode == 0

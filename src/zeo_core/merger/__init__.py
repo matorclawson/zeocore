@@ -19,12 +19,14 @@ from .decision import (
     DONE,
     HELD,
     MERGED,
+    NOT_SENT,
     REFUSED,
     UNCLEAR,
     WOULD_MERGE,
     Commit,
     Config,
     GitHubReads,
+    MergeNotSentError,
     MergeUnclearError,
     PullRequest,
     Receipt,
@@ -32,7 +34,7 @@ from .decision import (
     Status,
     decide,
 )
-from .journal import FileJournal, Journal
+from .journal import FileJournal, Journal, JournalHeldError
 from .queue import Candidate, Register, RegisterError, parse_register
 from .run import Pass
 
@@ -42,6 +44,7 @@ __all__ = [
     "DONE",
     "HELD",
     "MERGED",
+    "NOT_SENT",
     "REFUSED",
     "UNCLEAR",
     "WOULD_MERGE",
@@ -51,6 +54,8 @@ __all__ = [
     "FileJournal",
     "GitHubReads",
     "Journal",
+    "JournalHeldError",
+    "MergeNotSentError",
     "MergeUnclearError",
     "Pass",
     "PullRequest",

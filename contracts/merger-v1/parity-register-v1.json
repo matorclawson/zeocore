@@ -1,0 +1,79 @@
+{
+  "cases": [
+    {
+      "name": "one ready line with a trailing newline",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}\n",
+      "expect_accept": true,
+      "expect_events": 1
+    },
+    {
+      "name": "one ready line without a trailing newline",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}",
+      "expect_accept": true,
+      "expect_events": 1
+    },
+    {
+      "name": "ready then merged",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}\n{\"v\":1,\"event\":\"merged\",\"time\":\"t\",\"repo\":\"o/r\",\"pr\":1,\"merge_commit\":\"2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9\",\"merged_head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"merged_head_was_ready\":true}\n",
+      "expect_accept": true,
+      "expect_events": 2
+    },
+    {
+      "name": "empty register",
+      "text": "",
+      "expect_accept": true
+    },
+    {
+      "name": "bad after",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[\"not a ref\"],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}\n",
+      "expect_accept": false
+    },
+    {
+      "name": "blank line",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}\n\n{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":2,\"head\":\"2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-2-2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}\n",
+      "expect_accept": false
+    },
+    {
+      "name": "duplicate key",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"head\":\"2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}\n",
+      "expect_accept": false
+    },
+    {
+      "name": "missing field",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"evidence\":null,\"note\":null}\n",
+      "expect_accept": false
+    },
+    {
+      "name": "short head",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"abc\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-abc\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}\n",
+      "expect_accept": false
+    },
+    {
+      "name": "trailing data",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null} {}\n",
+      "expect_accept": false
+    },
+    {
+      "name": "unknown event",
+      "text": "{\"v\":1,\"event\":\"approved\",\"time\":\"t\",\"repo\":\"o/r\",\"pr\":1}\n",
+      "expect_accept": false
+    },
+    {
+      "name": "unknown field",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null,\"extra\":1}\n",
+      "expect_accept": false
+    },
+    {
+      "name": "version",
+      "text": "{\"v\":2,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-7-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}\n",
+      "expect_accept": false
+    },
+    {
+      "name": "wrong receipt",
+      "text": "{\"v\":1,\"event\":\"ready\",\"time\":\"t\",\"repo\":\"o/r\",\"repo_id\":7,\"pr\":1,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"x\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"s\",\"after\":[],\"receipt_id\":\"apr1-8-1-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}\n",
+      "expect_accept": false
+    }
+  ],
+  "note": "Each case: a register text; a reader must accept it with expect_events events, or refuse the whole register.",
+  "spec": "zeomerger-parity-register/v1"
+}

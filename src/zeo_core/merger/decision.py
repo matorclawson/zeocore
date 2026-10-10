@@ -22,6 +22,9 @@ HELD: Final = "held"  # a condition could not be established
 BLOCKED: Final = "blocked"  # an after entry has not merged yet
 ATTEMPTED: Final = "attempted"  # the intent, journaled before the merge call
 UNCLEAR: Final = "unclear"  # outcome unknown, and reconciliation couldn't settle it
+# The merge call provably never left this host: no token, or no connection.
+# It refuses this pass and releases the intent, so a later pass may decide again.
+NOT_SENT: Final = "not-sent"
 DONE: Final = "already-handled"
 
 # Base policies (QUEUE-SPEC-v2 §3).
@@ -33,6 +36,15 @@ APPROVE_CONTEXT: Final = "architect/approve"
 
 class MergeUnclearError(RuntimeError):
     """A merge call whose outcome is unknown. Never called again; reconciled."""
+
+
+class MergeNotSentError(RuntimeError):
+    """A merge call that provably sent no byte to GitHub: safe to decide again.
+
+    Only for failures before the request exists on the wire: the token could
+    not be minted, or the connection was never established. Anything that may
+    have arrived is ``MergeUnclearError`` instead.
+    """
 
 
 @dataclass(frozen=True)
@@ -92,6 +104,11 @@ class GitHubReads(Protocol):
 
     def commits(self, repo: str, number: int) -> Sequence[Commit]: ...
 
+    def required_checks(self, repo: str, branch: str) -> tuple[bool, bool]:
+        """For the branch's live rules: whether any status check is required, and
+        whether checks are strict (up to date) or a merge queue is in force."""
+        ...
+
     def vetoes(self) -> tuple[frozenset[str], str]:
         """The operator's veto list as ``owner/repo#N`` entries, and its revision."""
         ...
@@ -99,7 +116,8 @@ class GitHubReads(Protocol):
     def merge(self, repo: str, number: int, sha: str) -> str:
         """Merge only if the head is still ``sha``; return the merge commit.
 
-        An outcome it can't establish raises ``MergeUnclearError``.
+        An outcome it can't establish raises ``MergeUnclearError``; a call that
+        provably never left the host raises ``MergeNotSentError``.
         """
         ...
 
@@ -214,6 +232,24 @@ def decide(  # noqa: C901 -- line-by-line port of the Go core, for parity review
         return refuse(
             f"base moved from {short(candidate.base_sha)} to {short(pr.base_sha)},"
             " and this repository proves no checks on a new base"
+        )
+    # GitHub reports mergeable_state "clean" even when nothing is required, so
+    # the base branch's rules are read too: with no required checks only the
+    # operator merges (r12 §2 item 2), and a checks-on-current-base policy must
+    # be backed by strict checks or a merge queue (QUEUE-SPEC-v2 §3). There is
+    # no fallback to unchanged-base (Architect M1, ZEO-LEDGER SOW-152).
+    try:
+        present, strict = github.required_checks(candidate.repo, pr.base_ref)
+    except Exception as error:  # noqa: BLE001
+        return hold(f"reading the base branch rules: {error}")
+    if not present:
+        return refuse(
+            "the base branch requires no status checks; only the operator merges here"
+        )
+    if repo.base_policy == CHECKS_ON_CURRENT_BASE and not strict:
+        return refuse(
+            "base policy checks-on-current-base, but the base branch neither"
+            " requires up-to-date branches nor uses a merge queue"
         )
     for path in pr.files:
         for prefix in config.protected_paths:
