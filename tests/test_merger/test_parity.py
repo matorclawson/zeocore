@@ -226,3 +226,19 @@ def test_pass_parity(case: dict[str, Any]) -> None:
     assert len(github.merges) == case["expect_merge_calls"]
     for merge in github.merges:
         assert merge.endswith("@" + head)  # always the approved head
+
+
+REGISTER = _load("parity-register-v1.json")
+
+
+@pytest.mark.parametrize("case", REGISTER["cases"], ids=lambda case: case["name"])
+def test_register_parity(case: dict[str, Any]) -> None:
+    from zeo_core.merger import RegisterError
+
+    assert REGISTER["spec"] == "zeomerger-parity-register/v1"
+    if case["expect_accept"]:
+        register = parse_register(case["text"])
+        assert len(register.events) == case.get("expect_events", 0)
+    else:
+        with pytest.raises(RegisterError):
+            parse_register(case["text"])
