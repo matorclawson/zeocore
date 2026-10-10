@@ -147,6 +147,21 @@ These change what a caller sees. The session store API and the
 
 ### Added
 
+- **One sign-and-verify step for every org executable** (`zeo_core.release.signing`,
+  `zeocore release sign | verify`), on ZEOCORE-SOW-19 to SOW-22. It is built
+  first, before the PyPI adapter, because the Go seats and Pomar wait on it.
+  - Internal Darwin releases sign with ZEO Runtime Code Signing, pinned by its
+    leaf SHA-1. Distributed releases hold as `notarisation_unbuilt`; Linux is
+    refused as signed until a Linux contract is adopted.
+  - Inputs come from the reviewed `release.yaml`, never from flags. The
+    signing host is configuration (`ZEOCORE_SIGNING_HOST`).
+  - A separate candidate is signed under a durable intent, and a lost answer
+    is reconciled by readback, never by signing again.
+  - `verify` is read-only. It refuses an ad-hoc signature even when its
+    requirement names the pin, a bare cdhash, another certificate (including
+    the other audience's), and entitlements that differ from the manifest's.
+  - A locked keychain is reported only when its settings establish it.
+
 - **Revolut Business reads for expenses, receipts and labels**
   (`zeo_core.integrations.revolut`), approved by the zeocore elders as an
   independent 0.13.0 expansion (org issue #787, Q2):

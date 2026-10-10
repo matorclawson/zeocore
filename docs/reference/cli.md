@@ -25,6 +25,7 @@ $ echo '{"b": 1, "a": [1, 2]}' | zeocore digest
 | `validate <name>` | yes | `{"ok": true, "value": …}`, the normalized value, or `{"ok": false, "errors": [{"loc": […], "type": …}]}` |
 | `digest` | yes | the sha256 of the value's RFC 8785 canonical bytes |
 | `login`, `logout`, `whoami`, `connections`, `invoke`, `artifact get` | see below | the ZEOconnect client |
+| `release sign`, `release verify` | yes | the shared signing step; see [Sign and verify a release](../how-to/release-signing.md) |
 
 ## The ZEOconnect client
 
