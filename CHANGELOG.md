@@ -168,6 +168,32 @@ These change what a caller sees. The session store API and the
   `completeness="unverified"`**, and a run that reaches `next_to=None` is not
   proof of a complete window (org #787, council ruling on E4).
 
+- **The `zeocore` command**, for callers that don't import Python: the ZEOconnect
+  Broker and WEB, TypeScript pipelines, scripts. JSON on stdin and JSON lines on
+  stdout with the result last. Exit codes are the YouTube publish command's
+  family: 0, 2, 10, 11, 20, plus 12 not paired and 13 ambiguous
+  (`docs/reference/cli.md`).
+  - `zeocore schema list` and `zeocore schema <name>` give the public contract
+    models as JSON Schema 2020-12 under stable names, among them
+    `hosted.operation-request`, `hosted.operation-response` and
+    `connections.normalized-error`. The same schemas are committed under
+    `contracts/zeocore-v1/`, and a test fails if a model drifts from its file.
+  - `zeocore validate <name>` checks a value and answers the normalized form.
+    Its errors carry location and type only, never input values.
+  - `zeocore digest` is the sha256 of a value's RFC 8785 canonical bytes.
+  - `zeocore version` names the release and the protocols.
+- **The ZEOconnect client as `zeocore` commands,** so apps in any language reach
+  the Broker through one client instead of writing their own: `login`, `logout`,
+  `whoami`, `connections`, `invoke` and `artifact get`.
+  - Each app has its own device grant in the Keychain, chosen with `--profile`
+    or `ZEOCORE_PROFILE`. With no Keychain the command fails closed with exit 12.
+  - `invoke` derives its idempotency key from the request, so running the same
+    invocation again replays and never acts twice. It answers `request_key` and
+    `retry`. `--wait-approval` emits the approval link and replays the same key
+    until the person decides.
+  - `KeychainSecureSessionStore(profile=...)` keeps one entry per profile. No
+    profile keeps today's entry.
+
 ### Fixed
 
 - **The YouTube custody relay no longer retries a failure no retry can cure.**
@@ -242,6 +268,7 @@ These change what a caller sees. The session store API and the
     Its errors carry location and type only, never input values.
   - `zeocore digest` is the sha256 of a value's RFC 8785 canonical bytes.
   - `zeocore version` names the release and the protocols.
+
 
 ## [0.12.0] - 2026-10-08
 

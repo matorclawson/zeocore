@@ -22,6 +22,7 @@ from zeo_core.integrations.hosted.client import (
     HostedOperationRequest,
     HostedOperationResponse,
     HostedRequestChangedError,
+    HostedSessionError,
     HostedStoppedError,
     HostedUnavailableError,
     HostedUnreachableError,
@@ -133,7 +134,9 @@ class _SessionWire(BaseModel):
     refresh_expires_at: datetime
 
 
-class _ResourceWire(BaseModel):
+class HostedResourceWire(BaseModel):
+    """One selected resource of a connection, as GET /v1/connections lists it."""
+
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     external_id: str
@@ -142,7 +145,9 @@ class _ResourceWire(BaseModel):
     operations: tuple[str, ...]
 
 
-class _ConnectionWire(BaseModel):
+class HostedConnectionWire(BaseModel):
+    """One entry of GET /v1/connections, as the Broker sends it (contract §5)."""
+
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     connection_id: str
@@ -150,7 +155,7 @@ class _ConnectionWire(BaseModel):
     external_identity: str
     status: HostedConnectionStatus
     operations: tuple[str, ...]
-    resources: tuple[_ResourceWire, ...] = ()
+    resources: tuple[HostedResourceWire, ...] = ()
     connection_revision: str | None = Field(
         default=None, pattern=CONNECTION_REVISION_PATTERN
     )
@@ -225,7 +230,7 @@ class ZEOconnectHTTPTransport:
         try:
             return self._refresh(session)
         except _BearerRefusedError:
-            raise HostedClientError(_REPAIR) from None
+            raise HostedSessionError(_REPAIR) from None
 
     def _refresh(self, session: DeviceSession) -> DeviceSession:
         payload = self._request_json(
@@ -253,7 +258,7 @@ class ZEOconnectHTTPTransport:
         summaries: list[HostedConnectionSummary] = []
         for raw in payload:
             try:
-                wire = _ConnectionWire.model_validate(raw)
+                wire = HostedConnectionWire.model_validate(raw)
             except ValidationError:
                 raise HostedClientError(
                     "hosted connection response is invalid"
@@ -450,7 +455,7 @@ class ZEOconnectHTTPTransport:
         try:
             return call(current)
         except _BearerRefusedError:
-            raise HostedClientError(_REPAIR) from None
+            raise HostedSessionError(_REPAIR) from None
 
     def _unreachable(self, error: httpx.TransportError) -> HostedUnreachableError:
         if self._base_url == ZEOCONNECT_PRODUCTION_ORIGIN and isinstance(
@@ -462,9 +467,9 @@ class ZEOconnectHTTPTransport:
     def _active_session(self) -> DeviceSession:
         session = self._session_store.load()
         if session is None:
-            raise HostedClientError("paired device session is unavailable")
+            raise HostedSessionError("paired device session is unavailable")
         if self._clock() >= session.refresh_expires_at:
-            raise HostedClientError("paired device session is expired")
+            raise HostedSessionError("paired device session is expired")
         if self._clock() >= session.access_expires_at:
             session = self._refreshed(session)
         return session
@@ -488,7 +493,7 @@ class ZEOconnectHTTPTransport:
         except _BearerRefusedError:
             if (stored := self._rotated_elsewhere(used)) is not None:
                 return stored
-            raise HostedClientError(_REPAIR) from None
+            raise HostedSessionError(_REPAIR) from None
         self._session_store.save(session)
         return session
 
