@@ -278,6 +278,17 @@ These change what a caller sees. The session store API and the
   POST, PUT, PATCH and DELETE are sent exactly once, and an unknown outcome is
   raised for the caller to reconcile by reading back.
 
+### Added
+
+- **GitHub App installation tokens for an isolated principal**
+  (`zeo_core.integrations.github.app_tokens`, `github-app` extra). These are
+  for the merger, which by the operator's ruling is a zeocore app whose key is
+  kept outside ZEOconnect.
+  - It signs an RS256 App JWT and mints a token for exactly one repository and
+    exactly the requested permissions. A broader grant is revoked and refused.
+  - It sends one attempt and never retries.
+  - The key is read only from the running user's own Keychain item.
+
 ### Changed
 
 - **Breaking: `merge_pull_request` needs the head `sha` and merges only by
