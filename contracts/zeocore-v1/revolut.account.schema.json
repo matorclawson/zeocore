@@ -16,16 +16,10 @@
       "title": "Account Type"
     },
     "balance": {
-      "anyOf": [
-        {
-          "type": "number"
-        },
-        {
-          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-          "type": "string"
-        }
-      ],
-      "title": "Balance"
+      "description": "An exact decimal, as a JSON string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+      "title": "Balance",
+      "type": "string"
     },
     "created_at": {
       "format": "date-time",
