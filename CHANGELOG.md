@@ -212,14 +212,16 @@ These change what a caller sees. The session store API and the
   follows the operator's ruling that the merger is a zeocore app; ZEO-LEDGER owns
   the decision contract and reviews the port.
   - It's a port of zeomerger's register reader, decision core, pass and journal.
-  - It is held to ZEO-LEDGER's 34 language-neutral parity fixtures, committed byte
-    for byte under `contracts/merger-v1/`: 25 decision cases and 9 whole-run cases.
+  - It is held to ZEO-LEDGER's language-neutral parity fixtures, committed byte
+    for byte under `contracts/merger-v1/`: 29 decision cases (v2), 11 whole-run
+    cases (v3) and 14 register cases.
   - It never writes the register, makes exactly one merge call per receipt with
     `sha` set to the approved head, journals its intent durably before the call,
     and reconciles a lost answer by reading.
   - A merge call that provably never left the host (no token, or no
     connection) is journaled `not-sent`. That releases the intent, so a later
-    pass decides again; anything that may have arrived stays `unclear`.
+    pass decides again; anything that may have arrived stays `unclear`. The Go
+    oracle does the same (zeomerger `dfe0f86`, parity pass v3).
   - The base branch's required checks are read from its rulesets only, so a
     branch under classic branch protection is refused (it fails closed).
   - The GitHub adapter is in; the `zeocore merger` command follows.
