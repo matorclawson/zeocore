@@ -19,6 +19,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    WithJsonSchema,
     model_validator,
 )
 
@@ -34,6 +35,20 @@ MAX_RECEIPT_BYTES = 10 * 1024 * 1024
 MAX_RESULT_BYTES = 768 * 1024
 
 Currency = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
+# An exact decimal. On the wire it is a JSON string (Broker contract §6: "every
+# monetary amount is a JSON string holding an exact decimal"). The published
+# schema says exactly that, rather than whatever a given pydantic release
+# derives for Decimal, so the committed contract files don't drift with it.
+ExactDecimal = Annotated[
+    Decimal,
+    WithJsonSchema(
+        {
+            "type": "string",
+            "pattern": r"^-?[0-9]+(\.[0-9]+)?$",
+            "description": "An exact decimal, as a JSON string",
+        }
+    ),
+]
 # Provider enumerations grow; a new value must not fail a whole bank page.
 ProviderToken = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
 ProviderText = Annotated[str, StringConstraints(max_length=2000)]
@@ -63,7 +78,7 @@ class _Normalized(BaseModel):
 class Account(_Normalized):
     id: UUID
     name: ProviderText | None = None
-    balance: Decimal
+    balance: ExactDecimal
     currency: Currency
     state: ProviderToken
     public: bool
@@ -96,12 +111,12 @@ class CardReference(_Normalized):
 class TransactionLeg(_Normalized):
     leg_id: UUID
     account_id: UUID
-    amount: Decimal
+    amount: ExactDecimal
     currency: Currency
-    fee: Decimal | None = None
-    bill_amount: Decimal | None = None
+    fee: ExactDecimal | None = None
+    bill_amount: ExactDecimal | None = None
     bill_currency: Currency | None = None
-    balance: Decimal | None = None
+    balance: ExactDecimal | None = None
     counterparty: Counterparty | None = None
     description: ProviderText | None = None
 
@@ -163,14 +178,14 @@ class TransactionPage(_Normalized):
 
 
 class Money(_Normalized):
-    amount: Decimal
+    amount: ExactDecimal
     currency: Currency
 
 
 class SplitAmount(_Normalized):
     """A split's amount; Revolut's contract makes both parts optional."""
 
-    amount: Decimal | None = None
+    amount: ExactDecimal | None = None
     currency: Currency | None = None
 
 
@@ -183,7 +198,7 @@ class AccountingCategoryReference(_Normalized):
 class TaxRateReference(_Normalized):
     id: ProviderId
     name: ProviderText
-    percentage: Decimal | None = None
+    percentage: ExactDecimal | None = None
 
 
 class ExpenseSplit(_Normalized):
