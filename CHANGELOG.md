@@ -147,6 +147,19 @@ These change what a caller sees. The session store API and the
 
 ### Added
 
+- **Delegated PyPI releases** (`zeocore release pypi apply | approve`), on the
+  operator's delegation of 2026-10-11.
+  - The `zeo-release` GitHub App creates the release tag with a one-repository
+    token minted from its Keychain key.
+  - matorclawson approves the waiting `pypi` deployment, once, only for that
+    exact tag and commit.
+  - `admit` refuses unless only the two identities, together, can release:
+    matorclawson is the only reviewer with self-review prevented and no admin
+    bypass, only `v*` tags deploy, and a tag ruleset lets only the App touch
+    `v*`.
+  - The targets are a reviewed table: zeocore, zeocreator, zero-employee and
+    sovereign-agent.
+
 - **The PyPI adapter** (`zeocore release pypi plan | admit | apply |
   reconcile | verify`), on ZEOCORE-SOW-26.
   - `plan` checks the commit is reviewed and the version agrees everywhere.

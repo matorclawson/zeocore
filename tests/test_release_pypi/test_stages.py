@@ -23,18 +23,23 @@ from zeo_core.release.pypi import (
     TargetUnreadableError,
     admit,
     apply,
+    approve,
     load,
     plan,
     reconcile,
     verify,
 )
 from zeo_core.release.pypi.reads import (
+    ApprovalAnswerLostError,
+    ApprovalResult,
     EnvironmentPolicy,
     Identity,
+    PendingDeployment,
     Provenance,
     PyPIFile,
     TagAnswerLostError,
     TagResult,
+    TagRuleset,
     WorkflowRun,
 )
 from zeo_core.release.signing import SigningJournal
@@ -91,12 +96,23 @@ def _files_at(version: str = VERSION) -> dict[str, bytes]:
     }
 
 
+APP_ID = 4242
 GOOD_POLICY = EnvironmentPolicy(
-    required_reviewers=frozenset({"rodriveracom"}),
+    required_reviewers=frozenset({"matorclawson"}),
     prevent_self_review=True,
     can_admins_bypass=False,
     custom_policies=(("v*", "tag"),),
 )
+GOOD_RULESET = TagRuleset(
+    id=7,
+    enforcement="active",
+    includes=("refs/tags/v*",),
+    excludes=(),
+    rules=frozenset({"creation", "update", "deletion"}),
+    bypass=(("Integration", APP_ID, "always"),),
+)
+WAITING = WorkflowRun("waiting", None, "v0.13.0", 99)
+PENDING = (PendingDeployment(555, "pypi", True),)
 
 
 @dataclass
@@ -105,11 +121,13 @@ class FakeGitHub:
     files: dict[str, bytes] = field(default_factory=_files_at)
     tag: str | None = None
     policy: EnvironmentPolicy | None = field(default_factory=lambda: GOOD_POLICY)
-    creator: Identity = field(default_factory=lambda: Identity("matorclawson", True))
+    rulesets: tuple[TagRuleset, ...] = (GOOD_RULESET,)
+    approver: Identity = field(default_factory=lambda: Identity("matorclawson", True))
     workflow_runs: tuple[WorkflowRun, ...] = ()
+    pending: tuple[PendingDeployment, ...] = PENDING
+    approval_result: ApprovalResult | None = "approved"  # None: the answer is lost
+    approvals: list[tuple[int, int]] = field(default_factory=list)
     broken: bool = False
-    tag_result: TagResult | None = "created"  # None: the answer is lost
-    created: list[str] = field(default_factory=list)
 
     def _check(self) -> None:
         if self.broken:
@@ -133,20 +151,53 @@ class FakeGitHub:
         self._check()
         return self.policy
 
+    def tag_rulesets(self, repo: str) -> tuple[TagRuleset, ...]:
+        return self.rulesets
+
     def identity(self, repo: str) -> Identity:
         self._check()
-        return self.creator
+        return self.approver
+
+    def runs(self, repo: str, workflow: str, commit: str) -> tuple[WorkflowRun, ...]:
+        self._check()
+        return self.workflow_runs
+
+    def pending_deployments(
+        self, repo: str, run_id: int
+    ) -> tuple[PendingDeployment, ...]:
+        return self.pending
+
+    def approve_deployment(
+        self, repo: str, run_id: int, environment_id: int, comment: str
+    ) -> ApprovalResult:
+        self.approvals.append((run_id, environment_id))
+        if self.approval_result is None:
+            raise ApprovalAnswerLostError("lost")
+        if self.approval_result == "approved":
+            self.workflow_runs = (WorkflowRun("in_progress", None, "v0.13.0", run_id),)
+        return self.approval_result
+
+
+@dataclass
+class FakeApp:
+    """The release App: it tags, and it reports who it is."""
+
+    github: FakeGitHub
+    app_id: int = APP_ID
+    slug: str = "zeo-release"
+    tag_result: TagResult | None = "created"  # None: the answer is lost
+    created: list[str] = field(default_factory=list)
+
+    def identity(self) -> tuple[int, str]:
+        return self.app_id, self.slug
 
     def create_tag(self, repo: str, tag: str, commit: str) -> TagResult:
         self.created.append(tag)
         if self.tag_result is None:
             raise TagAnswerLostError("lost")
         if self.tag_result == "created":
-            self.tag = commit
+            self.github.tag = commit
         return self.tag_result
-
-    def runs(self, repo: str, workflow: str, commit: str) -> tuple[WorkflowRun, ...]:
-        return self.workflow_runs
 
 
 @dataclass
@@ -247,14 +298,22 @@ def test_plan_holds_when_a_target_is_unreadable(
 # -- admit --------------------------------------------------------------------------
 
 
-def test_admit_when_only_the_operator_can_approve_and_only_tags_deploy() -> None:
-    outcome = admit(_manifest(), FakeGitHub())
+def test_admit_when_only_the_two_delegated_identities_can_release() -> None:
+    outcome = admit(_manifest(), FakeGitHub(), APP_ID)
     assert (outcome.status, outcome.reason) == ("done", "admitted")
-    assert outcome.facts["creator"] == "matorclawson"
+    assert outcome.facts["release_app_id"] == APP_ID
+    assert outcome.facts["tag_ruleset"] == 7
 
 
 def _policy(**changes: object) -> EnvironmentPolicy:
     return replace(GOOD_POLICY, **changes)  # type: ignore[arg-type]
+
+
+def _ruleset(**changes: object) -> TagRuleset:
+    return replace(GOOD_RULESET, **changes)  # type: ignore[arg-type]
+
+
+_BOTH = (("Integration", APP_ID, "always"), ("RepositoryRole", 5, "always"))
 
 
 @pytest.mark.parametrize(
@@ -267,18 +326,16 @@ def _policy(**changes: object) -> EnvironmentPolicy:
             "promotion_unbound",
         ),
         (
-            FakeGitHub(policy=_policy(required_reviewers=frozenset({"someone"}))),
+            FakeGitHub(policy=_policy(required_reviewers=frozenset({"rodriveracom"}))),
             "promotion_unbound",
         ),
-        (FakeGitHub(creator=Identity("rodriveracom", True)), "creator_is_operator"),
         (
             FakeGitHub(
-                policy=_policy(
-                    required_reviewers=frozenset({"rodriveracom", "matorclawson"})
-                )
+                policy=_policy(required_reviewers=frozenset({"matorclawson", "x"}))
             ),
             "promotion_unbound",
         ),
+        (FakeGitHub(policy=_policy(prevent_self_review=False)), "self_review_allowed"),
         (FakeGitHub(policy=_policy(can_admins_bypass=True)), "admin_bypass_possible"),
         (
             FakeGitHub(policy=_policy(custom_policies=None)),
@@ -294,28 +351,46 @@ def _policy(**changes: object) -> EnvironmentPolicy:
             ),
             "deployment_policy_unrestricted",
         ),
+        (FakeGitHub(rulesets=()), "tag_ruleset_missing"),
         (
-            FakeGitHub(policy=_policy(custom_policies=(("*", "tag"),))),
-            "deployment_policy_unrestricted",
+            FakeGitHub(rulesets=(_ruleset(enforcement="evaluate"),)),
+            "tag_ruleset_missing",
         ),
+        (
+            FakeGitHub(rulesets=(_ruleset(includes=("refs/tags/release-*",)),)),
+            "tag_ruleset_missing",
+        ),
+        (
+            FakeGitHub(rulesets=(_ruleset(excludes=("refs/tags/v0*",)),)),
+            "tag_ruleset_missing",
+        ),
+        (
+            FakeGitHub(rulesets=(_ruleset(rules=frozenset({"creation"})),)),
+            "tag_ruleset_missing",
+        ),
+        (FakeGitHub(rulesets=(_ruleset(bypass=()),)), "tag_ruleset_missing"),
+        (
+            FakeGitHub(rulesets=(_ruleset(bypass=(("Integration", 1, "always"),)),)),
+            "tag_ruleset_missing",
+        ),
+        (FakeGitHub(rulesets=(_ruleset(bypass=_BOTH),)), "tag_ruleset_missing"),
+        (FakeGitHub(approver=Identity("rodriveracom", True)), "approver_mismatch"),
     ],
 )
-def test_admit_refuses_unless_the_approval_is_a_control(
+def test_admit_refuses_unless_only_the_delegated_pair_can_release(
     github: FakeGitHub, reason: str
 ) -> None:
-    outcome = admit(_manifest(), github)
+    outcome = admit(_manifest(), github, APP_ID)
     assert (outcome.status, outcome.reason) == ("refused", reason)
 
 
-def test_admit_allows_a_non_admin_creator_while_admins_may_bypass() -> None:
-    github = FakeGitHub(
-        policy=_policy(can_admins_bypass=True), creator=Identity("zeocore-bot", False)
-    )
-    assert admit(_manifest(), github).reason == "admitted"
+def test_admit_needs_the_release_app_configured() -> None:
+    assert admit(_manifest(), FakeGitHub(), None).reason == "release_app_unconfigured"
 
 
 def test_admit_holds_when_github_is_unreadable() -> None:
-    assert admit(_manifest(), FakeGitHub(broken=True)).reason == "target_unreadable"
+    outcome = admit(_manifest(), FakeGitHub(broken=True), APP_ID)
+    assert outcome.reason == "target_unreadable"
 
 
 # -- apply ----------------------------------------------------------------------------
@@ -328,13 +403,42 @@ def journal(tmp_path: Path) -> Iterator[SigningJournal]:
     opened.close()
 
 
-def test_apply_creates_the_tag_once(journal: SigningJournal) -> None:
+def test_apply_creates_the_tag_once_as_the_release_app(journal: SigningJournal) -> None:
     github = FakeGitHub()
-    first = apply(_manifest(), github, FakePyPI(), journal)
-    again = apply(_manifest(), github, FakePyPI(), journal)
+    app = FakeApp(github)
+    first = apply(_manifest(), github, FakePyPI(), app, journal)
+    again = apply(_manifest(), github, FakePyPI(), app, journal)
     assert (first.status, first.reason) == ("done", "tag_created")
     assert (again.status, again.reason) == ("done", "already_applied")
-    assert github.created == ["v0.13.0"]
+    assert app.created == ["v0.13.0"]
+
+
+@pytest.mark.parametrize(
+    ("app_id", "slug"), [(APP_ID, "someone-else"), (1, "zeo-release")]
+)
+def test_apply_refuses_a_key_that_isnt_the_release_apps(
+    journal: SigningJournal, app_id: int, slug: str
+) -> None:
+    github = FakeGitHub()
+
+    class Other(FakeApp):
+        def identity(self) -> tuple[int, str]:
+            return app_id, slug
+
+    app = Other(github)
+    outcome = apply(_manifest(), github, FakePyPI(), app, journal)
+    assert (outcome.status, outcome.reason) == ("refused", "creator_not_release_app")
+    assert app.created == []
+
+
+def test_apply_holds_when_the_app_cant_say_who_it_is(journal: SigningJournal) -> None:
+    class Unsigned(FakeApp):
+        def identity(self) -> tuple[int, str]:
+            raise TargetUnreadableError("the Keychain is locked")
+
+    github = FakeGitHub()
+    outcome = apply(_manifest(), github, FakePyPI(), Unsigned(github), journal)
+    assert (outcome.status, outcome.reason) == ("held", "target_unreadable")
 
 
 def test_apply_refuses_before_any_effect(journal: SigningJournal) -> None:
@@ -342,28 +446,31 @@ def test_apply_refuses_before_any_effect(journal: SigningJournal) -> None:
         FakeGitHub(merged=False),
         FakeGitHub(policy=_policy(can_admins_bypass=True)),
     ):
-        outcome = apply(_manifest(), github, FakePyPI(), journal)
+        app = FakeApp(github)
+        outcome = apply(_manifest(), github, FakePyPI(), app, journal)
         assert outcome.status == "refused"
-        assert github.created == []
+        assert app.created == []
 
 
 def test_a_lost_answer_is_ambiguous_and_never_retried(journal: SigningJournal) -> None:
-    github = FakeGitHub(tag_result=None)
-    lost = apply(_manifest(), github, FakePyPI(), journal)
+    github = FakeGitHub()
+    app = FakeApp(github, tag_result=None)
+    lost = apply(_manifest(), github, FakePyPI(), app, journal)
     assert (lost.status, lost.reason) == ("ambiguous", "apply_unreconciled")
-    github.tag_result = "created"
-    again = apply(_manifest(), github, FakePyPI(), journal)
+    app.tag_result = "created"
+    again = apply(_manifest(), github, FakePyPI(), app, journal)
     assert (again.status, again.reason) == ("ambiguous", "apply_unreconciled")
-    assert github.created == ["v0.13.0"]
+    assert app.created == ["v0.13.0"]
 
 
 def test_a_lost_answer_that_landed_is_settled_by_readback(
     journal: SigningJournal,
 ) -> None:
-    github = FakeGitHub(tag_result=None)
-    apply(_manifest(), github, FakePyPI(), journal)
+    github = FakeGitHub()
+    app = FakeApp(github, tag_result=None)
+    apply(_manifest(), github, FakePyPI(), app, journal)
     github.tag = COMMIT  # the tag did land
-    outcome = apply(_manifest(), github, FakePyPI(), journal)
+    outcome = apply(_manifest(), github, FakePyPI(), app, journal)
     assert outcome.reason == "already_applied"
     assert not journal.is_open(f"pypi:{REPO}:0.13.0")
 
@@ -372,27 +479,40 @@ def test_a_lost_answer_that_landed_is_settled_by_readback(
 def test_a_definite_failure_closes_the_intent(
     journal: SigningJournal, result: TagResult
 ) -> None:
-    github = FakeGitHub(tag_result=result)
-    outcome = apply(_manifest(), github, FakePyPI(), journal)
+    github = FakeGitHub()
+    app = FakeApp(github, tag_result=result)
+    outcome = apply(_manifest(), github, FakePyPI(), app, journal)
     assert (outcome.status, outcome.reason) == ("held", "tag_not_created")
-    github.tag_result = "created"
-    assert apply(_manifest(), github, FakePyPI(), journal).reason == "tag_created"
+    app.tag_result = "created"
+    assert apply(_manifest(), github, FakePyPI(), app, journal).reason == "tag_created"
 
 
-def test_an_existing_ref_is_read_back(journal: SigningJournal) -> None:
-    class Racing(FakeGitHub):
-        def create_tag(self, repo: str, tag: str, commit: str) -> TagResult:
-            self.tag = self.race
-            return "exists"
+class Racing(FakeApp):
+    """GitHub answers 422: something already made the tag, somewhere."""
 
-        race: str | None = None
+    race: str | None = None
 
-    landed = Racing()
+    def create_tag(self, repo: str, tag: str, commit: str) -> TagResult:
+        self.github.tag = self.race
+        return "exists"
+
+
+def test_an_existing_ref_at_the_commit_counts_as_created(
+    journal: SigningJournal,
+) -> None:
+    github = FakeGitHub()
+    landed = Racing(github)
     landed.race = COMMIT
-    assert apply(_manifest(), landed, FakePyPI(), journal).reason == "tag_created"
-    elsewhere = Racing()
+    assert (
+        apply(_manifest(), github, FakePyPI(), landed, journal).reason == "tag_created"
+    )
+
+
+def test_an_existing_ref_elsewhere_is_not_created(journal: SigningJournal) -> None:
+    github = FakeGitHub()
+    elsewhere = Racing(github)
     elsewhere.race = "b" * 40
-    outcome = apply(_manifest(), elsewhere, FakePyPI(), journal)
+    outcome = apply(_manifest(), github, FakePyPI(), elsewhere, journal)
     assert outcome.reason == "tag_not_created"
 
 
@@ -408,10 +528,154 @@ def test_an_existing_ref_that_cant_be_read_is_ambiguous(
                 raise TargetUnreadableError("down")
             return None
 
+    class Exists(FakeApp):
         def create_tag(self, repo: str, tag: str, commit: str) -> TagResult:
             return "exists"
 
-    assert apply(_manifest(), Unreadable(), FakePyPI(), journal).status == "ambiguous"
+    github = Unreadable()
+    outcome = apply(_manifest(), github, FakePyPI(), Exists(github), journal)
+    assert outcome.status == "ambiguous"
+
+
+def test_an_open_intent_is_settled_before_admit_can_hide_it(
+    journal: SigningJournal,
+) -> None:
+    github = FakeGitHub()
+    app = FakeApp(github, tag_result=None)
+    apply(_manifest(), github, FakePyPI(), app, journal)
+    github.policy = _policy(can_admins_bypass=True)
+    outcome = apply(_manifest(), github, FakePyPI(), app, journal)
+    assert (outcome.status, outcome.reason) == ("ambiguous", "apply_unreconciled")
+
+
+def test_one_release_one_key_across_commits(journal: SigningJournal) -> None:
+    github = FakeGitHub()
+    app = FakeApp(github, tag_result=None)
+    apply(_manifest(), github, FakePyPI(), app, journal)
+    other = apply(_manifest(commit="c" * 40), github, FakePyPI(), app, journal)
+    assert (other.status, other.reason) == ("ambiguous", "apply_unreconciled")
+
+
+# -- approve --------------------------------------------------------------------------
+
+
+def _tagged(**changes: object) -> FakeGitHub:
+    github = FakeGitHub(tag=COMMIT, workflow_runs=(WAITING,))
+    for name, value in changes.items():
+        setattr(github, name, value)
+    return github
+
+
+def test_approve_once_for_the_exact_run_and_environment(
+    journal: SigningJournal,
+) -> None:
+    github = _tagged()
+    first = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    again = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    assert (first.status, first.reason) == ("done", "approved")
+    assert first.facts == {"run_id": 99, "environment_id": 555}
+    assert (again.status, again.reason) == ("done", "already_approved")
+    assert github.approvals == [(99, 555)]
+
+
+_TESTPYPI = PendingDeployment(556, "testpypi", True)
+
+
+@pytest.mark.parametrize(
+    ("changes", "status", "reason"),
+    [
+        ({"tag": None}, "held", "tag_absent"),
+        ({"tag": "b" * 40}, "refused", "tag_mismatch"),
+        ({"merged": False}, "refused", "commit_unreviewed"),
+        (
+            {"policy": _policy(can_admins_bypass=True)},
+            "refused",
+            "admin_bypass_possible",
+        ),
+        ({"workflow_runs": ()}, "waiting", "publish_pending"),
+        (
+            {"workflow_runs": (WorkflowRun("waiting", None, "main", 98),)},
+            "waiting",
+            "publish_pending",
+        ),
+        (
+            {"workflow_runs": (WAITING, replace(WAITING, id=100))},
+            "refused",
+            "approval_unexpected",
+        ),
+        (
+            {"workflow_runs": (replace(WAITING, id=None),)},
+            "refused",
+            "approval_unexpected",
+        ),
+        ({"pending": ()}, "refused", "approval_unexpected"),
+        ({"pending": (_TESTPYPI,)}, "refused", "approval_unexpected"),
+        ({"pending": (*PENDING, _TESTPYPI)}, "refused", "approval_unexpected"),
+        (
+            {"pending": (PendingDeployment(555, "pypi", False),)},
+            "refused",
+            "approver_cannot_approve",
+        ),
+    ],
+)
+def test_approve_refuses_anything_but_the_one_waiting_run(
+    journal: SigningJournal, changes: dict[str, object], status: str, reason: str
+) -> None:
+    github = _tagged(**changes)
+    outcome = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    assert (outcome.status, outcome.reason) == (status, reason)
+    assert github.approvals == []
+
+
+def test_approve_refuses_when_pypi_already_has_the_version(
+    journal: SigningJournal,
+) -> None:
+    outcome = approve(_manifest(), _tagged(), _published(), APP_ID, journal)
+    assert outcome.reason == "version_published"
+
+
+def test_approve_holds_when_github_is_unreadable(journal: SigningJournal) -> None:
+    class Broken(FakeGitHub):
+        def pending_deployments(
+            self, repo: str, run_id: int
+        ) -> tuple[PendingDeployment, ...]:
+            raise TargetUnreadableError("down")
+
+    github = Broken(tag=COMMIT, workflow_runs=(WAITING,))
+    outcome = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    assert (outcome.status, outcome.reason) == ("held", "target_unreadable")
+
+
+def test_a_lost_approval_is_ambiguous_and_never_resent(journal: SigningJournal) -> None:
+    github = _tagged(approval_result=None)
+    lost = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    assert (lost.status, lost.reason) == ("ambiguous", "approve_unreconciled")
+    github.approval_result = "approved"
+    again = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    assert (again.status, again.reason) == ("ambiguous", "approve_unreconciled")
+    assert github.approvals == [(99, 555)]
+
+
+def test_a_lost_approval_that_landed_is_settled(journal: SigningJournal) -> None:
+    github = _tagged(approval_result=None)
+    approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    github.workflow_runs = (WorkflowRun("in_progress", None, "v0.13.0", 99),)
+    outcome = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    assert (outcome.status, outcome.reason) == ("done", "already_approved")
+    assert github.approvals == [(99, 555)]
+
+
+@pytest.mark.parametrize("result", ["rejected", "not_sent"])
+def test_a_refused_approval_closes_the_intent(
+    journal: SigningJournal, result: ApprovalResult
+) -> None:
+    github = _tagged(approval_result=result)
+    outcome = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    assert (outcome.status, outcome.reason) == ("held", "approval_not_sent")
+    github.approval_result = "approved"
+    assert (
+        approve(_manifest(), github, FakePyPI(), APP_ID, journal).reason == "approved"
+    )
 
 
 # -- reconcile ----------------------------------------------------------------------
@@ -428,7 +692,7 @@ def test_an_existing_ref_that_cant_be_read_is_ambiguous(
                 tag=COMMIT, workflow_runs=(WorkflowRun("waiting", None, "v0.13.0"),)
             ),
             "waiting",
-            "awaiting_operator_approval",
+            "awaiting_approval",
         ),
         (
             FakeGitHub(
@@ -596,9 +860,16 @@ def test_a_bad_manifest_is_invalid(tmp_path: Path, text: str) -> None:
 
 
 def _command(
-    github: FakeGitHub, pypi: FakePyPI
+    github: FakeGitHub,
+    pypi: FakePyPI,
+    environ: dict[str, str] | None = None,
+    app: FakeApp | None = None,
 ) -> Callable[[Sequence[str], bytes], tuple[int, dict[str, Any]]]:
-    return make_command(pypi_reads=lambda: (github, pypi))  # type: ignore[arg-type,return-value]
+    return make_command(
+        environ={"ZEOCORE_RELEASE_APP_ID": str(APP_ID)} if environ is None else environ,
+        pypi_reads=lambda: (github, pypi),  # type: ignore[arg-type,return-value]
+        release_app=lambda _id, _env: app or FakeApp(github),
+    )
 
 
 def _manifest_file(tmp_path: Path) -> bytes:
@@ -618,7 +889,7 @@ def _manifest_file(tmp_path: Path) -> bytes:
             ),
             FakePyPI(),
             11,
-            "awaiting_operator_approval",
+            "awaiting_approval",
         ),
         ("verify", FakeGitHub(), _published(), 0, "publisher_recorded"),
     ],
@@ -721,7 +992,7 @@ def test_github_reads_an_environment_policy() -> None:
                         "type": "required_reviewers",
                         "prevent_self_review": True,
                         "reviewers": [
-                            {"reviewer": {"login": "rodriveracom"}},
+                            {"reviewer": {"login": "matorclawson"}},
                         ],
                     }
                 ],
@@ -749,7 +1020,7 @@ _CUSTOM = {
     "protection_rules": [
         {
             "type": "required_reviewers",
-            "reviewers": [{"reviewer": {"login": "rodriveracom"}}],
+            "reviewers": [{"reviewer": {"login": "matorclawson"}}],
         }
     ],
 }
@@ -816,44 +1087,6 @@ def test_a_scalar_where_a_list_belongs_is_unreadable(rules: dict[str, object]) -
         GitHubCli(Runner(ok(rules))).environment(REPO, "pypi")
 
 
-def test_an_open_intent_is_settled_before_admit_can_hide_it(
-    journal: SigningJournal,
-) -> None:
-    github = FakeGitHub(tag_result=None)
-    apply(_manifest(), github, FakePyPI(), journal)
-    # Admit would now refuse; the open intent must still be reported.
-    github.policy = _policy(can_admins_bypass=True)
-    outcome = apply(_manifest(), github, FakePyPI(), journal)
-    assert (outcome.status, outcome.reason) == ("ambiguous", "apply_unreconciled")
-
-
-def test_one_release_one_key_across_commits(journal: SigningJournal) -> None:
-    github = FakeGitHub(tag_result=None)
-    apply(_manifest(), github, FakePyPI(), journal)
-    # The same version from another commit is the same release: not retried.
-    other = apply(_manifest(commit="c" * 40), github, FakePyPI(), journal)
-    assert (other.status, other.reason) == ("ambiguous", "apply_unreconciled")
-
-
-def test_the_apply_command_journals_in_the_users_state(tmp_path: Path) -> None:
-    github = FakeGitHub()
-    command = make_command(
-        environ={"XDG_STATE_HOME": str(tmp_path / "state")},
-        pypi_reads=lambda: (github, FakePyPI()),  # type: ignore[arg-type,return-value]
-    )
-    status, answer = command(["pypi", "apply"], _manifest_file(tmp_path))
-    assert (status, answer["outcome"]) == (0, "tag_created")
-    journal = tmp_path / "state" / "zeocore" / "release" / "pypi-journal.jsonl"
-    assert f"pypi:{REPO}:0.13.0" in journal.read_text()
-    held = make_command(
-        environ={"XDG_STATE_HOME": str(tmp_path / "state")},
-        pypi_reads=lambda: (FakeGitHub(), FakePyPI()),  # type: ignore[arg-type,return-value]
-    )
-    journal.write_text("not json\n")
-    status, answer = held(["pypi", "apply"], _manifest_file(tmp_path))
-    assert (status, answer["outcome"]) == (20, "journal_unreadable")
-
-
 def test_github_reads_the_acting_identity() -> None:
     gh = GitHubCli(
         Runner(
@@ -866,44 +1099,6 @@ def test_github_reads_the_acting_identity() -> None:
     assert gh.identity(REPO) == Identity("matorclawson", True)
     with pytest.raises(TargetUnreadableError):
         gh.identity(REPO)
-
-
-@pytest.mark.parametrize(
-    ("answer", "result"),
-    [
-        (ok({"ref": "refs/tags/v0.13.0"}), "created"),
-        (Completed(1, b"", b"gh: Reference already exists (HTTP 422)"), "exists"),
-        (Completed(1, b"", b"gh: Resource not accessible (HTTP 403)"), "rejected"),
-        (OSError("no gh"), "not_sent"),
-    ],
-)
-def test_github_creates_a_lightweight_tag(
-    answer: Completed | OSError, result: str
-) -> None:
-    runner = Runner(answer)
-    assert GitHubCli(runner).create_tag(REPO, "v0.13.0", COMMIT) == result
-    assert runner.calls[0][2:] == [
-        "-X",
-        "POST",
-        f"repos/{REPO}/git/refs",
-        "-f",
-        "ref=refs/tags/v0.13.0",
-        "-f",
-        f"sha={COMMIT}",
-    ]
-
-
-@pytest.mark.parametrize(
-    "answer",
-    [
-        Completed(1, b"", b"HTTP 502"),
-        Completed(1, b"", b"connection reset"),
-        subprocess.TimeoutExpired("gh", 1),
-    ],
-)
-def test_github_tag_answer_lost(answer: Completed | Exception) -> None:
-    with pytest.raises(TagAnswerLostError):
-        GitHubCli(Runner(answer)).create_tag(REPO, "v0.13.0", COMMIT)
 
 
 def test_github_reads_runs_and_wraps_other_reads() -> None:
@@ -1093,3 +1288,177 @@ def test_pypi_unreadable_provenance() -> None:
         )
     with pytest.raises(TargetUnreadableError):
         PyPIHttp(lambda u, h: _http(200, [1])).files("zeocore", VERSION)
+
+
+# -- the command: apply and approve -----------------------------------------
+
+
+def test_the_apply_and_approve_commands_journal_in_the_users_state(
+    tmp_path: Path,
+) -> None:
+    github = FakeGitHub()
+    environ = {
+        "ZEOCORE_RELEASE_APP_ID": str(APP_ID),
+        "XDG_STATE_HOME": str(tmp_path / "s"),
+    }
+    command = _command(github, FakePyPI(), environ)
+    status, answer = command(["pypi", "apply"], _manifest_file(tmp_path))
+    assert (status, answer["outcome"]) == (0, "tag_created")
+    github.workflow_runs = (WAITING,)
+    status, answer = command(["pypi", "approve"], _manifest_file(tmp_path))
+    assert (status, answer["outcome"]) == (0, "approved")
+    journal = tmp_path / "s" / "zeocore" / "release" / "pypi-journal.jsonl"
+    text = journal.read_text()
+    assert f"pypi:{REPO}:0.13.0" in text and f"approve:{REPO}:0.13.0" in text
+    journal.write_text("not json\n")
+    status, answer = command(["pypi", "apply"], _manifest_file(tmp_path))
+    assert (status, answer["outcome"]) == (20, "journal_unreadable")
+
+
+def test_apply_needs_the_release_app_id(tmp_path: Path) -> None:
+    status, answer = _command(FakeGitHub(), FakePyPI(), {})(
+        ["pypi", "apply"], _manifest_file(tmp_path)
+    )
+    assert (status, answer["outcome"]) == (20, "release_app_unconfigured")
+
+
+@pytest.mark.parametrize("value", ["zero", "-3", "0"])
+def test_a_bad_release_app_id_is_invalid(tmp_path: Path, value: str) -> None:
+    status, answer = _command(
+        FakeGitHub(), FakePyPI(), {"ZEOCORE_RELEASE_APP_ID": value}
+    )(["pypi", "admit"], _manifest_file(tmp_path))
+    assert (status, answer["outcome"]) == (2, "invalid_request")
+
+
+def test_another_run_holding_the_journal_is_held(tmp_path: Path) -> None:
+    environ = {
+        "ZEOCORE_RELEASE_APP_ID": str(APP_ID),
+        "XDG_STATE_HOME": str(tmp_path / "s"),
+    }
+    path = tmp_path / "s" / "zeocore" / "release" / "pypi-journal.jsonl"
+    path.parent.mkdir(parents=True)
+    holder = SigningJournal(path)
+    try:
+        status, answer = _command(FakeGitHub(), FakePyPI(), environ)(
+            ["pypi", "apply"], _manifest_file(tmp_path)
+        )
+    finally:
+        holder.close()
+    assert (status, answer["outcome"]) == (20, "apply_in_progress")
+
+
+# -- the new GitHub reads -------------------------------------------------------
+
+
+def _ruleset_detail(**changes: object) -> dict[str, object]:
+    detail: dict[str, object] = {
+        "enforcement": "active",
+        "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
+        "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}],
+        "bypass_actors": [
+            {"actor_id": APP_ID, "actor_type": "Integration", "bypass_mode": "always"}
+        ],
+    }
+    detail.update(changes)
+    return detail
+
+
+def test_github_reads_tag_rulesets() -> None:
+    runner = Runner(
+        ok([{"id": 1, "target": "branch"}, {"id": 7, "target": "tag"}]),
+        ok(_ruleset_detail()),
+    )
+    rulesets = GitHubCli(runner).tag_rulesets(REPO)
+    assert rulesets == (GOOD_RULESET,)
+    assert runner.calls[0][2].endswith("rulesets?per_page=100&includes_parents=true")
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        (ok({"not": "a list"}),),
+        (ok(["x"]),),
+        (ok([{"id": 7, "target": "tag"}]), MISSING),
+        (ok([{"id": 7, "target": "tag"}]), ok(_ruleset_detail(rules=[{"type": 3}]))),
+        (ok([{"id": 7, "target": "tag"}]), ok(_ruleset_detail(bypass_actors=["x"]))),
+        (ok([{"id": 7, "target": "tag"}]), ok(_ruleset_detail(enforcement=None))),
+        (ok([{"id": 7, "target": "tag"}]), ok(_ruleset_detail(rules="creation"))),
+        (ok([{"id": n, "target": "branch"} for n in range(100)]),),
+        (Completed(0, b"not json", b""),),
+    ],
+)
+def test_unreadable_rulesets(answers: tuple[Completed, ...]) -> None:
+    with pytest.raises(TargetUnreadableError):
+        GitHubCli(Runner(*answers)).tag_rulesets(REPO)
+
+
+def test_a_ruleset_without_ref_conditions_protects_nothing() -> None:
+    runner = Runner(
+        ok([{"id": 7, "target": "tag"}]),
+        ok(
+            _ruleset_detail(
+                conditions=None, bypass_actors=[{"actor_type": "Integration"}]
+            )
+        ),
+    )
+    (ruleset,) = GitHubCli(runner).tag_rulesets(REPO)
+    assert ruleset.includes == () and ruleset.bypass == (
+        ("Integration", None, "always"),
+    )
+
+
+def test_github_reads_pending_deployments() -> None:
+    answer = [
+        {"environment": {"id": 555, "name": "pypi"}, "current_user_can_approve": True}
+    ]
+    runner = Runner(ok(answer), ok([{"environment": "pypi"}]))
+    gh = GitHubCli(runner)
+    assert gh.pending_deployments(REPO, 99) == PENDING
+    assert runner.calls[0][2] == f"repos/{REPO}/actions/runs/99/pending_deployments"
+    with pytest.raises(TargetUnreadableError):
+        gh.pending_deployments(REPO, 99)
+
+
+@pytest.mark.parametrize(
+    ("answer", "result"),
+    [
+        (ok({}), "approved"),
+        (Completed(1, b"", b"gh: Not allowed (HTTP 422)"), "rejected"),
+        (OSError("no gh"), "not_sent"),
+    ],
+)
+def test_github_approves_one_deployment(
+    answer: Completed | OSError, result: str
+) -> None:
+    runner = Runner(answer)
+    assert GitHubCli(runner).approve_deployment(REPO, 99, 555, "why") == result
+    assert runner.calls[0][2:7] == [
+        "-X",
+        "POST",
+        f"repos/{REPO}/actions/runs/99/pending_deployments",
+        "-F",
+        "environment_ids[]=555",
+    ]
+    assert "state=approved" in runner.calls[0]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [Completed(1, b"", b"HTTP 502"), subprocess.TimeoutExpired("gh", 1)],
+)
+def test_a_lost_approval_answer(answer: Completed | Exception) -> None:
+    with pytest.raises(ApprovalAnswerLostError):
+        GitHubCli(Runner(answer)).approve_deployment(REPO, 99, 555, "why")
+
+
+def test_the_reviewed_targets() -> None:
+    from zeo_core.release.pypi import TARGETS
+
+    assert sorted(TARGETS) == [
+        "sovereign-agent",
+        "zeocore",
+        "zeocreator",
+        "zero-employee",
+    ]
+    assert {t.environment for t in TARGETS.values()} == {"pypi"}
+    assert _manifest(project="zeocreator", repository="zeroemployeeorg/zeocreator").tag

@@ -29,6 +29,7 @@ class SigningJournal:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._open: set[str] = set()
+        self._landed: set[str] = set()
         descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -57,6 +58,8 @@ class SigningJournal:
             self._open.add(key)
         else:
             self._open.discard(key)
+        if action == SIGNED:
+            self._landed.add(key)
 
     def append(self, key: str, action: Action, at: datetime) -> None:
         record = {"key": key, "action": action, "at": at.isoformat()}
@@ -68,6 +71,10 @@ class SigningJournal:
     def is_open(self, key: str) -> bool:
         """Whether an attempt was journaled for ``key`` and never closed."""
         return key in self._open
+
+    def has_landed(self, key: str) -> bool:
+        """Whether an effect for ``key`` was ever recorded as landed."""
+        return key in self._landed
 
     def close(self) -> None:
         self._file.close()

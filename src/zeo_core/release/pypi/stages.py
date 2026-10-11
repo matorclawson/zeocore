@@ -1,10 +1,12 @@
-"""The PyPI adapter's stages for ``pypi:zeocore`` (ZEOCORE-SOW-26).
+"""The PyPI adapter's stages, for each target in ``targets.TARGETS``.
 
-``plan``, ``admit``, ``reconcile`` and ``verify`` have no effect. ``apply``
-has the one effect: it creates the ``vX.Y.Z`` tag. The publish itself stays
-``publish.yml``'s, behind the operator's approval in the ``pypi``
-environment: the adapter never approves, never dispatches the workflow and
-never holds a PyPI credential.
+The operator delegated releases (2026-10-11): the ``zeo-release`` App creates
+the ``vX.Y.Z`` tag, and matorclawson approves the ``pypi`` deployment. Two
+distinct identities, so neither releases alone. ``plan``, ``admit``,
+``reconcile`` and ``verify`` have no effect. ``apply`` creates the tag, as
+the App, and ``approve`` approves the waiting deployment, as matorclawson,
+once. The publish itself stays the workflow's, through trusted publishing:
+the adapter never holds a PyPI credential and never dispatches a workflow.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Literal, Protocol
 
 import yaml
 from pydantic import (
@@ -28,25 +30,27 @@ from pydantic import (
 
 from zeo_core.release.signing.journal import FAILED, INTENT, SIGNED, SigningJournal
 
-from .reads import GitHub, PyPI, TagAnswerLostError, TargetUnreadableError
-
-#: Who must approve every publish: the operator, as the environment's only
-#: required reviewer, since any one listed reviewer can approve on GitHub.
-OPERATOR_REVIEWER: Final = "rodriveracom"
-#: The one target this adapter serves, pinned with zeocore's source. A local
-#: manifest can't name another repository, workflow or environment.
-TARGET: Final = {
-    "project": "zeocore",
-    "repository": "zeroemployeeorg/zeocore",
-    "workflow": "publish.yml",
-    "environment": "pypi",
-}
+from .reads import (
+    ApprovalAnswerLostError,
+    GitHub,
+    PyPI,
+    TagAnswerLostError,
+    TagResult,
+    TargetUnreadableError,
+)
+from .targets import (
+    APPROVER,
+    RELEASE_APP_SLUG,
+    RELEASE_TAG_POLICIES,
+    RELEASE_TAG_REF,
+    TARGETS,
+)
 
 Status = Literal["done", "waiting", "held", "refused", "invalid", "ambiguous"]
 
 
 class PyPIManifest(BaseModel):
-    """The ``pypi`` section of zeocore's ``release.yaml`` (SOW-26 §1)."""
+    """The ``pypi`` section of a target's ``release.yaml`` (SOW-26 §1)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -60,10 +64,15 @@ class PyPIManifest(BaseModel):
     environment: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,64}$")]
 
     @model_validator(mode="after")
-    def _is_the_pinned_target(self) -> PyPIManifest:
-        for name, pinned in TARGET.items():
-            if getattr(self, name) != pinned:
-                raise ValueError(f"{name} must be {pinned}, the reviewed target")
+    def _is_a_reviewed_target(self) -> PyPIManifest:
+        target = TARGETS.get(self.project)
+        if target is None:
+            raise ValueError(f"{self.project} is not a reviewed target")
+        for name in ("repository", "workflow", "environment"):
+            if getattr(self, name) != getattr(target, name):
+                raise ValueError(
+                    f"{name} must be {getattr(target, name)}, the reviewed target"
+                )
         return self
 
     @property
@@ -185,45 +194,56 @@ def plan(manifest: PyPIManifest, github: GitHub, pypi: PyPI) -> Outcome:
     )
 
 
-#: The only deployments the environment may allow: release tags.
-RELEASE_TAG_POLICIES: Final = frozenset({("v*", "tag"), ("v*.*.*", "tag")})
+class TagCreator(Protocol):
+    """The release App: who creates the tag, and the one call that does it."""
+
+    app_id: int
+
+    def identity(self) -> tuple[int, str]: ...
+
+    def create_tag(self, repo: str, tag: str, commit: str) -> TagResult: ...
 
 
-def admit(manifest: PyPIManifest, github: GitHub) -> Outcome:
-    """The operator approves every publish, and the tag's creator cannot.
+def admit(manifest: PyPIManifest, github: GitHub, app_id: int | None) -> Outcome:
+    """Only the two delegated identities, together, can release.
 
-    Checked at GitHub's own boundary (SOW-26 §2 and the Architect's reviews):
-    the operator is the environment's only required reviewer, since any one
-    listed reviewer can approve; the identity that will create the tag is
-    not the operator, so it can't approve its own deployment, and it can't
-    bypass the protection as an admin; and only release tags may deploy.
-    Otherwise "never approves" would be a convention, not a control.
+    Read at GitHub's own boundary (the operator's delegation, relayed in
+    msg-architect-zeocore-pypi-release-delegation-operator-20261011):
+    matorclawson is the environment's only required reviewer, with self-review
+    prevented and no admin bypass; only ``v*`` tags may deploy; a ruleset on
+    ``v*`` tags lets only the release App create, update or delete them; and
+    ``gh`` acts as matorclawson, the approver.
     """
+    repo, env = manifest.repository, manifest.environment
+    if app_id is None:
+        return Outcome(
+            "refused",
+            "release_app_unconfigured",
+            "the release App's id isn't configured",
+        )
     try:
-        policy = github.environment(manifest.repository, manifest.environment)
-        creator = github.identity(manifest.repository)
+        policy = github.environment(repo, env)
+        rulesets = github.tag_rulesets(repo)
+        approver = github.identity(repo)
     except TargetUnreadableError as error:
         return _held_unreadable(error)
-    env = manifest.environment
-    if policy is None or policy.required_reviewers != {OPERATOR_REVIEWER}:
+    if policy is None or policy.required_reviewers != {APPROVER}:
         return Outcome(
             "refused",
             "promotion_unbound",
-            f"the {env} environment's only required reviewer must be the operator, "
-            "because any listed reviewer can approve",
+            f"the {env} environment's only required reviewer must be {APPROVER}",
         )
-    if creator.login == OPERATOR_REVIEWER:
+    if not policy.prevent_self_review:
         return Outcome(
             "refused",
-            "creator_is_operator",
-            "the tag must be created by a seat or App identity, not the operator's",
+            "self_review_allowed",
+            f"the {env} environment allows self-review",
         )
-    if creator.admin and policy.can_admins_bypass:
+    if policy.can_admins_bypass:
         return Outcome(
             "refused",
             "admin_bypass_possible",
-            f"{creator.login} is an admin and the {env} environment lets admins "
-            "bypass its protection",
+            f"the {env} environment lets admins bypass its protection",
         )
     if (
         not policy.custom_policies
@@ -234,13 +254,37 @@ def admit(manifest: PyPIManifest, github: GitHub) -> Outcome:
             "deployment_policy_unrestricted",
             f"the {env} environment must deploy only from v* tags",
         )
+    guarding = [
+        ruleset
+        for ruleset in rulesets
+        if ruleset.enforcement == "active"
+        and RELEASE_TAG_REF in ruleset.includes
+        and not ruleset.excludes
+        and {"creation", "update", "deletion"} <= ruleset.rules
+        and [(kind, actor) for kind, actor, _mode in ruleset.bypass]
+        == [("Integration", app_id)]
+    ]
+    if not guarding:
+        return Outcome(
+            "refused",
+            "tag_ruleset_missing",
+            f"no active ruleset on {RELEASE_TAG_REF} lets only the release App "
+            "create, update or delete it",
+        )
+    if approver.login != APPROVER:
+        return Outcome(
+            "refused",
+            "approver_mismatch",
+            f"gh acts as {approver.login}, not {APPROVER}",
+        )
     return Outcome(
         "done",
         "admitted",
-        f"{OPERATOR_REVIEWER} approves the publish in {env}; {creator.login} cannot",
+        f"the release App tags and {APPROVER} alone approves in {env}",
         {
             "required_reviewers": sorted(policy.required_reviewers),
-            "creator": creator.login,
+            "release_app_id": app_id,
+            "tag_ruleset": guarding[0].id,
             "deployment_policies": sorted(
                 f"{n} ({t})" for n, t in policy.custom_policies
             ),
@@ -275,8 +319,8 @@ def reconcile(manifest: PyPIManifest, github: GitHub) -> Outcome:
     if latest.status == "waiting":
         return Outcome(
             "waiting",
-            "awaiting_operator_approval",
-            f"the publish waits for the operator's approval in {manifest.environment}",
+            "awaiting_approval",
+            f"the publish waits for {APPROVER}'s approval in {manifest.environment}",
         )
     if latest.status != "completed":
         return Outcome("waiting", "publish_running", f"the publish is {latest.status}")
@@ -371,13 +415,33 @@ def _settle_open(
         return Outcome(
             "ambiguous",
             "apply_unreconciled",
-            "an earlier tag creation's answer was lost and the tag isn't there; "
-            "it is not retried",
+            "an earlier tag creation's answer was lost and the tag isn't at the "
+            "commit; it is not retried",
         )
     journal.append(key, SIGNED, now())
     return Outcome(
         "done", "already_applied", f"{manifest.tag} is already at the commit"
     )
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _creator_refusal(app: TagCreator) -> Outcome | None:
+    """None when the key signs for the release App itself."""
+    try:
+        identity = app.identity()
+    except TargetUnreadableError as error:
+        return _held_unreadable(error)
+    if identity != (app.app_id, RELEASE_APP_SLUG):
+        return Outcome(
+            "refused",
+            "creator_not_release_app",
+            f"the key signs for {identity[1]} ({identity[0]}), "
+            f"not {RELEASE_APP_SLUG} ({app.app_id})",
+        )
+    return None
 
 
 def journal_key(manifest: PyPIManifest) -> str:
@@ -389,15 +453,17 @@ def apply(
     manifest: PyPIManifest,
     github: GitHub,
     pypi: PyPI,
+    app: TagCreator,
     journal: SigningJournal,
-    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    now: Callable[[], datetime] = _now,
 ) -> Outcome:
-    """The adapter's one effect: create ``vX.Y.Z`` at the reviewed commit.
+    """Create ``vX.Y.Z`` at the reviewed commit, as the release App.
 
     An open intent from an earlier attempt is settled first, by reading the
     tag back. Then ``plan`` and ``admit`` run again, at the boundary. The
     intent is on disk before the call, and the call is never retried: an
     answer that is lost leaves the intent open and the outcome ambiguous.
+    The creator is checked to be the release App itself before the call.
     The journal's "signed" record here means "the tag landed".
     """
     key = journal_key(manifest)
@@ -410,12 +476,15 @@ def apply(
         return Outcome(
             "done", "already_applied", f"{manifest.tag} is already at the commit"
         )
-    admitted = admit(manifest, github)
+    admitted = admit(manifest, github, app.app_id)
     if admitted.status != "done":
         return admitted
+    creator = _creator_refusal(app)
+    if creator is not None:
+        return creator
     journal.append(key, INTENT, now())
     try:
-        result = github.create_tag(manifest.repository, manifest.tag, manifest.commit)
+        result = app.create_tag(manifest.repository, manifest.tag, manifest.commit)
     except TagAnswerLostError:
         return Outcome(
             "ambiguous",
@@ -439,7 +508,113 @@ def apply(
     return Outcome(
         "done",
         "tag_created",
-        f"{manifest.tag} is at the commit; the publish now waits for the "
-        "operator's approval",
+        f"{manifest.tag} is at the commit; the publish now waits for "
+        f"{APPROVER}'s approval",
         {"tag": manifest.tag, "commit": manifest.commit},
     )
+
+
+def approve(
+    manifest: PyPIManifest,
+    github: GitHub,
+    pypi: PyPI,
+    app_id: int | None,
+    journal: SigningJournal,
+    now: Callable[[], datetime] = _now,
+) -> Outcome:
+    """Approve the waiting ``pypi`` deployment, as matorclawson, exactly once.
+
+    Only for the one run of this exact tag and commit, waiting on exactly
+    this environment, after ``plan`` and ``admit`` pass again. An approval
+    that landed is never sent again, and a lost answer is ambiguous.
+    """
+    key = f"approve:{manifest.repository}:{manifest.version}"
+    if journal.has_landed(key):
+        return Outcome("done", "already_approved", f"{manifest.tag} was approved once")
+    waiting = _waiting_run(manifest, github)
+    if journal.is_open(key):
+        if isinstance(waiting, Outcome) and waiting.reason == "publish_moved_on":
+            journal.append(key, SIGNED, now())
+            return Outcome("done", "already_approved", f"{manifest.tag} was approved")
+        return Outcome(
+            "ambiguous",
+            "approve_unreconciled",
+            "an earlier approval's answer was lost and the run still waits; "
+            "it is not sent again",
+        )
+    planned = plan(manifest, github, pypi)
+    if planned.status != "done":
+        return planned
+    if planned.facts["stage"] != "already-applied":
+        return Outcome("held", "tag_absent", f"{manifest.tag} has not been created")
+    admitted = admit(manifest, github, app_id)
+    if admitted.status != "done":
+        return admitted
+    if isinstance(waiting, Outcome):
+        return waiting
+    run_id, environment_id = waiting
+    journal.append(key, INTENT, now())
+    try:
+        result = github.approve_deployment(
+            manifest.repository,
+            run_id,
+            environment_id,
+            f"zeocore release pypi approve: {manifest.tag} at {manifest.commit}",
+        )
+    except ApprovalAnswerLostError:
+        return Outcome(
+            "ambiguous",
+            "approve_unreconciled",
+            "the approval's answer was lost; it is not sent again",
+        )
+    if result != "approved":
+        journal.append(key, FAILED, now())
+        return Outcome("held", "approval_not_sent", "GitHub did not take the approval")
+    journal.append(key, SIGNED, now())
+    return Outcome(
+        "done",
+        "approved",
+        f"{APPROVER} approved the {manifest.environment} deployment of {manifest.tag}",
+        {"run_id": run_id, "environment_id": environment_id},
+    )
+
+
+def _waiting_run(manifest: PyPIManifest, github: GitHub) -> tuple[int, int] | Outcome:
+    """The one run of this tag and commit waiting on this environment, if any."""
+    try:
+        runs = [
+            run
+            for run in github.runs(
+                manifest.repository, manifest.workflow, manifest.commit
+            )
+            if run.head_branch == manifest.tag
+        ]
+        waiting = [run for run in runs if run.status == "waiting"]
+        if not waiting:
+            if runs:
+                return Outcome(
+                    "done", "publish_moved_on", f"the {manifest.tag} run isn't waiting"
+                )
+            return Outcome(
+                "waiting", "publish_pending", f"no run for {manifest.tag} yet"
+            )
+        if len(waiting) != 1 or waiting[0].id is None:
+            return Outcome(
+                "refused", "approval_unexpected", "more than one run waits for the tag"
+            )
+        pending = github.pending_deployments(manifest.repository, waiting[0].id)
+    except TargetUnreadableError as error:
+        return _held_unreadable(error)
+    if len(pending) != 1 or pending[0].environment != manifest.environment:
+        return Outcome(
+            "refused",
+            "approval_unexpected",
+            f"the run must wait on {manifest.environment} alone",
+        )
+    if not pending[0].can_approve:
+        return Outcome(
+            "refused",
+            "approver_cannot_approve",
+            f"gh's identity can't approve {manifest.environment}",
+        )
+    return waiting[0].id, pending[0].environment_id

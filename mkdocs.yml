@@ -85,7 +85,7 @@ nav:
       - Register a provider: how-to/provider-registration.md
       - Runtime host: how-to/runtime-host.md
       - Sign and verify a release: how-to/release-signing.md
-      - Check a release on PyPI: how-to/release-pypi.md
+      - Release to PyPI: how-to/release-pypi.md
       - Results and errors: tutorials/results-and-errors.md
       - Context and files: tutorials/context-config-files.md
       - Resilient execution: tutorials/resilient-execution.md
