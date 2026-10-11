@@ -8,17 +8,25 @@ environment. The adapter makes the steps around that approval explicit.
 
 ## The manifest
 
-zeocore's `release.yaml`, changed in the release's own reviewed PR:
+zeocore's `release.yaml` is changed in the release's own reviewed PR. A file
+can't name the commit it's part of, so the committed section has no
+`commit`:
 
 ```yaml
 pypi:
   project: zeocore
   version: X.Y.Z
   repository: zeroemployeeorg/zeocore
-  commit: "<40 hex, on the default branch>"
   workflow: publish.yml
   environment: pypi
 ```
+
+The stages read a local copy of the same section, with `commit` added: the
+40-hex commit on the default branch that the release is cut from. `plan`
+refuses unless every other field equals `release.yaml` at that commit
+(`manifest_unreviewed`). The project, repository, workflow and environment
+are also pinned in zeocore's source, so a manifest can't point the adapter at
+another target.
 
 ## The stages
 
@@ -47,11 +55,10 @@ The identity that creates the tag must not be able to approve or bypass the
 publish. Otherwise "never approves" would be a convention, not a control.
 `admit` refuses unless all of these hold, read through GitHub's own API:
 
-- the operator is a required reviewer of the `pypi` environment
-  (`promotion_unbound`);
-- the identity creating the tag is not the operator's (`creator_is_operator`);
-- it can't approve its own deployment: either self-review is prevented, or it
-  isn't a required reviewer (`self_approval_possible`);
+- the operator is the `pypi` environment's only required reviewer, because
+  any one listed reviewer can approve (`promotion_unbound`);
+- the identity creating the tag is not the operator's, so it can't approve
+  its own deployment (`creator_is_operator`);
 - it can't bypass the protection as an admin: either the environment doesn't
   let admins bypass, or the identity isn't an admin (`admin_bypass_possible`);
 - the environment deploys only from `v*` tags (`deployment_policy_unrestricted`).

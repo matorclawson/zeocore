@@ -64,11 +64,29 @@ def _manifest(**changes: str) -> PyPIManifest:
     return PyPIManifest.model_validate(values)
 
 
+def _section(version: str = VERSION) -> dict[str, str]:
+    return {
+        "project": "zeocore",
+        "version": version,
+        "repository": REPO,
+        "commit": COMMIT,
+        "workflow": "publish.yml",
+        "environment": "pypi",
+    }
+
+
+def _committed(version: str = VERSION) -> dict[str, str]:
+    """The section as committed: a file can't name its own commit."""
+    section = _section(version)
+    del section["commit"]
+    return section
+
+
 def _files_at(version: str = VERSION) -> dict[str, bytes]:
     pyproject = f'[project]\nname = "zeocore"\nversion = "{version}"\n'
     return {
         "pyproject.toml": pyproject.encode(),
-        "release.yaml": f"pypi:\n  version: {version}\n".encode(),
+        "release.yaml": yaml.safe_dump({"pypi": _committed(version)}).encode(),
         "CHANGELOG.md": f"# Changelog\n\n## [{version}] - 2026-10-11\n".encode(),
     }
 
@@ -179,7 +197,17 @@ def test_plan_sees_a_tag_already_at_the_commit_as_applied() -> None:
     ("github", "pypi", "reason"),
     [
         (FakeGitHub(merged=False), FakePyPI(), "commit_unreviewed"),
-        (FakeGitHub(files=_files_at("0.12.9")), FakePyPI(), "version_mismatch"),
+        (FakeGitHub(files=_files_at("0.12.9")), FakePyPI(), "manifest_unreviewed"),
+        (
+            FakeGitHub(
+                files={
+                    **_files_at(),
+                    "pyproject.toml": b'[project]\nversion = "0.12.9"\n',
+                }
+            ),
+            FakePyPI(),
+            "version_mismatch",
+        ),
         (
             FakeGitHub(files={**_files_at(), "release.yaml": b"pypi: [1"}),
             FakePyPI(),
@@ -246,11 +274,10 @@ def _policy(**changes: object) -> EnvironmentPolicy:
         (
             FakeGitHub(
                 policy=_policy(
-                    required_reviewers=frozenset({"rodriveracom", "matorclawson"}),
-                    prevent_self_review=False,
+                    required_reviewers=frozenset({"rodriveracom", "matorclawson"})
                 )
             ),
-            "self_approval_possible",
+            "promotion_unbound",
         ),
         (FakeGitHub(policy=_policy(can_admins_bypass=True)), "admin_bypass_possible"),
         (
@@ -283,13 +310,6 @@ def test_admit_refuses_unless_the_approval_is_a_control(
 def test_admit_allows_a_non_admin_creator_while_admins_may_bypass() -> None:
     github = FakeGitHub(
         policy=_policy(can_admins_bypass=True), creator=Identity("zeocore-bot", False)
-    )
-    assert admit(_manifest(), github).reason == "admitted"
-
-
-def test_admit_allows_a_reviewer_creator_when_self_review_is_prevented() -> None:
-    github = FakeGitHub(
-        policy=_policy(required_reviewers=frozenset({"rodriveracom", "matorclawson"}))
     )
     assert admit(_manifest(), github).reason == "admitted"
 
@@ -372,12 +392,8 @@ def test_an_existing_ref_is_read_back(journal: SigningJournal) -> None:
     assert apply(_manifest(), landed, FakePyPI(), journal).reason == "tag_created"
     elsewhere = Racing()
     elsewhere.race = "b" * 40
-    assert apply(
-        _manifest(version="0.13.1"), elsewhere, FakePyPI(), journal
-    ).reason in {
-        "tag_not_created",
-        "version_mismatch",
-    }
+    outcome = apply(_manifest(), elsewhere, FakePyPI(), journal)
+    assert outcome.reason == "tag_not_created"
 
 
 def test_an_existing_ref_that_cant_be_read_is_ambiguous(
@@ -408,25 +424,31 @@ def test_an_existing_ref_that_cant_be_read_is_ambiguous(
         (FakeGitHub(tag="b" * 40), "refused", "tag_mismatch"),
         (FakeGitHub(tag=COMMIT), "waiting", "publish_pending"),
         (
-            FakeGitHub(tag=COMMIT, workflow_runs=(WorkflowRun("waiting", None),)),
+            FakeGitHub(
+                tag=COMMIT, workflow_runs=(WorkflowRun("waiting", None, "v0.13.0"),)
+            ),
             "waiting",
             "awaiting_operator_approval",
         ),
         (
-            FakeGitHub(tag=COMMIT, workflow_runs=(WorkflowRun("in_progress", None),)),
+            FakeGitHub(
+                tag=COMMIT, workflow_runs=(WorkflowRun("in_progress", None, "v0.13.0"),)
+            ),
             "waiting",
             "publish_running",
         ),
         (
             FakeGitHub(
-                tag=COMMIT, workflow_runs=(WorkflowRun("completed", "failure"),)
+                tag=COMMIT,
+                workflow_runs=(WorkflowRun("completed", "failure", "v0.13.0"),),
             ),
             "held",
             "publish_failed",
         ),
         (
             FakeGitHub(
-                tag=COMMIT, workflow_runs=(WorkflowRun("completed", "success"),)
+                tag=COMMIT,
+                workflow_runs=(WorkflowRun("completed", "success", "v0.13.0"),),
             ),
             "done",
             "published",
@@ -591,7 +613,9 @@ def _manifest_file(tmp_path: Path) -> bytes:
         ("admit", FakeGitHub(policy=None), FakePyPI(), 20, "promotion_unbound"),
         (
             "reconcile",
-            FakeGitHub(tag=COMMIT, workflow_runs=(WorkflowRun("waiting", None),)),
+            FakeGitHub(
+                tag=COMMIT, workflow_runs=(WorkflowRun("waiting", None, "v0.13.0"),)
+            ),
             FakePyPI(),
             11,
             "awaiting_operator_approval",
@@ -698,7 +722,6 @@ def test_github_reads_an_environment_policy() -> None:
                         "prevent_self_review": True,
                         "reviewers": [
                             {"reviewer": {"login": "rodriveracom"}},
-                            {"reviewer": {}},
                         ],
                     }
                 ],
@@ -768,27 +791,22 @@ def test_github_tag_answer_lost(answer: Completed | Exception) -> None:
 
 
 def test_github_reads_runs_and_wraps_other_reads() -> None:
+    run = {"status": "completed", "conclusion": "success", "head_branch": "v0.13.0"}
     runner = Runner(
-        ok(
-            {
-                "workflow_runs": [
-                    {"status": "completed", "conclusion": "success"},
-                    {"status": 3},
-                    "x",
-                ]
-            }
-        ),
-        MISSING,
+        ok({"workflow_runs": [run]}),
+        ok({"workflow_runs": [{"status": "completed"}]}),
         BROKEN,
         BROKEN,
         BROKEN,
     )
     gh = GitHubCli(runner)
     assert gh.runs(REPO, "publish.yml", COMMIT) == (
-        WorkflowRun("completed", "success"),
+        WorkflowRun("completed", "success", "v0.13.0"),
     )
     assert "head_sha=" + COMMIT in runner.calls[0][2]
-    assert gh.runs(REPO, "publish.yml", COMMIT) == ()
+    assert gh.runs(REPO, "publish.yml", COMMIT) == (
+        WorkflowRun("completed", None, None),
+    )
     for read in (
         lambda: gh.default_branch(REPO),
         lambda: gh.is_ancestor(REPO, COMMIT, "main"),
@@ -796,6 +814,73 @@ def test_github_reads_runs_and_wraps_other_reads() -> None:
     ):
         with pytest.raises(TargetUnreadableError):
             read()
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        MISSING,  # no such workflow: never "waiting" forever
+        ok({"workflow_runs": [{"status": 3}]}),
+        ok({"workflow_runs": ["x"]}),
+    ],
+)
+def test_github_unreadable_runs(answer: Completed) -> None:
+    with pytest.raises(TargetUnreadableError):
+        GitHubCli(Runner(answer)).runs(REPO, "publish.yml", COMMIT)
+
+
+@pytest.mark.parametrize("entry", [{"reviewer": {}}, {"reviewer": "x"}, "x"])
+def test_an_unreadable_reviewer_is_never_assumed(entry: object) -> None:
+    answer = ok(
+        {"protection_rules": [{"type": "required_reviewers", "reviewers": [entry]}]}
+    )
+    with pytest.raises(TargetUnreadableError):
+        GitHubCli(Runner(answer)).environment(REPO, "pypi")
+
+
+def test_a_non_dict_publisher_is_unreadable() -> None:
+    bundle = _bundle(PUBLISHER, WHEEL)
+    bundle["attestation_bundles"][0]["publisher"] = "GitHub"
+    with pytest.raises(TargetUnreadableError):
+        PyPIHttp(lambda u, h: _http(200, bundle)).provenance("zeocore", VERSION, "x")
+
+
+def test_reconcile_ignores_runs_for_other_refs() -> None:
+    github = FakeGitHub(
+        tag=COMMIT, workflow_runs=(WorkflowRun("completed", "success", "main"),)
+    )
+    outcome = reconcile(_manifest(), github)
+    assert (outcome.status, outcome.reason) == ("waiting", "publish_pending")
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"repository": "fork/zeocore"},
+        {"workflow": "other.yml"},
+        {"environment": "testpypi"},
+        {"project": "other"},
+    ],
+)
+def test_the_target_is_pinned(changes: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="reviewed target"):
+        _manifest(**changes)
+
+
+def _release_at(section: dict[str, str]) -> FakeGitHub:
+    content = yaml.safe_dump({"pypi": section}).encode()
+    return FakeGitHub(files={**_files_at(), "release.yaml": content})
+
+
+def test_a_local_section_unlike_the_committed_one_is_unreviewed() -> None:
+    # The committed file names another version; locally it says 0.13.0.
+    outcome = plan(_manifest(), _release_at(_committed("0.13.5")), FakePyPI())
+    assert (outcome.status, outcome.reason) == ("refused", "manifest_unreviewed")
+
+
+def test_a_committed_section_naming_a_commit_is_not_accepted() -> None:
+    outcome = plan(_manifest(), _release_at(_section()), FakePyPI())
+    assert (outcome.status, outcome.reason) == ("refused", "version_mismatch")
 
 
 def _http(status: int, body: object) -> httpx.Response:

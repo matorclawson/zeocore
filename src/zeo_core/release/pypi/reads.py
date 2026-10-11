@@ -41,6 +41,7 @@ TagResult = Literal["created", "not_sent", "rejected", "exists"]
 class WorkflowRun:
     status: str  # queued, in_progress, waiting, requested, pending, completed
     conclusion: str | None  # success, failure, cancelled, ... once completed
+    head_branch: str | None = None  # for a tag push, the tag's name
 
 
 @dataclass(frozen=True)
@@ -182,9 +183,16 @@ class GitHubCli(GhCli):
                 reviewers = set() if reviewers is None else reviewers
                 prevent_self_review = rule.get("prevent_self_review") is True
                 for entry in rule.get("reviewers") or ():
-                    login = (entry.get("reviewer") or {}).get("login")
-                    if isinstance(login, str):
-                        reviewers.add(login)
+                    reviewer = (
+                        entry.get("reviewer") if isinstance(entry, dict) else None
+                    )
+                    login = (
+                        reviewer.get("login") if isinstance(reviewer, dict) else None
+                    )
+                    if not isinstance(login, str):
+                        # An unreadable reviewer may be anyone: never assume.
+                        raise TargetUnreadableError("a required reviewer is unreadable")
+                    reviewers.add(login)
         policy = answer.get("deployment_branch_policy")
         custom: tuple[tuple[str, str], ...] | None = None
         if isinstance(policy, dict) and policy.get("custom_branch_policies") is True:
@@ -241,17 +249,21 @@ class GitHubCli(GhCli):
             f"repos/{repo}/actions/workflows/{quote(workflow)}/runs"
             f"?head_sha={commit}&event=push"
         )
-        answer = self._object(endpoint) or {}
+        answer = self._object(endpoint)
+        if answer is None:
+            raise TargetUnreadableError(f"{workflow} is not a workflow of {repo}")
         runs = []
         for run in answer.get("workflow_runs") or ():
-            if isinstance(run, dict) and isinstance(run.get("status"), str):
-                conclusion = run.get("conclusion")
-                runs.append(
-                    WorkflowRun(
-                        run["status"],
-                        conclusion if isinstance(conclusion, str) else None,
-                    )
+            if not isinstance(run, dict) or not isinstance(run.get("status"), str):
+                raise TargetUnreadableError("a workflow run is unreadable")
+            conclusion, branch = run.get("conclusion"), run.get("head_branch")
+            runs.append(
+                WorkflowRun(
+                    run["status"],
+                    conclusion if isinstance(conclusion, str) else None,
+                    branch if isinstance(branch, str) else None,
                 )
+            )
         return tuple(runs)
 
 
@@ -321,7 +333,10 @@ class PyPIHttp:
                         (str(item["name"]), str(item["digest"]["sha256"]))
                         for item in statement["subject"]
                     )
-                    found.append(Provenance(bundle["publisher"], subjects))
+                    publisher = bundle["publisher"]
+                    if not isinstance(publisher, dict):
+                        raise TypeError
+                    found.append(Provenance(publisher, subjects))
             return tuple(found)
         except KeyError, TypeError, ValueError:
             raise TargetUnreadableError(

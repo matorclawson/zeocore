@@ -18,15 +18,29 @@ from pathlib import Path
 from typing import Annotated, Any, Final, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    StringConstraints,
+    ValidationError,
+    model_validator,
+)
 
 from zeo_core.release.signing.journal import FAILED, INTENT, SIGNED, SigningJournal
 
 from .reads import GitHub, PyPI, TagAnswerLostError, TargetUnreadableError
 
-#: Who must approve every publish, as a required reviewer of the environment.
-#: Reviewed with zeocore's source: the operator.
+#: Who must approve every publish: the operator, as the environment's only
+#: required reviewer, since any one listed reviewer can approve on GitHub.
 OPERATOR_REVIEWER: Final = "rodriveracom"
+#: The one target this adapter serves, pinned with zeocore's source. A local
+#: manifest can't name another repository, workflow or environment.
+TARGET: Final = {
+    "project": "zeocore",
+    "repository": "zeroemployeeorg/zeocore",
+    "workflow": "publish.yml",
+    "environment": "pypi",
+}
 
 Status = Literal["done", "waiting", "held", "refused", "invalid", "ambiguous"]
 
@@ -44,6 +58,13 @@ class PyPIManifest(BaseModel):
     commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
     workflow: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+\.ya?ml$")]
     environment: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,64}$")]
+
+    @model_validator(mode="after")
+    def _is_the_pinned_target(self) -> PyPIManifest:
+        for name, pinned in TARGET.items():
+            if getattr(self, name) != pinned:
+                raise ValueError(f"{name} must be {pinned}, the reviewed target")
+        return self
 
     @property
     def tag(self) -> str:
@@ -96,12 +117,19 @@ def _pyproject_version(content: bytes) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _manifest_version(content: bytes) -> str | None:
+def _committed_manifest(content: bytes, commit: str) -> PyPIManifest | None:
+    """``release.yaml``'s pypi section as committed, at ``commit``.
+
+    A file can't name the commit that contains it, so the committed section
+    has no ``commit``; every other field must equal the local manifest's.
+    """
     try:
-        value = _section(content).get("version")
-    except ManifestError:
+        section = _section(content)
+        if "commit" in section:
+            return None
+        return PyPIManifest.model_validate({**section, "commit": commit})
+    except ManifestError, ValidationError:
         return None
-    return value if isinstance(value, str) else None
 
 
 def plan(manifest: PyPIManifest, github: GitHub, pypi: PyPI) -> Outcome:
@@ -123,9 +151,16 @@ def plan(manifest: PyPIManifest, github: GitHub, pypi: PyPI) -> Outcome:
         heading = re.compile(
             rb"^## \[" + re.escape(manifest.version.encode()) + rb"\]", re.MULTILINE
         )
+        committed = _committed_manifest(release, commit)
+        if committed is not None and committed != manifest:
+            return Outcome(
+                "refused",
+                "manifest_unreviewed",
+                "the local pypi section differs from release.yaml at the commit",
+            )
         if (
             _pyproject_version(pyproject) != manifest.version
-            or _manifest_version(release) != manifest.version
+            or committed is None
             or not heading.search(changelog)
         ):
             return Outcome(
@@ -157,9 +192,10 @@ RELEASE_TAG_POLICIES: Final = frozenset({("v*", "tag"), ("v*.*.*", "tag")})
 def admit(manifest: PyPIManifest, github: GitHub) -> Outcome:
     """The operator approves every publish, and the tag's creator cannot.
 
-    Checked at GitHub's own boundary (SOW-26 §2 and the Architect's review):
-    the operator is a required reviewer; the identity that will create the
-    tag is not the operator, cannot approve its own deployment, and cannot
+    Checked at GitHub's own boundary (SOW-26 §2 and the Architect's reviews):
+    the operator is the environment's only required reviewer, since any one
+    listed reviewer can approve; the identity that will create the tag is
+    not the operator, so it can't approve its own deployment, and it can't
     bypass the protection as an admin; and only release tags may deploy.
     Otherwise "never approves" would be a convention, not a control.
     """
@@ -169,27 +205,18 @@ def admit(manifest: PyPIManifest, github: GitHub) -> Outcome:
     except TargetUnreadableError as error:
         return _held_unreadable(error)
     env = manifest.environment
-    if (
-        policy is None
-        or not policy.required_reviewers
-        or (OPERATOR_REVIEWER not in policy.required_reviewers)
-    ):
+    if policy is None or policy.required_reviewers != {OPERATOR_REVIEWER}:
         return Outcome(
             "refused",
             "promotion_unbound",
-            f"the {env} environment doesn't require the operator's approval",
+            f"the {env} environment's only required reviewer must be the operator, "
+            "because any listed reviewer can approve",
         )
     if creator.login == OPERATOR_REVIEWER:
         return Outcome(
             "refused",
             "creator_is_operator",
             "the tag must be created by a seat or App identity, not the operator's",
-        )
-    if creator.login in policy.required_reviewers and not policy.prevent_self_review:
-        return Outcome(
-            "refused",
-            "self_approval_possible",
-            f"{creator.login} could approve the deployment it starts",
         )
     if creator.admin and policy.can_admins_bypass:
         return Outcome(
@@ -239,7 +266,12 @@ def reconcile(manifest: PyPIManifest, github: GitHub) -> Outcome:
         return Outcome(
             "waiting", "publish_pending", f"no {manifest.workflow} run for the tag yet"
         )
-    latest = runs[0]  # GitHub lists the newest run first
+    for_tag = [run for run in runs if run.head_branch == manifest.tag]
+    if not for_tag:
+        return Outcome(
+            "waiting", "publish_pending", f"no {manifest.workflow} run for the tag yet"
+        )
+    latest = for_tag[0]  # GitHub lists the newest run first
     if latest.status == "waiting":
         return Outcome(
             "waiting",
