@@ -150,6 +150,13 @@ def plan(manifest: PyPIManifest, github: GitHub, pypi: PyPI) -> Outcome:
             return Outcome(
                 "refused", "commit_unreviewed", f"{commit} is not on {branch}"
             )
+        workflow = f".github/workflows/{manifest.workflow}"
+        if github.file_at(repo, commit, workflow) is None:
+            # Under the v* ruleset a tag can't be deleted, so a tag with no
+            # workflow to publish it would stay forever: refuse before it.
+            return Outcome(
+                "refused", "workflow_missing", f"{workflow} is not at the commit"
+            )
         if pypi.files(manifest.project, manifest.version) is not None:
             return Outcome(
                 "refused", "version_published", f"PyPI already has {manifest.version}"
@@ -533,15 +540,7 @@ def approve(
         return Outcome("done", "already_approved", f"{manifest.tag} was approved once")
     waiting = _waiting_run(manifest, github)
     if journal.is_open(key):
-        if isinstance(waiting, Outcome) and waiting.reason == "publish_moved_on":
-            journal.append(key, SIGNED, now())
-            return Outcome("done", "already_approved", f"{manifest.tag} was approved")
-        return Outcome(
-            "ambiguous",
-            "approve_unreconciled",
-            "an earlier approval's answer was lost and the run still waits; "
-            "it is not sent again",
-        )
+        return _settle_approval(manifest, github, journal, key, waiting, now)
     planned = plan(manifest, github, pypi)
     if planned.status != "done":
         return planned
@@ -579,6 +578,52 @@ def approve(
     )
 
 
+def _settle_approval(
+    manifest: PyPIManifest,
+    github: GitHub,
+    journal: SigningJournal,
+    key: str,
+    waiting: tuple[int, int] | Outcome,
+    now: Callable[[], datetime],
+) -> Outcome:
+    """An earlier approval's answer was lost: read back what GitHub recorded.
+
+    It is closed as approved only when GitHub shows matorclawson's approval of
+    this environment on the tag's run; as refused when it shows a rejection.
+    Anything else stays ambiguous, and nothing is sent again.
+    """
+    unsettled = Outcome(
+        "ambiguous",
+        "approve_unreconciled",
+        "an earlier approval's answer was lost and GitHub shows no approval "
+        f"by {APPROVER} of {manifest.environment}; it is not sent again",
+    )
+    if not isinstance(waiting, Outcome) or waiting.reason != "run_not_waiting":
+        return unsettled
+    try:
+        reviews = [
+            review
+            for run_id in waiting.facts["run_ids"]
+            for review in github.run_approvals(manifest.repository, run_id)
+            if manifest.environment in review.environments
+        ]
+    except TargetUnreadableError:
+        return unsettled
+    if any(
+        review.state == "approved" and review.login == APPROVER for review in reviews
+    ):
+        journal.append(key, SIGNED, now())
+        return Outcome(
+            "done", "already_approved", f"{APPROVER} approved {manifest.tag}"
+        )
+    if any(review.state == "rejected" for review in reviews):
+        journal.append(key, FAILED, now())
+        return Outcome(
+            "held", "approval_rejected", f"the {manifest.tag} deployment was rejected"
+        )
+    return unsettled
+
+
 def _waiting_run(manifest: PyPIManifest, github: GitHub) -> tuple[int, int] | Outcome:
     """The one run of this tag and commit waiting on this environment, if any."""
     try:
@@ -593,7 +638,10 @@ def _waiting_run(manifest: PyPIManifest, github: GitHub) -> tuple[int, int] | Ou
         if not waiting:
             if runs:
                 return Outcome(
-                    "done", "publish_moved_on", f"the {manifest.tag} run isn't waiting"
+                    "held",
+                    "run_not_waiting",
+                    f"the {manifest.tag} run isn't waiting for an approval",
+                    {"run_ids": [run.id for run in runs if run.id is not None]},
                 )
             return Outcome(
                 "waiting", "publish_pending", f"no run for {manifest.tag} yet"
