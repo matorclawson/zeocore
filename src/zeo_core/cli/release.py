@@ -15,9 +15,10 @@ pack again is safe: a settled request gets the same answer and is never
 signed twice. ``serve`` runs that service from ``{"listen", "state_dir"}``
 until interrupted (ZEOCORE-SOW-24).
 
-``pypi plan | admit | reconcile | verify`` are the PyPI adapter's stages for
-``pypi:zeocore`` (ZEOCORE-SOW-26), from ``{"manifest": "<release.yaml>"}``.
-None has an effect: the one effect, the release tag, isn't built yet.
+``pypi plan | admit | apply | reconcile | verify`` are the PyPI adapter's
+stages for ``pypi:zeocore`` (ZEOCORE-SOW-26), from
+``{"manifest": "<release.yaml>"}``; ``apply`` also takes ``"work_dir"`` for
+its journal. Only ``apply`` has an effect: it creates the release tag.
 Every signing input comes from the manifest's ``signing`` section, never from
 a flag. The signing host is configuration: ``ZEOCORE_SIGNING_HOST`` names it,
 and ``sign`` holds on any other host. ``verify`` is read-only and runs on any
@@ -45,6 +46,7 @@ from zeo_core.release.signing import (
     ManifestError,
     Outcome,
     PackError,
+    SigningJournal,
     SigningRequest,
     Toolchain,
     WorkDir,
@@ -287,18 +289,42 @@ def _parse(verb: str, stdin: bytes) -> dict[str, str] | Answer:
 
 
 PyPIReads = Callable[[], tuple[pypi.GitHubCli, pypi.PyPIHttp]]
-_PYPI_STAGES: Final = ("plan", "admit", "reconcile", "verify")
+_PYPI_STAGES: Final = ("plan", "admit", "apply", "reconcile", "verify")
 _PYPI_EXIT: Final = {
     "done": EXIT_DONE,
     "waiting": EXIT_WAIT,
     "held": EXIT_HELD,
     "refused": EXIT_HELD,
     "invalid": EXIT_INVALID,
+    "ambiguous": EXIT_AMBIGUOUS,
 }
 
 
 def _default_pypi_reads() -> tuple[pypi.GitHubCli, pypi.PyPIHttp]:
     return pypi.GitHubCli(), pypi.PyPIHttp()
+
+
+def _pypi_apply(
+    manifest: pypi.PyPIManifest,
+    github: pypi.GitHubCli,
+    index: pypi.PyPIHttp,
+    work_dir: Path,
+) -> pypi.Outcome:
+    work_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        journal = SigningJournal(work_dir / "pypi-journal.jsonl")
+    except JournalHeldError:
+        return pypi.Outcome(
+            "held", "apply_in_progress", "another apply holds the journal"
+        )
+    except ValueError:
+        return pypi.Outcome(
+            "held", "journal_unreadable", "the journal has an unreadable line"
+        )
+    try:
+        return pypi.apply(manifest, github, index, journal)
+    finally:
+        journal.close()
 
 
 def _pypi(args: Sequence[str], stdin: bytes, reads: PyPIReads) -> Answer:
@@ -308,12 +334,13 @@ def _pypi(args: Sequence[str], stdin: bytes, reads: PyPIReads) -> Answer:
         request = parse_json(stdin)
     except ProtocolError as error:
         return invalid(str(error))
+    fields = {"manifest", "work_dir"} if args[1] == "apply" else {"manifest"}
     if (
         not isinstance(request, dict)
-        or set(request) != {"manifest"}
-        or not isinstance(request["manifest"], str)
+        or set(request) != fields
+        or not all(isinstance(value, str) and value for value in request.values())
     ):
-        return invalid('stdin must be {"manifest": path}')
+        return invalid(f"stdin must hold exactly: {', '.join(sorted(fields))}")
     try:
         manifest = pypi.load(Path(request["manifest"]))
     except pypi.ManifestError as error:
@@ -324,6 +351,8 @@ def _pypi(args: Sequence[str], stdin: bytes, reads: PyPIReads) -> Answer:
         outcome = pypi.plan(manifest, github, index)
     elif stage == "admit":
         outcome = pypi.admit(manifest, github)
+    elif stage == "apply":
+        outcome = _pypi_apply(manifest, github, index, Path(request["work_dir"]))
     elif stage == "reconcile":
         outcome = pypi.reconcile(manifest, github)
     else:

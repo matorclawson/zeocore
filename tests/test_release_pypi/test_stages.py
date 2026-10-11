@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import json
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+import subprocess
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -20,12 +22,22 @@ from zeo_core.release.pypi import (
     PyPIManifest,
     TargetUnreadableError,
     admit,
+    apply,
     load,
     plan,
     reconcile,
     verify,
 )
-from zeo_core.release.pypi.reads import PyPIFile, WorkflowRun
+from zeo_core.release.pypi.reads import (
+    EnvironmentPolicy,
+    Identity,
+    Provenance,
+    PyPIFile,
+    TagAnswerLostError,
+    TagResult,
+    WorkflowRun,
+)
+from zeo_core.release.signing import SigningJournal
 from zeo_core.release.signing.toolchain import Completed
 
 REPO = "zeroemployeeorg/zeocore"
@@ -61,14 +73,25 @@ def _files_at(version: str = VERSION) -> dict[str, bytes]:
     }
 
 
+GOOD_POLICY = EnvironmentPolicy(
+    required_reviewers=frozenset({"rodriveracom"}),
+    prevent_self_review=True,
+    can_admins_bypass=False,
+    custom_policies=(("v*", "tag"),),
+)
+
+
 @dataclass
 class FakeGitHub:
     merged: bool = True
     files: dict[str, bytes] = field(default_factory=_files_at)
     tag: str | None = None
-    reviewers: frozenset[str] | None = frozenset({"rodriveracom"})
+    policy: EnvironmentPolicy | None = field(default_factory=lambda: GOOD_POLICY)
+    creator: Identity = field(default_factory=lambda: Identity("matorclawson", True))
     workflow_runs: tuple[WorkflowRun, ...] = ()
     broken: bool = False
+    tag_result: TagResult | None = "created"  # None: the answer is lost
+    created: list[str] = field(default_factory=list)
 
     def _check(self) -> None:
         if self.broken:
@@ -88,9 +111,21 @@ class FakeGitHub:
         self._check()
         return self.tag
 
-    def required_reviewers(self, repo: str, environment: str) -> frozenset[str] | None:
+    def environment(self, repo: str, environment: str) -> EnvironmentPolicy | None:
         self._check()
-        return self.reviewers
+        return self.policy
+
+    def identity(self, repo: str) -> Identity:
+        self._check()
+        return self.creator
+
+    def create_tag(self, repo: str, tag: str, commit: str) -> TagResult:
+        self.created.append(tag)
+        if self.tag_result is None:
+            raise TagAnswerLostError("lost")
+        if self.tag_result == "created":
+            self.tag = commit
+        return self.tag_result
 
     def runs(self, repo: str, workflow: str, commit: str) -> tuple[WorkflowRun, ...]:
         return self.workflow_runs
@@ -99,9 +134,7 @@ class FakeGitHub:
 @dataclass
 class FakePyPI:
     release: tuple[PyPIFile, ...] | None = None
-    provenance: dict[str, tuple[Mapping[str, Any], ...] | None] = field(
-        default_factory=dict
-    )
+    attested: dict[str, tuple[Provenance, ...] | None] = field(default_factory=dict)
     broken: bool = False
 
     def files(self, project: str, version: str) -> tuple[PyPIFile, ...] | None:
@@ -109,19 +142,23 @@ class FakePyPI:
             raise TargetUnreadableError("PyPI could not be reached")
         return self.release
 
-    def publishers(
+    def provenance(
         self, project: str, version: str, filename: str
-    ) -> tuple[Mapping[str, Any], ...] | None:
-        return self.provenance.get(filename)
+    ) -> tuple[Provenance, ...] | None:
+        return self.attested.get(filename)
 
 
 WHEEL = PyPIFile(f"zeocore-{VERSION}-py3-none-any.whl", "1" * 64, False)
 SDIST = PyPIFile(f"zeocore-{VERSION}.tar.gz", "2" * 64, False)
 
 
-def _published(**provenance: tuple[Mapping[str, Any], ...] | None) -> FakePyPI:
-    default = {WHEEL.filename: (PUBLISHER,), SDIST.filename: (PUBLISHER,)}
-    return FakePyPI(release=(WHEEL, SDIST), provenance={**default, **provenance})
+def _attested(item: PyPIFile, publisher: Mapping[str, Any] = PUBLISHER) -> Provenance:
+    return Provenance(publisher, ((item.filename, item.sha256),))
+
+
+def _published(**attested: tuple[Provenance, ...] | None) -> FakePyPI:
+    default = {WHEEL.filename: (_attested(WHEEL),), SDIST.filename: (_attested(SDIST),)}
+    return FakePyPI(release=(WHEEL, SDIST), attested={**default, **attested})
 
 
 # -- plan ---------------------------------------------------------------------------
@@ -182,20 +219,183 @@ def test_plan_holds_when_a_target_is_unreadable(
 # -- admit --------------------------------------------------------------------------
 
 
-def test_admit_needs_the_operator_as_a_required_reviewer() -> None:
-    assert admit(_manifest(), FakeGitHub()).reason == "admitted"
+def test_admit_when_only_the_operator_can_approve_and_only_tags_deploy() -> None:
+    outcome = admit(_manifest(), FakeGitHub())
+    assert (outcome.status, outcome.reason) == ("done", "admitted")
+    assert outcome.facts["creator"] == "matorclawson"
 
 
-@pytest.mark.parametrize("reviewers", [None, frozenset(), frozenset({"someone-else"})])
-def test_admit_refuses_a_publish_the_operator_wouldnt_approve(
-    reviewers: frozenset[str] | None,
+def _policy(**changes: object) -> EnvironmentPolicy:
+    return replace(GOOD_POLICY, **changes)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("github", "reason"),
+    [
+        (FakeGitHub(policy=None), "promotion_unbound"),
+        (FakeGitHub(policy=_policy(required_reviewers=None)), "promotion_unbound"),
+        (
+            FakeGitHub(policy=_policy(required_reviewers=frozenset())),
+            "promotion_unbound",
+        ),
+        (
+            FakeGitHub(policy=_policy(required_reviewers=frozenset({"someone"}))),
+            "promotion_unbound",
+        ),
+        (FakeGitHub(creator=Identity("rodriveracom", True)), "creator_is_operator"),
+        (
+            FakeGitHub(
+                policy=_policy(
+                    required_reviewers=frozenset({"rodriveracom", "matorclawson"}),
+                    prevent_self_review=False,
+                )
+            ),
+            "self_approval_possible",
+        ),
+        (FakeGitHub(policy=_policy(can_admins_bypass=True)), "admin_bypass_possible"),
+        (
+            FakeGitHub(policy=_policy(custom_policies=None)),
+            "deployment_policy_unrestricted",
+        ),
+        (
+            FakeGitHub(policy=_policy(custom_policies=())),
+            "deployment_policy_unrestricted",
+        ),
+        (
+            FakeGitHub(
+                policy=_policy(custom_policies=(("v*", "tag"), ("main", "branch")))
+            ),
+            "deployment_policy_unrestricted",
+        ),
+        (
+            FakeGitHub(policy=_policy(custom_policies=(("*", "tag"),))),
+            "deployment_policy_unrestricted",
+        ),
+    ],
+)
+def test_admit_refuses_unless_the_approval_is_a_control(
+    github: FakeGitHub, reason: str
 ) -> None:
-    outcome = admit(_manifest(), FakeGitHub(reviewers=reviewers))
-    assert (outcome.status, outcome.reason) == ("refused", "promotion_unbound")
+    outcome = admit(_manifest(), github)
+    assert (outcome.status, outcome.reason) == ("refused", reason)
+
+
+def test_admit_allows_a_non_admin_creator_while_admins_may_bypass() -> None:
+    github = FakeGitHub(
+        policy=_policy(can_admins_bypass=True), creator=Identity("zeocore-bot", False)
+    )
+    assert admit(_manifest(), github).reason == "admitted"
+
+
+def test_admit_allows_a_reviewer_creator_when_self_review_is_prevented() -> None:
+    github = FakeGitHub(
+        policy=_policy(required_reviewers=frozenset({"rodriveracom", "matorclawson"}))
+    )
+    assert admit(_manifest(), github).reason == "admitted"
 
 
 def test_admit_holds_when_github_is_unreadable() -> None:
     assert admit(_manifest(), FakeGitHub(broken=True)).reason == "target_unreadable"
+
+
+# -- apply ----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def journal(tmp_path: Path) -> Iterator[SigningJournal]:
+    opened = SigningJournal(tmp_path / "journal.jsonl")
+    yield opened
+    opened.close()
+
+
+def test_apply_creates_the_tag_once(journal: SigningJournal) -> None:
+    github = FakeGitHub()
+    first = apply(_manifest(), github, FakePyPI(), journal)
+    again = apply(_manifest(), github, FakePyPI(), journal)
+    assert (first.status, first.reason) == ("done", "tag_created")
+    assert (again.status, again.reason) == ("done", "already_applied")
+    assert github.created == ["v0.13.0"]
+
+
+def test_apply_refuses_before_any_effect(journal: SigningJournal) -> None:
+    for github in (
+        FakeGitHub(merged=False),
+        FakeGitHub(policy=_policy(can_admins_bypass=True)),
+    ):
+        outcome = apply(_manifest(), github, FakePyPI(), journal)
+        assert outcome.status == "refused"
+        assert github.created == []
+
+
+def test_a_lost_answer_is_ambiguous_and_never_retried(journal: SigningJournal) -> None:
+    github = FakeGitHub(tag_result=None)
+    lost = apply(_manifest(), github, FakePyPI(), journal)
+    assert (lost.status, lost.reason) == ("ambiguous", "apply_unreconciled")
+    github.tag_result = "created"
+    again = apply(_manifest(), github, FakePyPI(), journal)
+    assert (again.status, again.reason) == ("ambiguous", "apply_unreconciled")
+    assert github.created == ["v0.13.0"]
+
+
+def test_a_lost_answer_that_landed_is_settled_by_readback(
+    journal: SigningJournal,
+) -> None:
+    github = FakeGitHub(tag_result=None)
+    apply(_manifest(), github, FakePyPI(), journal)
+    github.tag = COMMIT  # the tag did land
+    outcome = apply(_manifest(), github, FakePyPI(), journal)
+    assert outcome.reason == "already_applied"
+    assert not journal.is_open(f"pypi:zeocore:v0.13.0:{COMMIT}")
+
+
+@pytest.mark.parametrize("result", ["not_sent", "rejected"])
+def test_a_definite_failure_closes_the_intent(
+    journal: SigningJournal, result: TagResult
+) -> None:
+    github = FakeGitHub(tag_result=result)
+    outcome = apply(_manifest(), github, FakePyPI(), journal)
+    assert (outcome.status, outcome.reason) == ("held", "tag_not_created")
+    github.tag_result = "created"
+    assert apply(_manifest(), github, FakePyPI(), journal).reason == "tag_created"
+
+
+def test_an_existing_ref_is_read_back(journal: SigningJournal) -> None:
+    class Racing(FakeGitHub):
+        def create_tag(self, repo: str, tag: str, commit: str) -> TagResult:
+            self.tag = self.race
+            return "exists"
+
+        race: str | None = None
+
+    landed = Racing()
+    landed.race = COMMIT
+    assert apply(_manifest(), landed, FakePyPI(), journal).reason == "tag_created"
+    elsewhere = Racing()
+    elsewhere.race = "b" * 40
+    assert apply(
+        _manifest(version="0.13.1"), elsewhere, FakePyPI(), journal
+    ).reason in {
+        "tag_not_created",
+        "version_mismatch",
+    }
+
+
+def test_an_existing_ref_that_cant_be_read_is_ambiguous(
+    journal: SigningJournal,
+) -> None:
+    class Unreadable(FakeGitHub):
+        calls = 0
+
+        def tag_commit(self, repo: str, tag: str) -> str | None:
+            self.calls += 1
+            if self.calls > 1:
+                raise TargetUnreadableError("down")
+            return None
+
+        def create_tag(self, repo: str, tag: str, commit: str) -> TagResult:
+            return "exists"
+
+    assert apply(_manifest(), Unreadable(), FakePyPI(), journal).status == "ambiguous"
 
 
 # -- reconcile ----------------------------------------------------------------------
@@ -257,18 +457,58 @@ def test_verify_records_the_publisher_for_every_file() -> None:
 @pytest.mark.parametrize(
     "pypi",
     [
-        FakePyPI(release=(WHEEL,), provenance={WHEEL.filename: (PUBLISHER,)}),
-        FakePyPI(release=(SDIST,), provenance={SDIST.filename: (PUBLISHER,)}),
+        FakePyPI(release=(WHEEL,), attested={WHEEL.filename: (_attested(WHEEL),)}),
+        FakePyPI(release=(SDIST,), attested={SDIST.filename: (_attested(SDIST),)}),
         FakePyPI(
             release=(PyPIFile(WHEEL.filename, "1" * 64, True), SDIST),
-            provenance={WHEEL.filename: (PUBLISHER,), SDIST.filename: (PUBLISHER,)},
+            attested={
+                WHEEL.filename: (_attested(WHEEL),),
+                SDIST.filename: (_attested(SDIST),),
+            },
         ),
         _published(**{WHEEL.filename: None}),
         _published(**{WHEEL.filename: ()}),
-        _published(**{SDIST.filename: ({**PUBLISHER, "workflow": "other.yml"},)}),
-        _published(**{SDIST.filename: ({**PUBLISHER, "repository": "fork/zeocore"},)}),
         _published(
-            **{SDIST.filename: (PUBLISHER, {**PUBLISHER, "environment": "testpypi"})}
+            **{SDIST.filename: (_attested(SDIST, {**PUBLISHER, "workflow": "x.yml"}),)}
+        ),
+        _published(
+            **{
+                SDIST.filename: (
+                    _attested(SDIST, {**PUBLISHER, "repository": "fork/z"}),
+                )
+            }
+        ),
+        _published(
+            **{
+                SDIST.filename: (
+                    _attested(SDIST),
+                    _attested(SDIST, {**PUBLISHER, "environment": "testpypi"}),
+                )
+            }
+        ),
+        # The publisher is right, but the attestation is for other bytes.
+        _published(
+            **{SDIST.filename: (Provenance(PUBLISHER, ((SDIST.filename, "9" * 64),)),)}
+        ),
+        _published(
+            **{
+                SDIST.filename: (
+                    Provenance(PUBLISHER, ((WHEEL.filename, WHEEL.sha256),)),
+                )
+            }
+        ),
+        _published(
+            **{
+                SDIST.filename: (
+                    Provenance(
+                        PUBLISHER,
+                        (
+                            (SDIST.filename, SDIST.sha256),
+                            (WHEEL.filename, WHEEL.sha256),
+                        ),
+                    ),
+                )
+            }
         ),
     ],
 )
@@ -348,7 +588,7 @@ def _manifest_file(tmp_path: Path) -> bytes:
     ("stage", "github", "pypi", "status", "outcome"),
     [
         ("plan", FakeGitHub(), FakePyPI(), 0, "planned"),
-        ("admit", FakeGitHub(reviewers=None), FakePyPI(), 20, "promotion_unbound"),
+        ("admit", FakeGitHub(policy=None), FakePyPI(), 20, "promotion_unbound"),
         (
             "reconcile",
             FakeGitHub(tag=COMMIT, workflow_runs=(WorkflowRun("waiting", None),)),
@@ -394,13 +634,16 @@ def test_the_pypi_command_refuses_a_bad_request(args: list[str], stdin: bytes) -
 
 
 class Runner:
-    def __init__(self, *answers: Completed) -> None:
+    def __init__(self, *answers: Completed | BaseException) -> None:
         self.answers = list(answers)
         self.calls: list[list[str]] = []
 
     def __call__(self, argv: Sequence[str]) -> Completed:
         self.calls.append(list(argv))
-        return self.answers.pop(0)
+        answer = self.answers.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
 
 
 def ok(body: object) -> Completed:
@@ -440,29 +683,88 @@ def test_github_unreadable_tags(answers: tuple[Completed, ...]) -> None:
         GitHubCli(Runner(*answers)).tag_commit(REPO, "v1")
 
 
-def test_github_reads_required_reviewers() -> None:
+def test_github_reads_an_environment_policy() -> None:
+    runner = Runner(
+        ok(
+            {
+                "can_admins_bypass": False,
+                "deployment_branch_policy": {
+                    "protected_branches": False,
+                    "custom_branch_policies": True,
+                },
+                "protection_rules": [
+                    {
+                        "type": "required_reviewers",
+                        "prevent_self_review": True,
+                        "reviewers": [
+                            {"reviewer": {"login": "rodriveracom"}},
+                            {"reviewer": {}},
+                        ],
+                    }
+                ],
+            }
+        ),
+        ok({"branch_policies": [{"name": "v*", "type": "tag"}, "x"]}),
+        ok({"protection_rules": [{"type": "wait_timer"}]}),
+        MISSING,
+    )
+    gh = GitHubCli(runner)
+    assert gh.environment(REPO, "pypi") == GOOD_POLICY
+    assert runner.calls[1][2].endswith("environments/pypi/deployment-branch-policies")
+    assert gh.environment(REPO, "pypi") == EnvironmentPolicy(None, False, True, None)
+    assert gh.environment(REPO, "absent") is None
+
+
+def test_github_reads_the_acting_identity() -> None:
     gh = GitHubCli(
         Runner(
-            ok(
-                {
-                    "protection_rules": [
-                        {
-                            "type": "required_reviewers",
-                            "reviewers": [
-                                {"reviewer": {"login": "rodriveracom"}},
-                                {"reviewer": {}},
-                            ],
-                        }
-                    ]
-                }
-            ),
-            ok({"protection_rules": [{"type": "wait_timer"}]}),
-            MISSING,
+            ok({"login": "matorclawson"}),
+            ok({"permissions": {"admin": True}}),
+            ok({"login": 3}),
+            ok({}),
         )
     )
-    assert gh.required_reviewers(REPO, "pypi") == {"rodriveracom"}
-    assert gh.required_reviewers(REPO, "pypi") is None
-    assert gh.required_reviewers(REPO, "absent") is None
+    assert gh.identity(REPO) == Identity("matorclawson", True)
+    with pytest.raises(TargetUnreadableError):
+        gh.identity(REPO)
+
+
+@pytest.mark.parametrize(
+    ("answer", "result"),
+    [
+        (ok({"ref": "refs/tags/v0.13.0"}), "created"),
+        (Completed(1, b"", b"gh: Reference already exists (HTTP 422)"), "exists"),
+        (Completed(1, b"", b"gh: Resource not accessible (HTTP 403)"), "rejected"),
+        (OSError("no gh"), "not_sent"),
+    ],
+)
+def test_github_creates_a_lightweight_tag(
+    answer: Completed | OSError, result: str
+) -> None:
+    runner = Runner(answer)
+    assert GitHubCli(runner).create_tag(REPO, "v0.13.0", COMMIT) == result
+    assert runner.calls[0][2:] == [
+        "-X",
+        "POST",
+        f"repos/{REPO}/git/refs",
+        "-f",
+        "ref=refs/tags/v0.13.0",
+        "-f",
+        f"sha={COMMIT}",
+    ]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        Completed(1, b"", b"HTTP 502"),
+        Completed(1, b"", b"connection reset"),
+        subprocess.TimeoutExpired("gh", 1),
+    ],
+)
+def test_github_tag_answer_lost(answer: Completed | Exception) -> None:
+    with pytest.raises(TagAnswerLostError):
+        GitHubCli(Runner(answer)).create_tag(REPO, "v0.13.0", COMMIT)
 
 
 def test_github_reads_runs_and_wraps_other_reads() -> None:
@@ -501,7 +803,22 @@ def _http(status: int, body: object) -> httpx.Response:
     return httpx.Response(status, content=content)
 
 
-def test_pypi_reads_files_and_publishers() -> None:
+def _bundle(publisher: Mapping[str, Any], item: PyPIFile) -> dict[str, Any]:
+    statement = {
+        "subject": [{"name": item.filename, "digest": {"sha256": item.sha256}}]
+    }
+    encoded = base64.b64encode(json.dumps(statement).encode()).decode()
+    return {
+        "attestation_bundles": [
+            {
+                "publisher": publisher,
+                "attestations": [{"envelope": {"statement": encoded}}],
+            }
+        ]
+    }
+
+
+def test_pypi_reads_files_and_provenance() -> None:
     urls: list[str] = []
     answers = [
         _http(
@@ -516,7 +833,7 @@ def test_pypi_reads_files_and_publishers() -> None:
                 ]
             },
         ),
-        _http(200, {"attestation_bundles": [{"publisher": PUBLISHER}]}),
+        _http(200, _bundle(PUBLISHER, WHEEL)),
         _http(404, b""),
     ]
 
@@ -526,7 +843,7 @@ def test_pypi_reads_files_and_publishers() -> None:
 
     index = PyPIHttp(get)
     assert index.files("zeocore", VERSION) == (WHEEL,)
-    assert index.publishers("zeocore", VERSION, WHEEL.filename) == (PUBLISHER,)
+    assert index.provenance("zeocore", VERSION, WHEEL.filename) == (_attested(WHEEL),)
     assert index.files("zeocore", "9.9.9") is None
     assert urls[0] == f"https://pypi.org/pypi/zeocore/{VERSION}/json"
     assert urls[1].startswith("https://pypi.org/integrity/zeocore/")
@@ -556,8 +873,22 @@ def test_pypi_unreadable_provenance() -> None:
         return _http(200, {"attestation_bundles": [{}]})
 
     with pytest.raises(TargetUnreadableError):
-        PyPIHttp(get).publishers("zeocore", VERSION, WHEEL.filename)
+        PyPIHttp(get).provenance("zeocore", VERSION, WHEEL.filename)
     assert (
-        PyPIHttp(lambda u, h: _http(404, b"")).publishers("zeocore", VERSION, "x")
+        PyPIHttp(lambda u, h: _http(404, b"")).provenance("zeocore", VERSION, "x")
         is None
     )
+    bad_statement = {
+        "attestation_bundles": [
+            {
+                "publisher": PUBLISHER,
+                "attestations": [{"envelope": {"statement": "!!"}}],
+            }
+        ]
+    }
+    with pytest.raises(TargetUnreadableError):
+        PyPIHttp(lambda u, h: _http(200, bad_statement)).provenance(
+            "zeocore", VERSION, "x"
+        )
+    with pytest.raises(TargetUnreadableError):
+        PyPIHttp(lambda u, h: _http(200, [1])).files("zeocore", VERSION)

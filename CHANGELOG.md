@@ -147,14 +147,17 @@ These change what a caller sees. The session store API and the
 
 ### Added
 
-- **The PyPI adapter's stages with no effect** (`zeocore release pypi plan |
-  admit | reconcile | verify`), on ZEOCORE-SOW-26.
+- **The PyPI adapter** (`zeocore release pypi plan | admit | apply |
+  reconcile | verify`), on ZEOCORE-SOW-26.
   - `plan` checks the commit is reviewed and the version agrees everywhere.
-  - `admit` checks that the `pypi` environment requires the operator's
-    approval.
+  - `admit` checks that only the operator can approve the publish: the tag's
+    creator can't approve its own deployment or bypass it as an admin, and
+    only `v*` tags may deploy.
+  - `apply` creates the release tag, its one effect, under a durable intent,
+    and never retries.
   - `reconcile` follows the tag to its publish run.
-  - `verify` checks PyPI's files and each attestation's recorded publisher.
-  - The tag, its one effect, follows the design's review.
+  - `verify` checks PyPI's files, each attestation's recorded publisher, and
+    that each attestation names that file's digest.
 
 - **One sign-and-verify step for every org executable** (`zeo_core.release.signing`,
   `zeocore release sign | verify`), on ZEOCORE-SOW-19 to SOW-22. It is built

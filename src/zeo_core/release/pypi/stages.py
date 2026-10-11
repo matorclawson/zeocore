@@ -1,30 +1,34 @@
 """The PyPI adapter's stages for ``pypi:zeocore`` (ZEOCORE-SOW-26).
 
-``plan``, ``admit``, ``reconcile`` and ``verify`` have no effect. The one
-effect, creating the ``vX.Y.Z`` tag, isn't built until the Architect has
-reviewed the design. The publish itself stays ``publish.yml``'s, behind the
-operator's approval in the ``pypi`` environment: the adapter never approves,
-never dispatches the workflow and never holds a PyPI credential.
+``plan``, ``admit``, ``reconcile`` and ``verify`` have no effect. ``apply``
+has the one effect: it creates the ``vX.Y.Z`` tag. The publish itself stays
+``publish.yml``'s, behind the operator's approval in the ``pypi``
+environment: the adapter never approves, never dispatches the workflow and
+never holds a PyPI credential.
 """
 
 from __future__ import annotations
 
 import re
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
-from .reads import GitHub, PyPI, TargetUnreadableError
+from zeo_core.release.signing.journal import FAILED, INTENT, SIGNED, SigningJournal
+
+from .reads import GitHub, PyPI, TagAnswerLostError, TargetUnreadableError
 
 #: Who must approve every publish, as a required reviewer of the environment.
 #: Reviewed with zeocore's source: the operator.
 OPERATOR_REVIEWER: Final = "rodriveracom"
 
-Status = Literal["done", "waiting", "held", "refused", "invalid"]
+Status = Literal["done", "waiting", "held", "refused", "invalid", "ambiguous"]
 
 
 class PyPIManifest(BaseModel):
@@ -146,24 +150,74 @@ def plan(manifest: PyPIManifest, github: GitHub, pypi: PyPI) -> Outcome:
     )
 
 
+#: The only deployments the environment may allow: release tags.
+RELEASE_TAG_POLICIES: Final = frozenset({("v*", "tag"), ("v*.*.*", "tag")})
+
+
 def admit(manifest: PyPIManifest, github: GitHub) -> Outcome:
-    """The operator approves every publish, at GitHub's own boundary."""
+    """The operator approves every publish, and the tag's creator cannot.
+
+    Checked at GitHub's own boundary (SOW-26 §2 and the Architect's review):
+    the operator is a required reviewer; the identity that will create the
+    tag is not the operator, cannot approve its own deployment, and cannot
+    bypass the protection as an admin; and only release tags may deploy.
+    Otherwise "never approves" would be a convention, not a control.
+    """
     try:
-        reviewers = github.required_reviewers(manifest.repository, manifest.environment)
+        policy = github.environment(manifest.repository, manifest.environment)
+        creator = github.identity(manifest.repository)
     except TargetUnreadableError as error:
         return _held_unreadable(error)
-    if reviewers is None or OPERATOR_REVIEWER not in reviewers:
+    env = manifest.environment
+    if (
+        policy is None
+        or not policy.required_reviewers
+        or (OPERATOR_REVIEWER not in policy.required_reviewers)
+    ):
         return Outcome(
             "refused",
             "promotion_unbound",
-            f"the {manifest.environment} environment doesn't require the operator's "
-            "approval, so a tag would publish without it",
+            f"the {env} environment doesn't require the operator's approval",
+        )
+    if creator.login == OPERATOR_REVIEWER:
+        return Outcome(
+            "refused",
+            "creator_is_operator",
+            "the tag must be created by a seat or App identity, not the operator's",
+        )
+    if creator.login in policy.required_reviewers and not policy.prevent_self_review:
+        return Outcome(
+            "refused",
+            "self_approval_possible",
+            f"{creator.login} could approve the deployment it starts",
+        )
+    if creator.admin and policy.can_admins_bypass:
+        return Outcome(
+            "refused",
+            "admin_bypass_possible",
+            f"{creator.login} is an admin and the {env} environment lets admins "
+            "bypass its protection",
+        )
+    if (
+        not policy.custom_policies
+        or not set(policy.custom_policies) <= RELEASE_TAG_POLICIES
+    ):
+        return Outcome(
+            "refused",
+            "deployment_policy_unrestricted",
+            f"the {env} environment must deploy only from v* tags",
         )
     return Outcome(
         "done",
         "admitted",
-        f"{OPERATOR_REVIEWER} approves the publish in {manifest.environment}",
-        {"required_reviewers": sorted(reviewers)},
+        f"{OPERATOR_REVIEWER} approves the publish in {env}; {creator.login} cannot",
+        {
+            "required_reviewers": sorted(policy.required_reviewers),
+            "creator": creator.login,
+            "deployment_policies": sorted(
+                f"{n} ({t})" for n, t in policy.custom_policies
+            ),
+        },
     )
 
 
@@ -231,12 +285,12 @@ def verify(manifest: PyPIManifest, pypi: PyPI) -> Outcome:
                 return Outcome(
                     "refused", "provenance_mismatch", f"{item.filename} is yanked"
                 )
-            publishers = pypi.publishers(
+            attestations = pypi.provenance(
                 manifest.project, manifest.version, item.filename
             )
-            if not publishers or any(
-                {key: publisher.get(key) for key in expected} != expected
-                for publisher in publishers
+            if not attestations or any(
+                {key: found.publisher.get(key) for key in expected} != expected
+                for found in attestations
             ):
                 return Outcome(
                     "refused",
@@ -244,13 +298,88 @@ def verify(manifest: PyPIManifest, pypi: PyPI) -> Outcome:
                     f"{item.filename}'s recorded publisher isn't {manifest.workflow} "
                     f"in {manifest.repository}",
                 )
+            if any(
+                found.subjects != ((item.filename, item.sha256),)
+                for found in attestations
+            ):
+                return Outcome(
+                    "refused",
+                    "provenance_mismatch",
+                    f"{item.filename}'s attestation names another file or digest",
+                )
             checked.append({"filename": item.filename, "sha256": item.sha256})
     except TargetUnreadableError as error:
         return _held_unreadable(error)
     return Outcome(
         "done",
         "publisher_recorded",
-        "PyPI recorded the expected publisher for every file; the attestation "
-        "signatures were not verified",
+        "PyPI recorded the expected publisher, and an attestation subject equal "
+        "to each file's digest; the attestation signatures were not verified",
         {"files": checked, "publisher": expected},
+    )
+
+
+def apply(
+    manifest: PyPIManifest,
+    github: GitHub,
+    pypi: PyPI,
+    journal: SigningJournal,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> Outcome:
+    """The adapter's one effect: create ``vX.Y.Z`` at the reviewed commit.
+
+    ``plan`` and ``admit`` run again first, at the boundary. The intent is on
+    disk before the call, and the call is never retried: an answer that is
+    lost leaves the intent open and the outcome ambiguous, for ``reconcile``.
+    The journal's "signed" record here means "the tag landed".
+    """
+    key = f"pypi:{manifest.project}:{manifest.tag}:{manifest.commit}"
+    planned = plan(manifest, github, pypi)
+    if planned.status != "done":
+        return planned
+    if planned.facts["stage"] == "already-applied":
+        if journal.is_open(key):
+            journal.append(key, SIGNED, now())
+        return Outcome(
+            "done", "already_applied", f"{manifest.tag} is already at the commit"
+        )
+    admitted = admit(manifest, github)
+    if admitted.status != "done":
+        return admitted
+    if journal.is_open(key):
+        return Outcome(
+            "ambiguous",
+            "apply_unreconciled",
+            "an earlier tag creation's answer was lost and the tag isn't there; "
+            "it is not retried",
+        )
+    journal.append(key, INTENT, now())
+    try:
+        result = github.create_tag(manifest.repository, manifest.tag, manifest.commit)
+    except TagAnswerLostError:
+        return Outcome(
+            "ambiguous",
+            "apply_unreconciled",
+            "the tag creation's answer was lost; run reconcile, never apply again",
+        )
+    if result == "exists":
+        try:
+            tagged = github.tag_commit(manifest.repository, manifest.tag)
+        except TargetUnreadableError:
+            return Outcome(
+                "ambiguous", "apply_unreconciled", "the tag can't be read back"
+            )
+        result = "created" if tagged == manifest.commit else "rejected"
+    if result != "created":
+        journal.append(key, FAILED, now())
+        return Outcome(
+            "held", "tag_not_created", f"GitHub did not create {manifest.tag}"
+        )
+    journal.append(key, SIGNED, now())
+    return Outcome(
+        "done",
+        "tag_created",
+        f"{manifest.tag} is at the commit; the publish now waits for the "
+        "operator's approval",
+        {"tag": manifest.tag, "commit": manifest.commit},
     )
