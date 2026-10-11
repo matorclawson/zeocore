@@ -147,6 +147,15 @@ These change what a caller sees. The session store API and the
 
 ### Added
 
+- **The PyPI adapter's stages with no effect** (`zeocore release pypi plan |
+  admit | reconcile | verify`), on ZEOCORE-SOW-26.
+  - `plan` checks the commit is reviewed and the version agrees everywhere.
+  - `admit` checks that the `pypi` environment requires the operator's
+    approval.
+  - `reconcile` follows the tag to its publish run.
+  - `verify` checks PyPI's files and each attestation's recorded publisher.
+  - The tag, its one effect, follows the design's review.
+
 - **One sign-and-verify step for every org executable** (`zeo_core.release.signing`,
   `zeocore release sign | verify`), on ZEOCORE-SOW-19 to SOW-22. It is built
   first, before the PyPI adapter, because the Go seats and Pomar wait on it.
