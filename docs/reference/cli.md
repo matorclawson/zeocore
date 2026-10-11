@@ -26,6 +26,7 @@ $ echo '{"b": 1, "a": [1, 2]}' | zeocore digest
 | `digest` | yes | the sha256 of the value's RFC 8785 canonical bytes |
 | `login`, `logout`, `whoami`, `connections`, `invoke`, `artifact get` | see below | the ZEOconnect client |
 | `release sign`, `release verify` | yes | the shared signing step; see [Sign and verify a release](../how-to/release-signing.md) |
+| `release pypi plan \| admit \| apply \| reconcile \| verify` | yes | the PyPI adapter; see [Check a release on PyPI](../how-to/release-pypi.md) |
 
 ## The ZEOconnect client
 

@@ -14,6 +14,13 @@ directory and verifies it on this host.
 pack again is safe: a settled request gets the same answer and is never
 signed twice. ``serve`` runs that service from ``{"listen", "state_dir"}``
 until interrupted (ZEOCORE-SOW-24).
+
+``pypi plan | admit | apply | reconcile | verify`` are the PyPI adapter's
+stages for ``pypi:zeocore`` (ZEOCORE-SOW-26), from
+``{"manifest": "<release.yaml>"}``. Only ``apply`` has an effect: it creates
+the release tag. Its journal is this user's, at
+``$XDG_STATE_HOME/zeocore/release/pypi-journal.jsonl``, keyed by repository
+and version, so "never retried" holds across work directories.
 Every signing input comes from the manifest's ``signing`` section, never from
 a flag. The signing host is configuration: ``ZEOCORE_SIGNING_HOST`` names it,
 and ``sign`` holds on any other host. ``verify`` is read-only and runs on any
@@ -33,6 +40,7 @@ from typing import Final
 import httpx
 
 from zeo_core.adapters.runtime_host.canonical import ProtocolError, parse_json
+from zeo_core.release import pypi
 from zeo_core.release.signing import (
     DarwinToolchain,
     JournalHeldError,
@@ -40,6 +48,7 @@ from zeo_core.release.signing import (
     ManifestError,
     Outcome,
     PackError,
+    SigningJournal,
     SigningRequest,
     Toolchain,
     WorkDir,
@@ -281,38 +290,136 @@ def _parse(verb: str, stdin: bytes) -> dict[str, str] | Answer:
     return request
 
 
+PyPIReads = Callable[[], tuple[pypi.GitHubCli, pypi.PyPIHttp]]
+_PYPI_STAGES: Final = ("plan", "admit", "apply", "reconcile", "verify")
+_PYPI_EXIT: Final = {
+    "done": EXIT_DONE,
+    "waiting": EXIT_WAIT,
+    "held": EXIT_HELD,
+    "refused": EXIT_HELD,
+    "invalid": EXIT_INVALID,
+    "ambiguous": EXIT_AMBIGUOUS,
+}
+
+
+def _default_pypi_reads() -> tuple[pypi.GitHubCli, pypi.PyPIHttp]:
+    return pypi.GitHubCli(), pypi.PyPIHttp()
+
+
+def pypi_journal_path(environ: Mapping[str, str]) -> Path:
+    state = environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "zeocore" / "release" / "pypi-journal.jsonl"
+
+
+def _pypi_apply(
+    manifest: pypi.PyPIManifest,
+    github: pypi.GitHubCli,
+    index: pypi.PyPIHttp,
+    journal_path: Path,
+) -> pypi.Outcome:
+    journal_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        journal = SigningJournal(journal_path)
+    except JournalHeldError:
+        return pypi.Outcome(
+            "held", "apply_in_progress", "another apply holds the journal"
+        )
+    except ValueError:
+        return pypi.Outcome(
+            "held", "journal_unreadable", "the journal has an unreadable line"
+        )
+    try:
+        return pypi.apply(manifest, github, index, journal)
+    finally:
+        journal.close()
+
+
+def _pypi(
+    args: Sequence[str], stdin: bytes, reads: PyPIReads, environ: Mapping[str, str]
+) -> Answer:
+    if len(args) != 2 or args[1] not in _PYPI_STAGES:
+        return invalid(f"release pypi takes one of: {', '.join(_PYPI_STAGES)}")
+    try:
+        request = parse_json(stdin)
+    except ProtocolError as error:
+        return invalid(str(error))
+    fields = {"manifest"}
+    if (
+        not isinstance(request, dict)
+        or set(request) != fields
+        or not all(isinstance(value, str) and value for value in request.values())
+    ):
+        return invalid(f"stdin must hold exactly: {', '.join(sorted(fields))}")
+    try:
+        manifest = pypi.load(Path(request["manifest"]))
+    except pypi.ManifestError as error:
+        return invalid(str(error))
+    github, index = reads()
+    stage = args[1]
+    if stage == "plan":
+        outcome = pypi.plan(manifest, github, index)
+    elif stage == "admit":
+        outcome = pypi.admit(manifest, github)
+    elif stage == "apply":
+        outcome = _pypi_apply(manifest, github, index, pypi_journal_path(environ))
+    elif stage == "reconcile":
+        outcome = pypi.reconcile(manifest, github)
+    else:
+        outcome = pypi.verify(manifest, index)
+    body: dict[str, object] = {
+        "ok": outcome.status == "done",
+        "outcome": outcome.reason,
+        "status": outcome.status,
+        "message": outcome.message,
+        "target": f"pypi:{manifest.project}",
+    }
+    if outcome.facts:
+        body["facts"] = outcome.facts
+    return _PYPI_EXIT[outcome.status], body
+
+
+def _signing(
+    args: Sequence[str],
+    stdin: bytes,
+    toolchain: Callable[[], Toolchain],
+    environ: Mapping[str, str],
+    post: Post,
+    serve_with: Serve,
+) -> Answer:
+    if len(args) != 1 or args[0] not in _FIELDS:
+        return invalid(f"release takes one of: {', '.join([*_FIELDS, 'pypi'])}")
+    verb = args[0]
+    request = _parse(verb, stdin)
+    if isinstance(request, tuple):
+        return request
+    if verb == "send":
+        return _send(request, post)
+    if verb == "serve":
+        return _serve(request, environ, serve_with)
+    try:
+        loaded = load(Path(request["manifest"]))
+    except ManifestError as error:
+        return invalid(str(error))
+    if verb == "pack":
+        return _pack(loaded, request)
+    if verb == "receive":
+        return _receive(loaded, request, toolchain())
+    if verb == "verify":
+        return _answer(verify(loaded, WorkDir(Path(request["work_dir"])), toolchain()))
+    return _sign(loaded, request, toolchain(), environ.get(SIGNING_HOST_VARIABLE))
+
+
 def make_command(
     toolchain: Callable[[], Toolchain] = DarwinToolchain,
     environ: Mapping[str, str] = os.environ,
     post: Post = _post,
     serve_with: Serve = _serve_forever,
+    pypi_reads: PyPIReads = _default_pypi_reads,
 ) -> Callable[[Sequence[str], bytes], Answer]:
     def release(args: Sequence[str], stdin: bytes) -> Answer:
-        if len(args) != 1 or args[0] not in _FIELDS:
-            return invalid(
-                "release takes 'sign', 'verify', 'pack', 'receive', 'send' or 'serve'"
-            )
-        verb = args[0]
-        request = _parse(verb, stdin)
-        if isinstance(request, tuple):
-            return request
-        if verb == "send":
-            return _send(request, post)
-        if verb == "serve":
-            return _serve(request, environ, serve_with)
-        try:
-            loaded = load(Path(request["manifest"]))
-        except ManifestError as error:
-            return invalid(str(error))
-        if verb == "pack":
-            return _pack(loaded, request)
-        if verb == "receive":
-            return _receive(loaded, request, toolchain())
-        if verb == "verify":
-            return _answer(
-                verify(loaded, WorkDir(Path(request["work_dir"])), toolchain())
-            )
-        return _sign(loaded, request, toolchain(), environ.get(SIGNING_HOST_VARIABLE))
+        if args and args[0] == "pypi":
+            return _pypi(args, stdin, pypi_reads, environ)
+        return _signing(args, stdin, toolchain, environ, post, serve_with)
 
     return release
 
