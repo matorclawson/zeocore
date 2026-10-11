@@ -17,8 +17,10 @@ until interrupted (ZEOCORE-SOW-24).
 
 ``pypi plan | admit | apply | reconcile | verify`` are the PyPI adapter's
 stages for ``pypi:zeocore`` (ZEOCORE-SOW-26), from
-``{"manifest": "<release.yaml>"}``; ``apply`` also takes ``"work_dir"`` for
-its journal. Only ``apply`` has an effect: it creates the release tag.
+``{"manifest": "<release.yaml>"}``. Only ``apply`` has an effect: it creates
+the release tag. Its journal is this user's, at
+``$XDG_STATE_HOME/zeocore/release/pypi-journal.jsonl``, keyed by repository
+and version, so "never retried" holds across work directories.
 Every signing input comes from the manifest's ``signing`` section, never from
 a flag. The signing host is configuration: ``ZEOCORE_SIGNING_HOST`` names it,
 and ``sign`` holds on any other host. ``verify`` is read-only and runs on any
@@ -304,15 +306,20 @@ def _default_pypi_reads() -> tuple[pypi.GitHubCli, pypi.PyPIHttp]:
     return pypi.GitHubCli(), pypi.PyPIHttp()
 
 
+def pypi_journal_path(environ: Mapping[str, str]) -> Path:
+    state = environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "zeocore" / "release" / "pypi-journal.jsonl"
+
+
 def _pypi_apply(
     manifest: pypi.PyPIManifest,
     github: pypi.GitHubCli,
     index: pypi.PyPIHttp,
-    work_dir: Path,
+    journal_path: Path,
 ) -> pypi.Outcome:
-    work_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    journal_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
-        journal = SigningJournal(work_dir / "pypi-journal.jsonl")
+        journal = SigningJournal(journal_path)
     except JournalHeldError:
         return pypi.Outcome(
             "held", "apply_in_progress", "another apply holds the journal"
@@ -327,14 +334,16 @@ def _pypi_apply(
         journal.close()
 
 
-def _pypi(args: Sequence[str], stdin: bytes, reads: PyPIReads) -> Answer:
+def _pypi(
+    args: Sequence[str], stdin: bytes, reads: PyPIReads, environ: Mapping[str, str]
+) -> Answer:
     if len(args) != 2 or args[1] not in _PYPI_STAGES:
         return invalid(f"release pypi takes one of: {', '.join(_PYPI_STAGES)}")
     try:
         request = parse_json(stdin)
     except ProtocolError as error:
         return invalid(str(error))
-    fields = {"manifest", "work_dir"} if args[1] == "apply" else {"manifest"}
+    fields = {"manifest"}
     if (
         not isinstance(request, dict)
         or set(request) != fields
@@ -352,7 +361,7 @@ def _pypi(args: Sequence[str], stdin: bytes, reads: PyPIReads) -> Answer:
     elif stage == "admit":
         outcome = pypi.admit(manifest, github)
     elif stage == "apply":
-        outcome = _pypi_apply(manifest, github, index, Path(request["work_dir"]))
+        outcome = _pypi_apply(manifest, github, index, pypi_journal_path(environ))
     elif stage == "reconcile":
         outcome = pypi.reconcile(manifest, github)
     else:
@@ -409,7 +418,7 @@ def make_command(
 ) -> Callable[[Sequence[str], bytes], Answer]:
     def release(args: Sequence[str], stdin: bytes) -> Answer:
         if args and args[0] == "pypi":
-            return _pypi(args, stdin, pypi_reads)
+            return _pypi(args, stdin, pypi_reads, environ)
         return _signing(args, stdin, toolchain, environ, post, serve_with)
 
     return release

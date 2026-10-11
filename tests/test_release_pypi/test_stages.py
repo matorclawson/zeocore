@@ -365,7 +365,7 @@ def test_a_lost_answer_that_landed_is_settled_by_readback(
     github.tag = COMMIT  # the tag did land
     outcome = apply(_manifest(), github, FakePyPI(), journal)
     assert outcome.reason == "already_applied"
-    assert not journal.is_open(f"pypi:zeocore:v0.13.0:{COMMIT}")
+    assert not journal.is_open(f"pypi:{REPO}:0.13.0")
 
 
 @pytest.mark.parametrize("result", ["not_sent", "rejected"])
@@ -727,15 +727,131 @@ def test_github_reads_an_environment_policy() -> None:
                 ],
             }
         ),
-        ok({"branch_policies": [{"name": "v*", "type": "tag"}, "x"]}),
+        ok({"total_count": 1, "branch_policies": [{"name": "v*", "type": "tag"}]}),
         ok({"protection_rules": [{"type": "wait_timer"}]}),
         MISSING,
     )
     gh = GitHubCli(runner)
     assert gh.environment(REPO, "pypi") == GOOD_POLICY
-    assert runner.calls[1][2].endswith("environments/pypi/deployment-branch-policies")
+    assert (
+        "environments/pypi/deployment-branch-policies?per_page=100&page=1"
+        in (runner.calls[1][2])
+    )
     assert gh.environment(REPO, "pypi") == EnvironmentPolicy(None, False, True, None)
     assert gh.environment(REPO, "absent") is None
+
+
+_CUSTOM = {
+    "deployment_branch_policy": {
+        "protected_branches": False,
+        "custom_branch_policies": True,
+    },
+    "protection_rules": [
+        {
+            "type": "required_reviewers",
+            "reviewers": [{"reviewer": {"login": "rodriveracom"}}],
+        }
+    ],
+}
+
+
+def test_deployment_policies_are_read_across_pages() -> None:
+    first = [{"name": "v*", "type": "tag"}] * 100
+    runner = Runner(
+        ok(_CUSTOM),
+        ok({"total_count": 101, "branch_policies": first}),
+        ok(
+            {
+                "total_count": 101,
+                "branch_policies": [{"name": "main", "type": "branch"}],
+            }
+        ),
+    )
+    policy = GitHubCli(runner).environment(REPO, "pypi")
+    assert policy is not None and policy.custom_policies is not None
+    assert len(policy.custom_policies) == 101
+    assert ("main", "branch") in policy.custom_policies
+    assert runner.calls[2][2].endswith("page=2")
+
+
+@pytest.mark.parametrize(
+    "pages",
+    [
+        # A short read: GitHub says 31, the pages hold 30, then nothing.
+        (
+            ok(
+                {
+                    "total_count": 31,
+                    "branch_policies": [{"name": "v*", "type": "tag"}] * 30,
+                }
+            ),
+            ok({"total_count": 31, "branch_policies": []}),
+        ),
+        (ok({"branch_policies": []}),),
+        (ok({"total_count": 1, "branch_policies": "v*"}),),
+        (ok({"total_count": 1, "branch_policies": ["v*"]}),),
+        (MISSING,),
+    ],
+)
+def test_a_policy_list_that_isnt_read_in_full_is_unreadable(
+    pages: tuple[Completed, ...],
+) -> None:
+    with pytest.raises(TargetUnreadableError):
+        GitHubCli(Runner(ok(_CUSTOM), *pages)).environment(REPO, "pypi")
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        {"protection_rules": "required_reviewers"},
+        {
+            "protection_rules": [
+                {"type": "required_reviewers", "reviewers": "rodriveracom"}
+            ]
+        },
+    ],
+)
+def test_a_scalar_where_a_list_belongs_is_unreadable(rules: dict[str, object]) -> None:
+    with pytest.raises(TargetUnreadableError):
+        GitHubCli(Runner(ok(rules))).environment(REPO, "pypi")
+
+
+def test_an_open_intent_is_settled_before_admit_can_hide_it(
+    journal: SigningJournal,
+) -> None:
+    github = FakeGitHub(tag_result=None)
+    apply(_manifest(), github, FakePyPI(), journal)
+    # Admit would now refuse; the open intent must still be reported.
+    github.policy = _policy(can_admins_bypass=True)
+    outcome = apply(_manifest(), github, FakePyPI(), journal)
+    assert (outcome.status, outcome.reason) == ("ambiguous", "apply_unreconciled")
+
+
+def test_one_release_one_key_across_commits(journal: SigningJournal) -> None:
+    github = FakeGitHub(tag_result=None)
+    apply(_manifest(), github, FakePyPI(), journal)
+    # The same version from another commit is the same release: not retried.
+    other = apply(_manifest(commit="c" * 40), github, FakePyPI(), journal)
+    assert (other.status, other.reason) == ("ambiguous", "apply_unreconciled")
+
+
+def test_the_apply_command_journals_in_the_users_state(tmp_path: Path) -> None:
+    github = FakeGitHub()
+    command = make_command(
+        environ={"XDG_STATE_HOME": str(tmp_path / "state")},
+        pypi_reads=lambda: (github, FakePyPI()),  # type: ignore[arg-type,return-value]
+    )
+    status, answer = command(["pypi", "apply"], _manifest_file(tmp_path))
+    assert (status, answer["outcome"]) == (0, "tag_created")
+    journal = tmp_path / "state" / "zeocore" / "release" / "pypi-journal.jsonl"
+    assert f"pypi:{REPO}:0.13.0" in journal.read_text()
+    held = make_command(
+        environ={"XDG_STATE_HOME": str(tmp_path / "state")},
+        pypi_reads=lambda: (FakeGitHub(), FakePyPI()),  # type: ignore[arg-type,return-value]
+    )
+    journal.write_text("not json\n")
+    status, answer = held(["pypi", "apply"], _manifest_file(tmp_path))
+    assert (status, answer["outcome"]) == (20, "journal_unreadable")
 
 
 def test_github_reads_the_acting_identity() -> None:

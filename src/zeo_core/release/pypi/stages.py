@@ -351,6 +351,40 @@ def verify(manifest: PyPIManifest, pypi: PyPI) -> Outcome:
     )
 
 
+def _settle_open(
+    manifest: PyPIManifest,
+    github: GitHub,
+    journal: SigningJournal,
+    key: str,
+    now: Callable[[], datetime],
+) -> Outcome:
+    """An earlier attempt is settled before plan or admit could hide it.
+
+    Only the tag read back at the commit closes it. Anything else stays
+    ambiguous, and the tag is never created again.
+    """
+    try:
+        tagged = github.tag_commit(manifest.repository, manifest.tag)
+    except TargetUnreadableError:
+        tagged = None
+    if tagged != manifest.commit:
+        return Outcome(
+            "ambiguous",
+            "apply_unreconciled",
+            "an earlier tag creation's answer was lost and the tag isn't there; "
+            "it is not retried",
+        )
+    journal.append(key, SIGNED, now())
+    return Outcome(
+        "done", "already_applied", f"{manifest.tag} is already at the commit"
+    )
+
+
+def journal_key(manifest: PyPIManifest) -> str:
+    """One release, one key: the repository and the version, never the commit."""
+    return f"pypi:{manifest.repository}:{manifest.version}"
+
+
 def apply(
     manifest: PyPIManifest,
     github: GitHub,
@@ -360,31 +394,25 @@ def apply(
 ) -> Outcome:
     """The adapter's one effect: create ``vX.Y.Z`` at the reviewed commit.
 
-    ``plan`` and ``admit`` run again first, at the boundary. The intent is on
-    disk before the call, and the call is never retried: an answer that is
-    lost leaves the intent open and the outcome ambiguous, for ``reconcile``.
+    An open intent from an earlier attempt is settled first, by reading the
+    tag back. Then ``plan`` and ``admit`` run again, at the boundary. The
+    intent is on disk before the call, and the call is never retried: an
+    answer that is lost leaves the intent open and the outcome ambiguous.
     The journal's "signed" record here means "the tag landed".
     """
-    key = f"pypi:{manifest.project}:{manifest.tag}:{manifest.commit}"
+    key = journal_key(manifest)
+    if journal.is_open(key):
+        return _settle_open(manifest, github, journal, key, now)
     planned = plan(manifest, github, pypi)
     if planned.status != "done":
         return planned
     if planned.facts["stage"] == "already-applied":
-        if journal.is_open(key):
-            journal.append(key, SIGNED, now())
         return Outcome(
             "done", "already_applied", f"{manifest.tag} is already at the commit"
         )
     admitted = admit(manifest, github)
     if admitted.status != "done":
         return admitted
-    if journal.is_open(key):
-        return Outcome(
-            "ambiguous",
-            "apply_unreconciled",
-            "an earlier tag creation's answer was lost and the tag isn't there; "
-            "it is not retried",
-        )
     journal.append(key, INTENT, now())
     try:
         result = github.create_tag(manifest.repository, manifest.tag, manifest.commit)

@@ -21,6 +21,16 @@ import httpx
 from zeo_core.release.signing.admission import GhCli, ReviewUnreadableError
 
 PYPI: Final = "https://pypi.org"
+_MAX_POLICY_PAGES: Final = 20
+
+
+def _listed(value: object, what: str) -> list[Any]:
+    """A JSON list GitHub sends, or unreadable: never iterate a scalar."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise TargetUnreadableError(f"the {what} are unreadable")
+    return value
 
 
 class TargetUnreadableError(RuntimeError):
@@ -178,11 +188,11 @@ class GitHubCli(GhCli):
             return None
         reviewers: set[str] | None = None
         prevent_self_review = False
-        for rule in answer.get("protection_rules") or ():
+        for rule in _listed(answer.get("protection_rules"), "protection rules"):
             if isinstance(rule, dict) and rule.get("type") == "required_reviewers":
                 reviewers = set() if reviewers is None else reviewers
                 prevent_self_review = rule.get("prevent_self_review") is True
-                for entry in rule.get("reviewers") or ():
+                for entry in _listed(rule.get("reviewers"), "required reviewers"):
                     reviewer = (
                         entry.get("reviewer") if isinstance(entry, dict) else None
                     )
@@ -196,18 +206,42 @@ class GitHubCli(GhCli):
         policy = answer.get("deployment_branch_policy")
         custom: tuple[tuple[str, str], ...] | None = None
         if isinstance(policy, dict) and policy.get("custom_branch_policies") is True:
-            listed = self._object(f"{base}/deployment-branch-policies") or {}
-            custom = tuple(
-                (str(item.get("name")), str(item.get("type", "branch")))
-                for item in listed.get("branch_policies") or ()
-                if isinstance(item, dict)
-            )
+            custom = self._deployment_policies(base)
         return EnvironmentPolicy(
             required_reviewers=None if reviewers is None else frozenset(reviewers),
             prevent_self_review=prevent_self_review,
             can_admins_bypass=answer.get("can_admins_bypass") is not False,
             custom_policies=custom,
         )
+
+    def _deployment_policies(self, base: str) -> tuple[tuple[str, str], ...]:
+        """Every page of the custom deployment policies, or unreadable.
+
+        A policy never read is a policy never checked, so a short read fails
+        closed: the count read must equal GitHub's ``total_count``.
+        """
+        policies: list[tuple[str, str]] = []
+        for page in range(1, _MAX_POLICY_PAGES + 1):
+            listed = self._object(
+                f"{base}/deployment-branch-policies?per_page=100&page={page}"
+            )
+            total = (listed or {}).get("total_count")
+            items = (listed or {}).get("branch_policies")
+            if not isinstance(total, int) or not isinstance(items, list):
+                raise TargetUnreadableError("the deployment policies are unreadable")
+            for item in items:
+                name = item.get("name") if isinstance(item, dict) else None
+                kind = item.get("type", "branch") if isinstance(item, dict) else None
+                if not isinstance(name, str) or not isinstance(kind, str):
+                    raise TargetUnreadableError("a deployment policy is unreadable")
+                policies.append((name, kind))
+            if len(policies) >= total or not items:
+                break
+        if len(policies) != total:
+            raise TargetUnreadableError(
+                f"read {len(policies)} of {total} deployment policies"
+            )
+        return tuple(policies)
 
     def identity(self, repo: str) -> Identity:
         user = self._object("user") or {}

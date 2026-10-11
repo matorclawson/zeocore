@@ -62,17 +62,24 @@ publish. Otherwise "never approves" would be a convention, not a control.
 - it can't bypass the protection as an admin: either the environment doesn't
   let admins bypass, or the identity isn't an admin (`admin_bypass_possible`);
 - the environment deploys only from `v*` tags (`deployment_policy_unrestricted`).
+  Every page of the policy list is read, and a list read short of GitHub's
+  count is unreadable, never assumed complete.
 
 ## apply
 
 ```console
-$ echo '{"manifest": "release.yaml", "work_dir": "/path/to/journal"}' | zeocore release pypi apply
+$ echo '{"manifest": "release.yaml"}' | zeocore release pypi apply
 ```
 
 `apply` is the adapter's only effect. It creates a lightweight tag through
 GitHub's API, after `plan` and `admit` pass again at that moment. Its intent
-is journaled before the call. A lost answer is `apply_unreconciled` (exit 13),
-and is never retried: `reconcile` reads the tag back. The adapter never
+is journaled before the call, in this user's
+`$XDG_STATE_HOME/zeocore/release/pypi-journal.jsonl` (by default under
+`~/.local/state`), keyed by repository and version. So one release is never
+attempted twice, whatever the commit or directory. An open intent from an
+earlier attempt is settled first, by reading the tag back, before `plan` or
+`admit` could refuse and hide it. A lost answer is `apply_unreconciled`
+(exit 13), and is never retried. The adapter never
 approves the workflow, never dispatches it, and never holds a PyPI
 credential.
 
