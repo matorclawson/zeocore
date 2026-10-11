@@ -15,10 +15,12 @@ pack again is safe: a settled request gets the same answer and is never
 signed twice. ``serve`` runs that service from ``{"listen", "state_dir"}``
 until interrupted (ZEOCORE-SOW-24).
 
-``pypi plan | admit | apply | reconcile | verify`` are the PyPI adapter's
-stages for ``pypi:zeocore`` (ZEOCORE-SOW-26), from
-``{"manifest": "<release.yaml>"}``. Only ``apply`` has an effect: it creates
-the release tag. Its journal is this user's, at
+``pypi plan | admit | apply | approve | reconcile | verify`` are the PyPI
+adapter's stages for each reviewed target (ZEOCORE-SOW-26), from
+``{"manifest": "<release.yaml>"}``. ``apply`` creates the release tag as the
+``zeo-release`` App (its id in ``ZEOCORE_RELEASE_APP_ID``, its key in the
+Keychain); ``approve`` approves the waiting deployment as matorclawson, once.
+Their journal is this user's, at
 ``$XDG_STATE_HOME/zeocore/release/pypi-journal.jsonl``, keyed by repository
 and version, so "never retried" holds across work directories.
 Every signing input comes from the manifest's ``signing`` section, never from
@@ -34,6 +36,7 @@ import hashlib
 import json
 import os
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -41,6 +44,11 @@ import httpx
 
 from zeo_core.adapters.runtime_host.canonical import ProtocolError, parse_json
 from zeo_core.release import pypi
+from zeo_core.release.pypi.targets import (
+    RELEASE_APP_ID_VARIABLE,
+    RELEASE_APP_KEY_ACCOUNT_VARIABLE,
+    RELEASE_APP_KEY_SERVICE,
+)
 from zeo_core.release.signing import (
     DarwinToolchain,
     JournalHeldError,
@@ -291,7 +299,8 @@ def _parse(verb: str, stdin: bytes) -> dict[str, str] | Answer:
 
 
 PyPIReads = Callable[[], tuple[pypi.GitHubCli, pypi.PyPIHttp]]
-_PYPI_STAGES: Final = ("plan", "admit", "apply", "reconcile", "verify")
+ReleaseAppFactory = Callable[[int, Mapping[str, str]], pypi.TagCreator]
+_PYPI_STAGES: Final = ("plan", "admit", "apply", "approve", "reconcile", "verify")
 _PYPI_EXIT: Final = {
     "done": EXIT_DONE,
     "waiting": EXIT_WAIT,
@@ -306,36 +315,94 @@ def _default_pypi_reads() -> tuple[pypi.GitHubCli, pypi.PyPIHttp]:
     return pypi.GitHubCli(), pypi.PyPIHttp()
 
 
+def _default_release_app(
+    app_id: int, environ: Mapping[str, str]
+) -> pypi.TagCreator:  # pragma: no cover - needs the Keychain
+    from zeo_core.integrations.github.app_tokens import KeychainAppKeySource
+
+    account = environ.get(RELEASE_APP_KEY_ACCOUNT_VARIABLE) or "private-key"
+    key = KeychainAppKeySource(service=RELEASE_APP_KEY_SERVICE, account=account)
+    return pypi.ReleaseApp(app_id=app_id, key_source=key)
+
+
 def pypi_journal_path(environ: Mapping[str, str]) -> Path:
     state = environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
     return Path(state) / "zeocore" / "release" / "pypi-journal.jsonl"
 
 
-def _pypi_apply(
-    manifest: pypi.PyPIManifest,
-    github: pypi.GitHubCli,
-    index: pypi.PyPIHttp,
-    journal_path: Path,
+def _release_app_id(environ: Mapping[str, str]) -> int | None:
+    """The App's id from configuration; None if unset. Not a secret."""
+    value = environ.get(RELEASE_APP_ID_VARIABLE, "")
+    if not value:
+        return None
+    if not value.isdigit() or int(value) <= 0:
+        raise ValueError(f"{RELEASE_APP_ID_VARIABLE} must be a positive integer")
+    return int(value)
+
+
+def _journaled(
+    path: Path, act: Callable[[SigningJournal], pypi.Outcome]
 ) -> pypi.Outcome:
-    journal_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
-        journal = SigningJournal(journal_path)
+        journal = SigningJournal(path)
     except JournalHeldError:
         return pypi.Outcome(
-            "held", "apply_in_progress", "another apply holds the journal"
+            "held", "apply_in_progress", "another run holds the journal"
         )
     except ValueError:
         return pypi.Outcome(
             "held", "journal_unreadable", "the journal has an unreadable line"
         )
     try:
-        return pypi.apply(manifest, github, index, journal)
+        return act(journal)
     finally:
         journal.close()
 
 
+@dataclass(frozen=True)
+class _PyPIRun:
+    manifest: pypi.PyPIManifest
+    github: pypi.GitHubCli
+    index: pypi.PyPIHttp
+    app_id: int | None
+    environ: Mapping[str, str]
+    release_app: ReleaseAppFactory
+
+    def stage(self, name: str) -> pypi.Outcome:
+        manifest, github, index = self.manifest, self.github, self.index
+        journal = pypi_journal_path(self.environ)
+        if name == "plan":
+            return pypi.plan(manifest, github, index)
+        if name == "admit":
+            return pypi.admit(manifest, github, self.app_id)
+        if name == "reconcile":
+            return pypi.reconcile(manifest, github)
+        if name == "verify":
+            return pypi.verify(manifest, index)
+        if name == "approve":
+            return _journaled(
+                journal,
+                lambda j: pypi.approve(manifest, github, index, self.app_id, j),
+            )
+        if self.app_id is None:
+            return pypi.Outcome(
+                "refused",
+                "release_app_unconfigured",
+                f"set {RELEASE_APP_ID_VARIABLE} to the release App's id",
+            )
+        app = self.release_app(self.app_id, self.environ)
+        return _journaled(
+            journal, lambda j: pypi.apply(manifest, github, index, app, j)
+        )
+
+
 def _pypi(
-    args: Sequence[str], stdin: bytes, reads: PyPIReads, environ: Mapping[str, str]
+    args: Sequence[str],
+    stdin: bytes,
+    reads: PyPIReads,
+    environ: Mapping[str, str],
+    release_app: ReleaseAppFactory,
 ) -> Answer:
     if len(args) != 2 or args[1] not in _PYPI_STAGES:
         return invalid(f"release pypi takes one of: {', '.join(_PYPI_STAGES)}")
@@ -343,29 +410,20 @@ def _pypi(
         request = parse_json(stdin)
     except ProtocolError as error:
         return invalid(str(error))
-    fields = {"manifest"}
     if (
         not isinstance(request, dict)
-        or set(request) != fields
-        or not all(isinstance(value, str) and value for value in request.values())
+        or set(request) != {"manifest"}
+        or not isinstance(request["manifest"], str)
     ):
-        return invalid(f"stdin must hold exactly: {', '.join(sorted(fields))}")
+        return invalid('stdin must be {"manifest": path}')
     try:
         manifest = pypi.load(Path(request["manifest"]))
-    except pypi.ManifestError as error:
+        app_id = _release_app_id(environ)
+    except (pypi.ManifestError, ValueError) as error:
         return invalid(str(error))
     github, index = reads()
-    stage = args[1]
-    if stage == "plan":
-        outcome = pypi.plan(manifest, github, index)
-    elif stage == "admit":
-        outcome = pypi.admit(manifest, github)
-    elif stage == "apply":
-        outcome = _pypi_apply(manifest, github, index, pypi_journal_path(environ))
-    elif stage == "reconcile":
-        outcome = pypi.reconcile(manifest, github)
-    else:
-        outcome = pypi.verify(manifest, index)
+    run = _PyPIRun(manifest, github, index, app_id, environ, release_app)
+    outcome = run.stage(args[1])
     body: dict[str, object] = {
         "ok": outcome.status == "done",
         "outcome": outcome.reason,
@@ -415,10 +473,11 @@ def make_command(
     post: Post = _post,
     serve_with: Serve = _serve_forever,
     pypi_reads: PyPIReads = _default_pypi_reads,
+    release_app: ReleaseAppFactory = _default_release_app,
 ) -> Callable[[Sequence[str], bytes], Answer]:
     def release(args: Sequence[str], stdin: bytes) -> Answer:
         if args and args[0] == "pypi":
-            return _pypi(args, stdin, pypi_reads, environ)
+            return _pypi(args, stdin, pypi_reads, environ, release_app)
         return _signing(args, stdin, toolchain, environ, post, serve_with)
 
     return release

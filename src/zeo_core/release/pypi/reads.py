@@ -52,6 +52,7 @@ class WorkflowRun:
     status: str  # queued, in_progress, waiting, requested, pending, completed
     conclusion: str | None  # success, failure, cancelled, ... once completed
     head_branch: str | None = None  # for a tag push, the tag's name
+    id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,33 @@ class Identity:
 
     login: str
     admin: bool
+
+
+@dataclass(frozen=True)
+class TagRuleset:
+    """One ruleset on tags, as GitHub reports its detail."""
+
+    id: int
+    enforcement: str
+    includes: tuple[str, ...]
+    excludes: tuple[str, ...]
+    rules: frozenset[str]
+    bypass: tuple[tuple[str, int | None, str], ...]  # (actor_type, actor_id, mode)
+
+
+@dataclass(frozen=True)
+class PendingDeployment:
+    environment_id: int
+    environment: str
+    can_approve: bool
+
+
+#: How an approval ended, when its answer came back.
+ApprovalResult = Literal["approved", "not_sent", "rejected"]
+
+
+class ApprovalAnswerLostError(RuntimeError):
+    """The approval may have landed, but its answer was lost."""
 
 
 @dataclass(frozen=True)
@@ -109,11 +137,23 @@ class GitHub(Protocol):
         ...
 
     def identity(self, repo: str) -> Identity:
-        """The identity ``gh`` acts as, and its permission on ``repo``."""
+        """The identity ``gh`` acts as (the approver), and its permission."""
         ...
 
-    def create_tag(self, repo: str, tag: str, commit: str) -> TagResult:
-        """The adapter's one effect. Raises ``TagAnswerLostError`` if unknown."""
+    def tag_rulesets(self, repo: str) -> tuple[TagRuleset, ...]:
+        """Every ruleset that targets tags, with its rules and bypass list."""
+        ...
+
+    def pending_deployments(
+        self, repo: str, run_id: int
+    ) -> tuple[PendingDeployment, ...]:
+        """The deployments a run waits on, and whether ``gh``'s identity may approve."""
+        ...
+
+    def approve_deployment(
+        self, repo: str, run_id: int, environment_id: int, comment: str
+    ) -> ApprovalResult:
+        """The approve stage's one effect. Raises ``ApprovalAnswerLostError``."""
         ...
 
     def runs(
@@ -251,32 +291,81 @@ class GitHubCli(GhCli):
             raise TargetUnreadableError("the acting identity can't be read")
         return Identity(login, permissions.get("admin") is True)
 
-    def create_tag(self, repo: str, tag: str, commit: str) -> TagResult:
+    def _any(self, endpoint: str) -> Any | None:  # noqa: ANN401 - raw JSON
+        """A JSON answer of any shape, or None on 404."""
+        try:
+            body = self._api([endpoint])
+        except ReviewUnreadableError as error:
+            raise TargetUnreadableError(str(error)) from None
+        if body is None:
+            return None
+        try:
+            return json.loads(body)
+        except ValueError:
+            raise TargetUnreadableError("GitHub answered with something else") from None
+
+    def tag_rulesets(self, repo: str) -> tuple[TagRuleset, ...]:
+        listed = self._any(f"repos/{repo}/rulesets?per_page=100&includes_parents=true")
+        found = []
+        for summary in _listed(listed, "rulesets"):
+            if not isinstance(summary, dict) or not isinstance(summary.get("id"), int):
+                raise TargetUnreadableError("a ruleset is unreadable")
+            if summary.get("target") != "tag":
+                continue
+            detail = self._object(f"repos/{repo}/rulesets/{summary['id']}")
+            if detail is None:
+                raise TargetUnreadableError("a tag ruleset can't be read")
+            found.append(_tag_ruleset(summary["id"], detail))
+        if len(_listed(listed, "rulesets")) >= 100:
+            # A page that is full may not be the last: never assume it is.
+            raise TargetUnreadableError("more rulesets than one page")
+        return tuple(found)
+
+    def pending_deployments(
+        self, repo: str, run_id: int
+    ) -> tuple[PendingDeployment, ...]:
+        listed = self._any(f"repos/{repo}/actions/runs/{run_id}/pending_deployments")
+        pending = []
+        for item in _listed(listed, "pending deployments"):
+            environment = item.get("environment") if isinstance(item, dict) else None
+            env_id = environment.get("id") if isinstance(environment, dict) else None
+            name = environment.get("name") if isinstance(environment, dict) else None
+            if not isinstance(env_id, int) or not isinstance(name, str):
+                raise TargetUnreadableError("a pending deployment is unreadable")
+            pending.append(
+                PendingDeployment(
+                    env_id, name, item.get("current_user_can_approve") is True
+                )
+            )
+        return tuple(pending)
+
+    def approve_deployment(
+        self, repo: str, run_id: int, environment_id: int, comment: str
+    ) -> ApprovalResult:
         argv = [
             self._gh,
             "api",
             "-X",
             "POST",
-            f"repos/{repo}/git/refs",
+            f"repos/{repo}/actions/runs/{run_id}/pending_deployments",
+            "-F",
+            f"environment_ids[]={environment_id}",
             "-f",
-            f"ref=refs/tags/{tag}",
+            "state=approved",
             "-f",
-            f"sha={commit}",
+            f"comment={comment}",
         ]
         try:
             done = self._run(argv)
         except OSError:
             return "not_sent"
         except subprocess.SubprocessError as error:
-            raise TagAnswerLostError("gh's answer was lost") from error
+            raise ApprovalAnswerLostError("gh's answer was lost") from error
         if done.returncode == 0:
-            return "created"
-        if b"HTTP 422" in done.stderr:
-            return "exists"
+            return "approved"
         if re.search(rb"HTTP 4\d\d", done.stderr):
             return "rejected"
-        # A 5xx, a network failure or anything else: it may have landed.
-        raise TagAnswerLostError("GitHub's answer to the tag creation is unknown")
+        raise ApprovalAnswerLostError("GitHub's answer to the approval is unknown")
 
     def runs(self, repo: str, workflow: str, commit: str) -> tuple[WorkflowRun, ...]:
         endpoint = (
@@ -291,11 +380,13 @@ class GitHubCli(GhCli):
             if not isinstance(run, dict) or not isinstance(run.get("status"), str):
                 raise TargetUnreadableError("a workflow run is unreadable")
             conclusion, branch = run.get("conclusion"), run.get("head_branch")
+            run_id = run.get("id")
             runs.append(
                 WorkflowRun(
                     run["status"],
                     conclusion if isinstance(conclusion, str) else None,
                     branch if isinstance(branch, str) else None,
+                    run_id if isinstance(run_id, int) else None,
                 )
             )
         return tuple(runs)
@@ -376,3 +467,43 @@ class PyPIHttp:
             raise TargetUnreadableError(
                 "PyPI's provenance answer is unreadable"
             ) from None
+
+
+def _tag_ruleset(ruleset_id: int, detail: Mapping[str, Any]) -> TagRuleset:
+    conditions = detail.get("conditions") or {}
+    ref_name = conditions.get("ref_name") if isinstance(conditions, dict) else None
+    if not isinstance(ref_name, dict):
+        ref_name = {}
+    includes = _listed(ref_name.get("include"), "ruleset includes")
+    excludes = _listed(ref_name.get("exclude"), "ruleset excludes")
+    rules = []
+    for rule in _listed(detail.get("rules"), "ruleset rules"):
+        kind = rule.get("type") if isinstance(rule, dict) else None
+        if not isinstance(kind, str):
+            raise TargetUnreadableError("a ruleset rule is unreadable")
+        rules.append(kind)
+    bypass = []
+    for actor in _listed(detail.get("bypass_actors"), "bypass actors"):
+        if not isinstance(actor, dict) or not isinstance(actor.get("actor_type"), str):
+            raise TargetUnreadableError("a bypass actor is unreadable")
+        actor_id = actor.get("actor_id")
+        bypass.append(
+            (
+                actor["actor_type"],
+                actor_id if isinstance(actor_id, int) else None,
+                str(actor.get("bypass_mode", "always")),
+            )
+        )
+    enforcement = detail.get("enforcement")
+    if not isinstance(enforcement, str) or not all(
+        isinstance(item, str) for item in (*includes, *excludes)
+    ):
+        raise TargetUnreadableError("a tag ruleset is unreadable")
+    return TagRuleset(
+        ruleset_id,
+        enforcement,
+        tuple(includes),
+        tuple(excludes),
+        frozenset(rules),
+        tuple(bypass),
+    )
