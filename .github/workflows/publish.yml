@@ -157,21 +157,22 @@ jobs:
           fi
           echo "expecting zeocore==${EXPECTED_VERSION} on Python >=${PYTHON_FLOOR}"
 
-      - name: Wait until the index serves this version (at most 10 minutes)
+      - name: Wait until the installer can resolve this version (at most 10 minutes)
         run: |
-          # A fixed wait wasn't enough: 0.15.1's smoke test failed on index
-          # lag 30 s after its upload. Poll the simple index the installer
-          # reads, for both of this version's files.
+          # Ask the installer itself. 0.15.1 failed a fixed 30 s wait, and
+          # 0.15.2 failed after the HTML simple page already listed its
+          # files: uv reads the JSON form of the simple index, which PyPI's
+          # CDN caches separately and can serve stale for longer.
+          uv venv --python "${PYTHON_FLOOR}" /tmp/resolve-probe
           for attempt in $(seq 1 40); do
-            page=$(curl --silent --fail https://pypi.org/simple/zeocore/ || true)
-            if grep -q "zeocore-${EXPECTED_VERSION}-py3-none-any.whl" <<<"$page" &&
-               grep -q "zeocore-${EXPECTED_VERSION}.tar.gz" <<<"$page"; then
-              echo "the index serves ${EXPECTED_VERSION} (attempt ${attempt})"
+            if uv pip install --dry-run --no-cache --python /tmp/resolve-probe/bin/python \
+                 "zeocore==${EXPECTED_VERSION}" >/dev/null 2>&1; then
+              echo "the installer resolves zeocore==${EXPECTED_VERSION} (attempt ${attempt})"
               exit 0
             fi
             sleep 15
           done
-          echo "::error::the index didn't serve ${EXPECTED_VERSION} within 10 minutes"
+          echo "::error::the installer couldn't resolve zeocore==${EXPECTED_VERSION} within 10 minutes"
           exit 1
 
       - name: Install from PyPI and smoke-test
