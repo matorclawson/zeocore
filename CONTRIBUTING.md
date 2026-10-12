@@ -143,7 +143,9 @@ bugs), and your Python/zeocore version. For vulnerabilities, see
 
 Releases go through `.github/workflows/publish.yml`, using PyPI's [trusted
 publishing](https://docs.pypi.org/trusted-publishers/) (OIDC) -- no API
-token is stored as a repo secret for either index.
+token is stored as a repo secret. There is no TestPyPI target: its
+environment was unprotected, so every publish now goes through the
+protected `pypi` environment.
 
 1. Bump `pyproject.toml`'s `[project] version`. It is the single source of
    truth: installed `zeo_core.__version__` reads the distribution metadata
@@ -152,38 +154,26 @@ token is stored as a repo secret for either index.
    exact heading `# zeocore X.Y.Z`, update docs/examples, and run `uv lock`.
    Run `make verify`, `make build`, and `make release-check`. The latter
    verifies metadata consistency and that the version is unused on both
-   indexes, using live positive controls. Run it before staging consumes
-   the TestPyPI version. Index filenames cannot be reused.
-3. Stage through Actions -> "Publish" -> "Run workflow", selecting the
-   release branch and target `testpypi`. Require every job, including the
-   clean-environment install, to pass. That smoke job gets the exact wheel
-   URL from `https://test.pypi.org/pypi/zeocore/X.Y.Z/json`, verifies its
-   TestPyPI file host, and installs that URL while resolving dependencies
-   exclusively from `https://pypi.org/simple/`. Do not combine package indexes
-   or install an unpinned latest version as evidence for this release.
-4. After the reviewed release changes land on main, tag that verified commit:
-   `git tag -a vX.Y.Z -m "Release zeocore X.Y.Z"`, then
-   `git push origin vX.Y.Z`. This triggers real PyPI publication. The workflow
+   indexes, using live positive controls. Index filenames cannot be reused.
+3. After the reviewed release changes land on main, the operator tags the
+   merge commit `vX.Y.Z` (tags on main are the operator's alone, RULING-471)
+   and approves the `pypi` deployment. This triggers real PyPI publication. The workflow
    refuses a tag that disagrees with package metadata or release notes and
    creates the GitHub release from `RELEASE_NOTES.md` after the PyPI smoke passes.
-5. The workflow's own `smoke-test` job installs the just-published package
+4. The workflow's own `smoke-test` job installs the just-published package
    into a clean venv and imports it -- treat that job's failure as the
    release having NOT actually succeeded, even if the publish step itself
    reported success (PyPI's own index can take a moment to propagate; the
    workflow waits, but a failure here is still real signal, not a fluke to
    ignore).
 
-**Trusted publisher setup** (one-time, on each index's web UI — not something
-a CI workflow can do for itself):
+**Trusted publisher setup** (one-time, on PyPI's web UI — not something
+a CI workflow can do for itself): https://pypi.org/manage/account/publishing/
 
-- https://pypi.org/manage/account/publishing/
-- https://test.pypi.org/manage/account/publishing/
-
-Register a trusted publisher on each with **all four** fields exact:
-repository owner `profrodai`, repository name `zeocore`, workflow
+Register a trusted publisher with **all four** fields exact:
+repository owner `zeroemployeeorg`, repository name `zeocore`, workflow
 filename `publish.yml` (just the filename, not the full path), and
-environment name `pypi` (for the pypi.org entry) or `testpypi` (for the
-test.pypi.org entry). All four are baked into the OIDC token's claims and
+environment name `pypi`. All four are baked into the OIDC token's claims and
 must match byte-for-byte, or the publish step fails with
 `invalid-publisher: valid token, but no corresponding publisher` -- an
 error that does not say which field is wrong, so get all four right rather

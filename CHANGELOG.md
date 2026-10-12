@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Every publish goes through the protected `pypi` environment.** `publish.yml`
+  no longer has a `testpypi` dispatch target, its job or its smoke step. That
+  environment had no protection, so any account or App able to dispatch the
+  workflow could publish to TestPyPI unreviewed (ZEOCORE-SOW-30 §3.2). A test
+  now pins the dispatch options to `pypi` and the workflow's environments to
+  `pypi` alone. `CONTRIBUTING.md`'s release steps drop TestPyPI staging, say the
+  operator tags, and name `zeroemployeeorg` as the trusted publisher's owner.
+
 ## [0.15.0] - 2026-10-12
 
 This release ships every change since 0.12.0. Three planned releases were never
