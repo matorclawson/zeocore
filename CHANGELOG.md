@@ -313,6 +313,16 @@ These change what a caller sees. The session store API and the
 
 ### Changed
 
+- **PyPI `admit` checks what a non-Admin can see** (the operator, SOW-29,
+  option C). It no longer requires the exact `v*` ruleset bypass list, which
+  GitHub hides from anyone without Admin, and no agent is an Admin under ruling
+  r7. It requires the ruleset to be active on `refs/tags/v*` with no
+  exclusions, restricting creation, update and deletion, and matorclawson's own
+  `current_user_can_bypass` to be `never` (`approver_can_bypass` otherwise). A
+  hidden bypass list is now read as hidden, not as an error.
+- **`zero-employee` is no longer a PyPI target.** It is now zeoruntime,
+  released Go-only through the shared signed release component.
+
 - **`make setup` and CI install exactly what `uv.lock` pins** (`make sync`, which
   runs `uv sync --locked` with every gate extra plus dev, lint and docs). Before
   this, `uv pip install -e .[extras]` resolved the newest releases, so CI could
@@ -344,11 +354,11 @@ These change what a caller sees. The session store API and the
 
 ### Fixed
 
-- **A hidden ruleset bypass list is unreadable, not empty.** GitHub returns a
+- **A hidden ruleset bypass list is never read as empty.** GitHub returns a
   ruleset's `bypass_actors` only to a user with Admin on the repository.
-  `zeocore release pypi admit` now holds as `target_unreadable`, saying the
-  approver can't read the bypass list, instead of refusing as
-  `tag_ruleset_missing`.
+  `admit` used to read the missing key as an empty list and refuse as
+  `tag_ruleset_missing`, naming the wrong cause. It now records the list as
+  hidden, and doesn't rely on it (see Changed).
 
 - **The YouTube custody relay no longer retries a failure no retry can cure.**
   Until now only a refusal ended a relayed upload: every other client error

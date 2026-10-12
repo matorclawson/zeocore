@@ -217,9 +217,15 @@ def admit(manifest: PyPIManifest, github: GitHub, app_id: int | None) -> Outcome
     Read at GitHub's own boundary (the operator's delegation, relayed in
     msg-architect-zeocore-pypi-release-delegation-operator-20261011):
     matorclawson is the environment's only required reviewer, with self-review
-    prevented and no admin bypass; only ``v*`` tags may deploy; a ruleset on
-    ``v*`` tags lets only the release App create, update or delete them; and
-    ``gh`` acts as matorclawson, the approver.
+    prevented and no admin bypass; only ``v*`` tags may deploy; an active
+    ruleset on ``v*`` tags restricts creating, updating and deleting them, and
+    matorclawson can't bypass it; and ``gh`` acts as matorclawson.
+
+    The ruleset's exact bypass list isn't checked: GitHub shows it only to a
+    repository Admin, and under ruling r7 no agent is one. The operator chose
+    this (SOW-29, option C). The residual risk, an unseen actor creating a
+    ``v*`` tag, can't publish on its own: the run still waits on matorclawson,
+    and ``approve`` approves only a reviewed commit on the default branch.
     """
     repo, env = manifest.repository, manifest.environment
     if app_id is None:
@@ -268,15 +274,19 @@ def admit(manifest: PyPIManifest, github: GitHub, app_id: int | None) -> Outcome
         and RELEASE_TAG_REF in ruleset.includes
         and not ruleset.excludes
         and {"creation", "update", "deletion"} <= ruleset.rules
-        and [(kind, actor) for kind, actor, _mode in ruleset.bypass]
-        == [("Integration", app_id)]
     ]
     if not guarding:
         return Outcome(
             "refused",
             "tag_ruleset_missing",
-            f"no active ruleset on {RELEASE_TAG_REF} lets only the release App "
-            "create, update or delete it",
+            f"no active ruleset on {RELEASE_TAG_REF}, with no exclusions, restricts "
+            "creating, updating and deleting release tags",
+        )
+    if any(ruleset.current_user_can_bypass != "never" for ruleset in guarding):
+        return Outcome(
+            "refused",
+            "approver_can_bypass",
+            f"{APPROVER} can bypass the release tag ruleset; it must be 'never'",
         )
     if approver.login != APPROVER:
         return Outcome(
