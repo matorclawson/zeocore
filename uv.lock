@@ -3027,7 +3027,6 @@ wheels = [
 
 [[package]]
 name = "zeocore"
-version = "0.15.1"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -3307,7 +3306,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'http'", specifier = ">=0.30" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'http-dev'", specifier = ">=0.30" },
 ]
-provides-extras = ["http", "http-dev", "mcp", "mcp-dev", "dev", "lint", "gmail", "notion", "supabase", "google", "docs", "sheets", "slides", "drive", "calendar", "youtube", "pandoc", "llms", "github", "bluesky", "ffmpeg", "revolut", "github-app", "jupytext", "notebook", "all", "runtime-host"]
+provides-extras = ["all", "bluesky", "calendar", "dev", "docs", "drive", "ffmpeg", "github", "github-app", "gmail", "google", "http", "http-dev", "jupytext", "lint", "llms", "mcp", "mcp-dev", "notebook", "notion", "pandoc", "revolut", "runtime-host", "sheets", "slides", "supabase", "youtube"]
 
 [package.metadata.requires-dev]
 documentation = [

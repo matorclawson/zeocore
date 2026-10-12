@@ -1,10 +1,10 @@
-# zeocore's release manifest, read by `zeocore release pypi` (ZEOCORE-SOW-26
-# to SOW-29). A file can't name the commit it is part of, so this section has
-# no `commit`: the local copy the stages read adds it. Changed only in a
-# release's own reviewed PR.
+# zeocore's release facts, fixed per repository. No seat edits this per
+# release: since release on merge, every merge to main is a release whose
+# version is computed (.github/workflows/release-on-merge.yml), so nothing
+# here names a version or a commit. `zeocore release pypi reconcile` and
+# `verify` read a local copy that adds both, for the release they check.
 pypi:
   project: zeocore
-  version: 0.15.1
   repository: zeroemployeeorg/zeocore
   workflow: publish.yml
   environment: pypi

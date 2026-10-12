@@ -78,7 +78,6 @@ help: ## Show this help message
 	@echo '  ${GREEN}make test-fast${RESET}        - pytest without coverage (quick inner loop)'
 	@echo '  ${GREEN}make test-docs${RESET}        - documentation links + safe example smoke tests'
 	@echo '  ${GREEN}make build${RESET}            - python -m build (sdist + wheel)'
-	@echo '  ${GREEN}make release-check${RESET}    - Pre-tag gate: version/floor agreement, CHANGELOG, index availability'
 	@echo ''
 	@echo '${YELLOW}Inspection:${RESET}'
 	@echo '  ${GREEN}make structure${RESET}        - Project structure + hotspots'
@@ -168,21 +167,6 @@ check-env: ## Check that the virtual environment is active and working
 .PHONY: doctor
 doctor: ## Check this machine is ready to develop/release zeocore (never stops at the first problem)
 	@bash tools/doctor.sh "$(REPO_ROOT)" "$(PYTHON)" "$(VENV_NAME)"
-
-# ============================================================
-# RELEASE-CHECK — the pre-tag gate (RULING-414)
-# ============================================================
-# Answers: is trunk actually ready to tag and publish? Version agreement,
-# floor agreement, a CHANGELOG entry for the version about to ship, and
-# whether that version is already burned on either index -- the exact
-# check that would have caught RULING-414's TestPyPI collision in one
-# second instead of two failed publish runs. Same KEEP_GOING contract as
-# `make doctor`: every check runs, the report is complete, exit code is
-# the failure count.
-.PHONY: release-check
-release-check: ## Pre-tag gate: version + floor agreement, CHANGELOG entry, index availability
-	@$(PYTHON) tools/check-release-identity-v1.py
-	@bash tools/release-check.sh "$(REPO_ROOT)" "$(PYTHON)"
 
 # ============================================================
 # THE GATE — verify / verify-full

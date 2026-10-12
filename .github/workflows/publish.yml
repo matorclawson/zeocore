@@ -1,170 +1,59 @@
 name: Publish
 
-# Two ways to trigger:
-#   1. Push a version tag (`v0.1.0`, matching pyproject.toml's `version`) --
-#      publishes straight to real PyPI. This is the release path.
-#   2. Manual dispatch (Actions tab -> Run workflow) with target `pypi`.
-#      Either way the run waits on the `pypi` environment's protection.
+# Every merge to main is a release (the operator, 2026-10-12: "the release
+# cycle and cadence have to be completely programmatic and not depend on a
+# seat"). Nobody bumps a version, tags or approves:
 #
-# There is no TestPyPI target. Its environment had no protection, so any
-# account or App able to dispatch this workflow could publish there
-# unreviewed (ZEOCORE-SOW-30 §3.2). Every publish now goes through `pypi`.
+#   1. release    (release-on-merge.yml) compute the version from the tags
+#                 and this merge's changelog.d fragments, make verify,
+#                 build, then create v<version> at this commit;
+#   2. publish    PyPI trusted publishing in the `pypi` environment;
+#   3. smoke-test install the published version on its floor and run it;
+#   4. github-release  the GitHub Release, from this merge's fragments.
 #
-# Runs the full `make verify` gate first so a broken build can never reach
-# either index even if someone tags/dispatches by mistake, then builds
-# sdist+wheel once and publishes via PyPI Trusted Publishing (OIDC) to
-# PyPI -- no API token stored as a repo secret.
+# The tag comes before the publish, so a refused tag publishes nothing. A
+# re-run on the same commit reuses its tag; nothing is published twice,
+# because PyPI never accepts a file name again.
 #
-# One-time setup required on PyPI's web UI before this workflow can publish
-# (not done by this workflow, and not something a CI session has
-# credentials for): https://pypi.org/manage/account/publishing/
-# Register a trusted publisher with EXACTLY:
-#   - repository owner: zeroemployeeorg  (moved from profrodai after 0.11.0;
-#     a publisher still bound to the old owner fails with invalid-publisher)
-#   - repository name:  zeocore
-#   - workflow filename: publish.yml  (not the full path, just the filename)
-#   - environment name: pypi
-# All four fields are baked into the OIDC token's claims and must match
-# byte-for-byte on PyPI's side -- a mismatch fails with
-# "invalid-publisher: valid token, but no corresponding publisher", which
-# gives no further detail about WHICH field is wrong, so get all four
-# exactly right rather than guessing from the error alone.
-# See https://docs.pypi.org/trusted-publishers/.
+# The `pypi` environment has no reviewer and deploys from main only, and the
+# `release tags` ruleset makes v tags permanent: the operator's one-time
+# setup, projects/zeocore/briefs/ZEOCORE-RELEASE-ON-MERGE-SETUP-2026-10-12.md
+# in the org records. Until the gold rulesets restrict updates of main to
+# the merger, anyone who can push straight to main can cut a release.
+#
+# PyPI's trusted publisher for zeocore: owner zeroemployeeorg, repository
+# zeocore, workflow publish.yml, environment pypi. All four are in the OIDC
+# token's claims and must match byte for byte, or the upload fails with
+# "invalid-publisher". The publish job stays in this file because trusted
+# publishing can't run inside a reusable workflow.
 
 on:
-  workflow_dispatch:
-    inputs:
-      target:
-        description: "Where to publish"
-        required: true
-        type: choice
-        options:
-          - pypi
-        default: pypi
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: publish-main
   cancel-in-progress: false
 
 jobs:
-  verify:
-    name: verify before publish
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Install Pandoc for real authoring receipt tests
-        run: sudo apt-get update && sudo apt-get install -y pandoc
-
-      - name: make setup
-        run: make setup
-
-      - name: Check release metadata and tag identity
-        run: .venv/bin/python tools/check-release-identity-v1.py
-
-      - name: make verify (the doctrine gate -- must pass before publish)
-        run: make verify
-
-  build:
-    name: build sdist + wheel
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      version: ${{ steps.built-version.outputs.version }}
-      python-floor: ${{ steps.python-floor.outputs.floor }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: make setup
-        run: make setup
-
-      - name: make build (python -m build -> sdist + wheel in dist/)
-        run: make build
-
-      - name: Read the version this run actually built
-        id: built-version
-        # Read it from the sdist FILENAME rather than re-parsing
-        # pyproject.toml with a second regex -- this is a fact about the
-        # artifact that is about to be published, not a re-derivation of
-        # one, and it is identical whether this run was triggered by a
-        # tag push (ref = refs/tags/vX.Y.Z) or a workflow_dispatch on a
-        # branch (ref = refs/heads/main, no version in the ref at all).
-        # Exactly one sdist is expected in dist/; fail loudly rather than
-        # silently taking the wrong match if that is ever not true.
-        run: |
-          shopt -s nullglob
-          sdists=(dist/*.tar.gz)
-          if [ "${#sdists[@]}" -ne 1 ]; then
-            echo "::error::expected exactly one sdist in dist/, found ${#sdists[@]}: ${sdists[*]}"
-            exit 1
-          fi
-          filename=$(basename "${sdists[0]}")
-          # zeocore-0.6.1.tar.gz -> 0.6.1
-          version="${filename#zeocore-}"
-          version="${version%.tar.gz}"
-          if [ -z "$version" ]; then
-            echo "::error::could not extract a version from sdist filename: ${filename}"
-            exit 1
-          fi
-          echo "built version: ${version} (from ${filename})"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Read the Python floor this version declares
-        id: python-floor
-        # Same '>=X.Y' shape tests/test_release_consistency.py already
-        # assumes and asserts every other floor-bearing file agrees
-        # with -- one parse shape, not a second one invented here. The
-        # smoke-test job installs on this floor rather than whatever
-        # Python the runner defaults to, which is the root cause this
-        # job exists to close: a bare `uv venv` on a runner whose default
-        # is below the floor lets uv's resolver silently backsolve to an
-        # old release instead of failing.
-        run: |
-          spec=$(grep -E '^requires-python' pyproject.toml | sed -E 's/.*"(.*)"/\1/')
-          floor=$(echo "$spec" | sed -E 's/>=([0-9]+\.[0-9]+).*/\1/')
-          if ! [[ "$floor" =~ ^[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::could not parse a >=X.Y floor out of requires-python = \"${spec}\""
-            exit 1
-          fi
-          echo "python floor: ${floor} (from requires-python = \"${spec}\")"
-          echo "floor=${floor}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
+  release:
+    uses: ./.github/workflows/release-on-merge.yml
+    permissions:
+      contents: write
+    with:
+      project: zeocore
+      verify: |
+        sudo apt-get update && sudo apt-get install -y pandoc
+        make setup
+        make verify
+      build: make build
 
   publish-pypi:
     name: publish to PyPI (trusted publishing)
-    needs: build
-    if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.target == 'pypi')
+    needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
@@ -175,7 +64,7 @@ jobs:
       # no PYPI_API_TOKEN secret needed or wanted.
       id-token: write
     steps:
-      - name: Download build artifacts
+      - name: Download the build
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
@@ -189,7 +78,7 @@ jobs:
 
   smoke-test:
     name: smoke-test the published package
-    needs: [build, publish-pypi]
+    needs: [release, publish-pypi]
     # Runs only if the publish job ran and succeeded -- `always()` plus an
     # explicit result check, since `needs` results for a skipped job read
     # as "success" by default, which would otherwise let this step silently
@@ -199,16 +88,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      # The version THIS RUN published, read from the built sdist filename
-      # (the build job's own output), never from "latest" and never
-      # re-derived from the git ref -- a ref alone cannot tell a tag push
-      # apart from a workflow_dispatch on main, and "latest on the index"
-      # is exactly the hole that let this job install and bless zeocore
-      # 0.1.0 on three separate real runs (v0.5.0, v0.6.0, and the
-      # 2026-08-31 TestPyPI dispatch) while believing it had verified
-      # whatever had just been published.
-      EXPECTED_VERSION: ${{ needs.build.outputs.version }}
-      PYTHON_FLOOR: ${{ needs.build.outputs.python-floor }}
+      # The version THIS RUN published, from the release job's output (which
+      # the build checked against the sdist and wheel file names), never
+      # from "latest" -- "latest on the index" is exactly the hole that let
+      # this job install and bless zeocore 0.1.0 on three separate real runs
+      # (v0.5.0, v0.6.0, and the 2026-08-31 TestPyPI dispatch) while
+      # believing it had verified whatever had just been published.
+      EXPECTED_VERSION: ${{ needs.release.outputs.version }}
+      PYTHON_FLOOR: ${{ needs.release.outputs.python-floor }}
     steps:
       - name: Check out release examples
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -219,11 +106,11 @@ jobs:
       - name: Fail loudly if the expected version or floor is missing
         run: |
           if [ -z "${EXPECTED_VERSION}" ]; then
-            echo "::error::build job produced no version output -- cannot smoke-test without knowing what was published"
+            echo "::error::the release job produced no version output -- cannot smoke-test without knowing what was published"
             exit 1
           fi
           if [ -z "${PYTHON_FLOOR}" ]; then
-            echo "::error::build job produced no python-floor output -- cannot smoke-test without knowing the published floor"
+            echo "::error::the release job produced no python-floor output -- cannot smoke-test without knowing the published floor"
             exit 1
           fi
           echo "expecting zeocore==${EXPECTED_VERSION} on Python >=${PYTHON_FLOOR}"
@@ -287,7 +174,7 @@ jobs:
           "
 
   # --------------------------------------------------------------------------
-  # Create the GitHub Release from RELEASE_NOTES.md.
+  # Create the GitHub Release from this merge's changelog.d fragments.
   #
   # Without this job the workflow publishes to PyPI and leaves the repo's
   # Releases page showing the PREVIOUS version -- which is exactly what
@@ -296,41 +183,39 @@ jobs:
   # "announced on the repo" are two different acts and only the first was
   # automated. Nobody should have to remember the second one.
   #
-  # Tag-triggered only: a workflow_dispatch has no tag to attach a release
-  # to. `contents: write` is scoped to THIS job rather than raised on the
-  # whole workflow, which otherwise runs read-only.
+  # The release page is the changelog from 0.15.1 on: its notes are the
+  # fragments this merge added, then GitHub's list of merged PRs since the
+  # previous tag. `contents: write` is scoped to THIS job rather than raised
+  # on the whole workflow, which otherwise runs read-only.
   # --------------------------------------------------------------------------
   github-release:
     name: create the GitHub Release
-    needs: [publish-pypi, smoke-test]
+    needs: [release, publish-pypi, smoke-test]
     if: >-
       always() && needs.publish-pypi.result == 'success' &&
-      needs.smoke-test.result == 'success' && startsWith(github.ref, 'refs/tags/v')
+      needs.smoke-test.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.release.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Download this merge's release notes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-notes
 
-      - name: Fail loudly if RELEASE_NOTES.md is missing
+      - name: Create the release, or accept it from an earlier attempt
         run: |
-          if [ ! -f RELEASE_NOTES.md ]; then
-            echo "::error::RELEASE_NOTES.md not found -- refusing to publish an"
-            echo "::error::empty GitHub Release. The package is already on PyPI;"
-            echo "::error::create the release by hand and fix this file."
-            exit 1
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "${TAG}'s release already exists: a re-run"
+            exit 0
           fi
-
-      - name: Create the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          echo "Creating GitHub Release for ${TAG} from RELEASE_NOTES.md"
           gh release create "${TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --title "zeocore ${TAG#v}" \
-            --notes-file RELEASE_NOTES.md \
+            --notes-file release-notes.md \
+            --generate-notes \
             --verify-tag

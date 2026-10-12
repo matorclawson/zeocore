@@ -1,0 +1,245 @@
+name: Release on merge
+
+# Every merge to a golden main is a release (the operator, 2026-10-12: "the
+# release cycle and cadence have to be completely programmatic and not
+# depend on a seat"). A repository's own publish.yml calls this on every
+# push to main:
+#
+#   jobs:
+#     release:
+#       uses: zeroemployeeorg/zeocore/.github/workflows/release-on-merge.yml@<40-hex sha>
+#       permissions: {contents: write}
+#       with: {project: <distribution name>, verify: <shell>}
+#
+# 1. plan:  the version is computed, never edited: the highest v tag
+#           reachable from the pushed commit plus one increment. The
+#           increment is the highest `bump:` declared by the changelog.d
+#           fragments this merge ADDED (patch when there are none), so the
+#           level is part of the reviewed head. A fragment the merge changed
+#           or deleted fails the run. A commit that already carries a v tag
+#           is a re-run of that release.
+# 2. build: run the caller's verify, then build with the computed version
+#           (hatch-vcs reads it from a local tag), and check that dist/
+#           holds exactly that version's sdist and wheel.
+# 3. tag:   create v<version> at the pushed commit with the workflow token.
+#           The `release tags` ruleset makes tags permanent.
+#
+# It never publishes. PyPI's trusted publishing can't run inside a reusable
+# workflow (pypa/gh-action-pypi-publish, README), so the caller's own
+# top-level job uploads `dist`. Downstream steps are jobs in the caller's
+# run, because events made with the workflow token start no other workflow.
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: "The distribution name, as dist/ file names spell it"
+        required: true
+        type: string
+      verify:
+        description: "Shell run before the build, from the repository root (the release's gate)"
+        required: true
+        type: string
+      build:
+        description: "Shell that leaves exactly one sdist and one wheel in dist/"
+        required: false
+        type: string
+        default: "uv build"
+    outputs:
+      version:
+        description: "The computed version"
+        value: ${{ jobs.plan.outputs.version }}
+      tag:
+        description: "v<version>"
+        value: ${{ jobs.plan.outputs.tag }}
+      python-floor:
+        description: "requires-python's >=X.Y floor"
+        value: ${{ jobs.plan.outputs.python-floor }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: compute the version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      tag: v${{ steps.compute.outputs.version }}
+      python-floor: ${{ steps.compute.outputs.floor }}
+    steps:
+      - name: Check out the pushed commit, with every tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      # Inline, so the caller runs exactly the script at the sha it pinned.
+      # tests/test_release_on_merge.py extracts and runs it.
+      - name: Compute the version from tags and this merge's fragments
+        id: compute
+        run: |
+          python3 - release-notes.md <<'PY' >> "$GITHUB_OUTPUT"
+          import re, subprocess, sys, tomllib
+          from pathlib import Path
+
+          LEVELS = ("patch", "minor", "major")
+          SEMVER = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
+
+          def git(*args):
+              return subprocess.run(
+                  ["git", *args], check=True, capture_output=True, text=True
+              ).stdout.split()
+
+          def fail(message):
+              print(f"::error::{message}", file=sys.stderr)
+              sys.exit(1)
+
+          def versions(tags):
+              return sorted(
+                  tuple(map(int, m.groups()))
+                  for m in map(SEMVER.fullmatch, tags)
+                  if m
+              )
+
+          parents = git("rev-list", "--parents", "-n", "1", "HEAD")[1:]
+          base = parents[0] if parents else None
+          added = []
+          if base is not None:
+              status = subprocess.run(
+                  ["git", "diff", "--name-status", "--no-renames", base, "HEAD",
+                   "--", "changelog.d/"],
+                  check=True, capture_output=True, text=True,
+              ).stdout.splitlines()
+              for line in status:
+                  code, path = line.split("\t", 1)
+                  if path == "changelog.d/README.md":
+                      continue
+                  if code != "A":
+                      fail(f"{path} was changed or deleted; a fragment is added once and kept")
+                  added.append(path)
+          level, notes = "patch", []
+          for path in sorted(added):
+              first, _, body = Path(path).read_text(encoding="utf-8").partition("\n")
+              found = re.fullmatch(r"bump:\s*(patch|minor|major)\s*", first)
+              if found is None:
+                  fail(f"{path}'s first line must be 'bump: patch', 'bump: minor' or 'bump: major'")
+              level = max(level, found[1], key=LEVELS.index)
+              notes.append(body.strip())
+
+          here = versions(git("tag", "--points-at", "HEAD", "--list", "v*"))
+          if len(here) > 1:
+              fail(f"HEAD carries more than one release tag: {here}")
+          if here:
+              version = here[0]
+              print(f"HEAD already carries v{'.'.join(map(str, version))}: a re-run", file=sys.stderr)
+          else:
+              reachable = versions(git("tag", "--merged", "HEAD", "--list", "v*"))
+              if not reachable:
+                  fail("no vX.Y.Z tag is reachable from HEAD to count from")
+              major, minor, patch = reachable[-1]
+              version = {
+                  "major": (major + 1, 0, 0),
+                  "minor": (major, minor + 1, 0),
+                  "patch": (major, minor, patch + 1),
+              }[level]
+              name = "v" + ".".join(map(str, version))
+              if git("tag", "--list", name):
+                  fail(f"{name} already exists at another commit")
+          text = ".".join(map(str, version))
+
+          spec = tomllib.load(open("pyproject.toml", "rb"))["project"].get("requires-python", "")
+          floor = re.fullmatch(r">=(\d+\.\d+)(\.\d+)?", spec)
+          if floor is None:
+              fail(f"requires-python {spec!r} has no >=X.Y floor")
+
+          sha = git("rev-parse", "HEAD")[0]
+          body = "\n\n".join(notes) or f"A patch release of {sha}, with no changelog fragment."
+          Path(sys.argv[1]).write_text(f"{body}\n", encoding="utf-8")
+          print(f"{level} increment: v{text} at {sha}", file=sys.stderr)
+          print(f"version={text}")
+          print(f"floor={floor[1]}")
+          PY
+
+      - name: Upload the release notes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
+  build:
+    name: verify and build
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the pushed commit, with every tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Tag locally, so the build reads the computed version
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: git tag -f "$TAG" "$GITHUB_SHA"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Verify (the caller's gate)
+        run: ${{ inputs.verify }}
+
+      - name: Build
+        run: ${{ inputs.build }}
+
+      - name: Check dist holds exactly this version's sdist and wheel
+        env:
+          PROJECT: ${{ inputs.project }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          name="${PROJECT//-/_}"
+          shopt -s nullglob
+          files=(dist/*)
+          expected=("dist/${name}-${VERSION}-py3-none-any.whl" "dist/${name}-${VERSION}.tar.gz")
+          if [ "${#files[@]}" -ne 2 ] || [ ! -f "${expected[0]}" ] || [ ! -f "${expected[1]}" ]; then
+            echo "::error::dist/ must hold exactly ${expected[*]}, found: ${files[*]}"
+            exit 1
+          fi
+          sha256sum "${files[@]}"
+
+      - name: Upload the build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  tag:
+    name: create the v tag at this commit
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - name: Create the tag, or accept it at this same commit
+        run: |
+          at=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${TAG}" \
+            --jq ".[] | select(.ref == \"refs/tags/${TAG}\") | .object.sha")
+          if [ -z "$at" ]; then
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${TAG}" -f sha="${GITHUB_SHA}" >/dev/null
+            echo "created ${TAG} at ${GITHUB_SHA}"
+          elif [ "$at" = "$GITHUB_SHA" ]; then
+            echo "${TAG} already at ${GITHUB_SHA}: a re-run"
+          else
+            echo "::error::${TAG} exists at ${at}, not ${GITHUB_SHA}"
+            exit 1
+          fi

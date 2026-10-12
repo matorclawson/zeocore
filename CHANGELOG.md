@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+**From 0.15.1 on, every merge to `main` is a release, and this file no longer
+grows.** Each PR adds a fragment to [`changelog.d/`](changelog.d/README.md), and
+each version's notes are on its
+[GitHub Release](https://github.com/zeroemployeeorg/zeocore/releases). The
+history below runs up to 0.15.1.
 
 ## [0.15.1] - 2026-10-12
 
