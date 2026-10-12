@@ -163,15 +163,23 @@ jobs:
           # 0.15.2 failed after the HTML simple page already listed its
           # files: uv reads the JSON form of the simple index, which PyPI's
           # CDN caches separately and can serve stale for longer.
-          uv venv --python "${PYTHON_FLOOR}" /tmp/resolve-probe
+          uv venv --clear --python "${PYTHON_FLOOR}" /tmp/resolve-probe
           for attempt in $(seq 1 40); do
             if uv pip install --dry-run --no-cache --python /tmp/resolve-probe/bin/python \
-                 "zeocore==${EXPECTED_VERSION}" >/dev/null 2>&1; then
+                 "zeocore==${EXPECTED_VERSION}" >/tmp/resolve-probe.log 2>&1; then
               echo "the installer resolves zeocore==${EXPECTED_VERSION} (attempt ${attempt})"
               exit 0
             fi
+            # Only "no version of zeocore==X" is index lag worth waiting on;
+            # any other resolution error (a floor or marker mismatch) is real.
+            if ! grep -q "no version of zeocore==${EXPECTED_VERSION}" /tmp/resolve-probe.log; then
+              cat /tmp/resolve-probe.log
+              echo "::error::resolving zeocore==${EXPECTED_VERSION} failed for a reason other than index lag"
+              exit 1
+            fi
             sleep 15
           done
+          cat /tmp/resolve-probe.log
           echo "::error::the installer couldn't resolve zeocore==${EXPECTED_VERSION} within 10 minutes"
           exit 1
 
