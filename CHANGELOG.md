@@ -150,9 +150,11 @@ These change what a caller sees. The session store API and the
 - **The ZEOconnect client commands for seats** (`zeocore login`, `logout`,
   `whoami`, `connections`, `invoke` and `artifact get`). A seat uses `zeo`,
   ZEO-RT's front door, for every Broker operation (ZEOCORE-SOW-27). The
-  commands stay for products that run zeocore themselves. From Broker contract
-  1.4 the Broker refuses a seat's grant on every operation with
-  `door_required`, so the Broker enforces this, not zeocore.
+  commands stay for a product running as its own macOS service user,
+  `zs-<product>` (the first is `zs-newsroom-intake`). From Broker contract 1.4
+  the Broker refuses a product's grant from any other user, `rodbot` and an
+  author's own login included, with `app_identity_unverified`, and a seat's
+  grant with `door_required`. The Broker enforces this, not zeocore.
 
 ### Added
 

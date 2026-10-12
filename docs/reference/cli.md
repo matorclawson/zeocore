@@ -24,20 +24,26 @@ $ echo '{"b": 1, "a": [1, 2]}' | zeocore digest
 | `schema <name>` | no | that contract as JSON Schema 2020-12 |
 | `validate <name>` | yes | `{"ok": true, "value": …}`, the normalized value, or `{"ok": false, "errors": [{"loc": […], "type": …}]}` |
 | `digest` | yes | the sha256 of the value's RFC 8785 canonical bytes |
-| `login`, `logout`, `whoami`, `connections`, `invoke`, `artifact get` | see below | the ZEOconnect client, for products; not for seats, which use `zeo` |
+| `login`, `logout`, `whoami`, `connections`, `invoke`, `artifact get` | see below | the ZEOconnect client, for a product running as its own service user; not for seats, which use `zeo` |
 | `release sign`, `release verify` | yes | the shared signing step; see [Sign and verify a release](../how-to/release-signing.md) |
 | `release pypi plan \| admit \| apply \| approve \| reconcile \| verify` | yes | the PyPI adapter; see [Release to PyPI](../how-to/release-pypi.md) |
 
 ## The ZEOconnect client
 
 !!! warning "Not for seats: seats use `zeo`"
-    These commands are for **products** that run zeocore themselves (an app,
-    a service, a test). They are **not a seat interface**. A seat reaches the
-    Broker only through ZEO-RT's front door, with its `zeo` command
-    (ZEOCORE-SOW-27). They are deprecated for seats now. From Broker
-    contract 1.4, the Broker itself refuses a seat's grant on every
-    operation, with `door_required`. zeocore can't tell a seat from a product
-    on the same machine, so the Broker enforces this, not this command.
+    These commands are for **products**, and only when the product runs as
+    its **own macOS service user**, `zs-<product>` (the first is
+    `zs-newsroom-intake`). They are **not a seat interface**: a seat reaches
+    the Broker only through ZEO-RT's front door, with its `zeo` command
+    (ZEOCORE-SOW-27), and they are deprecated for seats now.
+
+    From Broker contract 1.4, the Broker accepts a product's grant only from
+    that product's own service user. From any other user, `rodbot` and a
+    product author's own login included, it is refused with
+    `app_identity_unverified`. A seat's grant is refused with
+    `door_required`, and a grant adopted as no principal with
+    `no_principal`. zeocore can't tell these apart on one machine, so the
+    Broker enforces them, not this command.
 
 Products reach the ZEOconnect Broker through these commands instead of writing a
 Broker client of their own. An app never holds a provider token. The machine

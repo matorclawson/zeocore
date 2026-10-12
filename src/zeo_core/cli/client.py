@@ -1,10 +1,12 @@
 """The ZEOconnect Broker client as commands, for products.
 
 ``zeocore login | logout | whoami | connections | invoke | artifact get``.
-These are for products that run zeocore themselves. They are not a seat
-interface: a seat reaches the Broker through ZEO-RT's front door with ``zeo``,
-and from Broker contract 1.4 the Broker refuses a seat's grant with
-``door_required`` (ZEOCORE-SOW-27).
+These are for a product running as its own macOS service user,
+``zs-<product>`` (the first is ``zs-newsroom-intake``). They are not a seat
+interface: a seat reaches the Broker through ZEO-RT's front door with ``zeo``
+(ZEOCORE-SOW-27). From Broker contract 1.4 the Broker refuses a product's
+grant from any other user, ``rodbot`` included, with
+``app_identity_unverified``, and a seat's grant with ``door_required``.
 
 Apps never hold provider tokens: this machine holds only each app's own
 device grant (``--profile`` or ``ZEOCORE_PROFILE``), in the Keychain. With no
