@@ -228,7 +228,7 @@ See [release notes](RELEASE_NOTES.md) for migration and remaining qualification 
 ## New in 0.15.0: the `zeocore` command, Broker contracts to 1.4.0, and the release component
 
 ```bash
-uv tool install zeocore==0.15.0
+uv tool install zeocore==0.15.1   # 0.15.1: the command runs on a plain install
 ```
 
 `zeocore` is an installed command with one JSON-lines protocol and one exit
@@ -349,7 +349,7 @@ module by module.
 
 ## Project status
 
-ZeoCore **0.15.0** is a beta library: the API is typed and tested, and this
+ZeoCore **0.15.1** is a beta library: the API is typed and tested, and this
 release is the canonical capability-authoring surface for the Zero Employee
 ecosystem. The surface may still shift before 1.0. Issues, questions, and API
 feedback are welcome.

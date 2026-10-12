@@ -12,7 +12,7 @@ so scripts, services, Zeocreator and Sovereign Agent can call the same capabilit
 [Register a provider](how-to/provider-registration.md){ .md-button }
 
 ```bash
-uv pip install "zeocore==0.15.0"
+uv pip install "zeocore==0.15.1"
 ```
 
 Python **3.14+** · Package `zeocore` · Import `zeo_core`
@@ -68,7 +68,7 @@ release component ([signing](how-to/release-signing.md) and
 [PyPI](how-to/release-pypi.md)).
 
 ```bash
-uv tool install zeocore==0.15.0
+uv tool install zeocore==0.15.1
 ```
 
 ## New in 0.12.0
@@ -109,7 +109,7 @@ required before deploying the generic host.
 | Run working examples | [Example catalog](../examples/README.md) |
 | Look up supported imports | [Public API map](reference/api.md) |
 | Inspect signatures and docstrings | [Generated API reference](reference/generated.md) |
-| Upgrade to 0.15.0 | [Release notes](../RELEASE_NOTES.md) |
+| Upgrade to 0.15.1 | [Release notes](../RELEASE_NOTES.md) |
 | Use complete agent projects | [Sovereign Agent Resources](https://github.com/profrodai/sovereign-agent-resources) |
 
 ## Runnable examples

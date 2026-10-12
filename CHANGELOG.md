@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-10-12
+
+A patch release: 0.15.0's `zeocore` command didn't run on a plain install.
+It also closes the unprotected TestPyPI publish target.
+
 ### Fixed
 
 - **The `zeocore` command runs on a plain install.** In 0.15.0 it crashed
