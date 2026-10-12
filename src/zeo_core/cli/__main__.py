@@ -15,7 +15,8 @@ Commands:
   the ZEOconnect Broker client (``zeo_core.cli.client``).
 - ``zeocore release sign | verify | pack | receive | send | serve``: the
   shared signing step
-  (``zeo_core.cli.release``).
+  (``zeo_core.cli.release``). It needs the ``github`` extra and loads only
+  when it is used; every other command runs on a plain install.
 
 Rules every command keeps (``cli_protocol`` 1):
 
@@ -48,7 +49,7 @@ from zeo_core.adapters.runtime_host.canonical import (
     parse_json,
 )
 
-from . import client, release
+from . import client
 from .protocol import (
     CLI_PROTOCOL,
     EXIT_AMBIGUOUS,
@@ -171,6 +172,27 @@ def _digest(args: Sequence[str], stdin: bytes) -> Answer:
         return _invalid(str(error))
 
 
+def _release(args: Sequence[str], stdin: bytes) -> Answer:
+    """``zeocore release``, loaded only when it is used.
+
+    It reaches GitHub through ``zeo_core.integrations.github``, whose
+    dependencies are the ``github`` extra's. Every other command runs on a
+    plain install.
+    """
+    try:
+        from .release import release
+    except ModuleNotFoundError as error:
+        if (error.name or "").startswith("zeo_core"):
+            raise
+        return EXIT_HELD, {
+            "ok": False,
+            "outcome": "extra_missing",
+            "message": "zeocore release needs the github extra: "
+            "pip install 'zeocore[github]'",
+        }
+    return release(args, stdin)
+
+
 #: Every command, named explicitly. Nothing is discovered or loaded by name.
 COMMANDS: Final[dict[str, Command]] = {
     "artifact": client.artifact,
@@ -179,7 +201,7 @@ COMMANDS: Final[dict[str, Command]] = {
     "invoke": client.invoke,
     "login": client.login,
     "logout": client.logout,
-    "release": release.release,
+    "release": _release,
     "whoami": client.whoami,
     "schema": _schema,
     "validate": _validate,

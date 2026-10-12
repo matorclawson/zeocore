@@ -3035,6 +3035,7 @@ dependencies = [
     { name = "pydantic", extra = ["email"] },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "rfc8785" },
     { name = "rich" },
     { name = "tqdm" },
 ]
@@ -3293,6 +3294,7 @@ requires-dist = [
     { name = "requests", marker = "extra == 'bluesky'" },
     { name = "requests", marker = "extra == 'github'" },
     { name = "requests", marker = "extra == 'youtube'" },
+    { name = "rfc8785", specifier = "==0.1.4" },
     { name = "rfc8785", marker = "extra == 'runtime-host'", specifier = "==0.1.4" },
     { name = "rich", specifier = ">=13.6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.2.0" },

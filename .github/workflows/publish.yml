@@ -266,6 +266,10 @@ jobs:
           print('import OK: authoring, native profiles, marketing, Gemini and environments')
           print('SMOKE TEST PASSED: zeocore==' + installed + ' installs and imports on the published floor')
           "
+          # The zeocore command must run on this plain install, before any
+          # extra: 0.15.0's crashed at start-up for want of rfc8785 and
+          # requests, while the import check above passed.
+          /tmp/smoke-pypi/bin/zeocore version
           uv pip install --python /tmp/smoke-pypi/bin/python --no-cache \
             --default-index https://pypi.org/simple/ "zeocore[runtime-host]==${EXPECTED_VERSION}"
           /tmp/smoke-pypi/bin/python examples/runtime_host_catalogue_v1.py

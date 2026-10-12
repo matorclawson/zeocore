@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `zeocore` command runs on a plain install.** In 0.15.0 it crashed
+  at start-up on `pip install zeocore`: `rfc8785`, which the canonical digest
+  needs, was only in the `runtime-host` extra, and loading `zeocore release`
+  pulled in `requests` through `zeo_core.integrations.github`, which only the
+  `github` extra installs. The import check in the publish smoke test passed,
+  because it never ran the command. Now:
+  - `rfc8785` is a base dependency;
+  - `zeocore release` loads only when it is used, and on an install without
+    the `github` extra it answers `extra_missing` (exit 20), naming the extra;
+  - a test runs the command with every extra-only module refused;
+  - the publish smoke test runs `zeocore version` on the plain install,
+    before it adds any extra.
+
+  The workaround for 0.15.0 is `pip install 'zeocore[runtime-host,github]==0.15.0'`.
+
 ### Changed
 
 - **Every publish goes through the protected `pypi` environment.** `publish.yml`
