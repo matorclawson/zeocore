@@ -151,7 +151,7 @@ def main() -> None:
         raise SystemExit("two vectors share a digest")
     document = {
         "contract": (
-            "zeoconnect Broker contract 1.4.0, frozen at zeoconnect d5c7d14a (#73)"
+            "zeoconnect Broker contract 1.4.0, merged in zeoconnect #73 at c134661e"
         ),
         "digest": (
             "sha256 over RFC 8785 of connection_id, operation_id, arguments"

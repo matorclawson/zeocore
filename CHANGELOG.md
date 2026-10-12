@@ -147,7 +147,7 @@ These change what a caller sees. The session store API and the
 
 ### Added
 
-- **Broker contract 1.4.0** (zeoconnect #73, frozen at `d5c7d14a`):
+- **Broker contract 1.4.0** (zeoconnect #73, merged at `c134661e`):
   - **the three access refusals:** `door_required`, `app_identity_unverified`
     and `no_principal`, in both of their forms (an `:invoke` answered
     `failed_safe` with the exact message, and 403 `{"code": ...}` elsewhere).

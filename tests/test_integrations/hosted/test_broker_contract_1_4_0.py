@@ -1,4 +1,4 @@
-"""zeocore against ZEOconnect Broker contract 1.4.0 (zeoconnect #73, d5c7d14a).
+"""zeocore against ZEOconnect Broker contract 1.4.0 (zeoconnect #73, merge c134661e).
 
 Two parts, as ZEOCORE-SOW-27 commits them:
 - the parity fixtures: zeocore's digest vectors, which ZEO-RT's Go door checks
