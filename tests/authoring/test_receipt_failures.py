@@ -1,6 +1,7 @@
 """Positive controls for the receipt write gate and real Pandoc operations."""
 
 import json
+import os
 import subprocess
 import sys
 import zipfile
@@ -14,6 +15,11 @@ from zeo_core.integrations.core.results import IntegrationResult
 from zeo_core.integrations.jupytext.models import ConversionDetails
 from zeo_core.integrations.jupytext.service import JupytextIntegration
 from zeo_core.integrations.pandoc.service import PandocIntegration
+
+# A git hook (pre-push runs make verify) sets GIT_DIR to the real repository.
+# Inherited, it turns `git init <tmp>` into a re-initialisation of that
+# repository as bare, which breaks its main checkout.
+_NO_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
 
 @pytest.mark.parametrize(
@@ -140,6 +146,7 @@ def test_real_pandoc_receipts(tmp_path: Path) -> None:
     subprocess.run(  # noqa: S603 -- fixed fixture command
         ["/usr/bin/git", "init", "-q", str(tmp_path)],
         check=True,
+        env=_NO_GIT_ENV,
     )
     (tmp_path / "source.md").write_text("# A lesson\n\nReceipt-bearing DOCX.")
     (tmp_path / "input.html").write_text(
@@ -178,6 +185,7 @@ Path("results.json").write_text(json.dumps(results))
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        env=_NO_GIT_ENV,
     )
     assert child.returncode == 0, child.stderr
     results = json.loads((tmp_path / "results.json").read_text())
