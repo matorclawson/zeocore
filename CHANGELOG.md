@@ -147,6 +147,16 @@ These change what a caller sees. The session store API and the
 
 ### Added
 
+- **A named session file for a product's service user** (operator ruling,
+  2026-10-12; client-access proposal §9, option A). `ZEOCORE_SESSION_FILE`
+  selects `FileSecureSessionStore`. It is opt-in, never a fallback, and checks:
+  - a 0700 directory owned by the user, with no symbolic link in the path;
+  - no directory above it writable by another user unless it is sticky;
+  - a regular 0600 file owned by the user, checked on the open descriptor.
+
+  Writes are atomic, and the file is bound to its Broker origin. Without the
+  variable, a Keychain that can't be read still fails closed with exit 12.
+
 - **Broker contract 1.4.0** (zeoconnect #73, merged at `c134661e`):
   - **the three access refusals:** `door_required`, `app_identity_unverified`
     and `no_principal`, in both of their forms (an `:invoke` answered
@@ -161,19 +171,6 @@ These change what a caller sees. The session store API and the
     operation, plus `on_behalf_of` variants, each validated against the
     frozen schemas, with zeoconnect's own conformance cases vendored beside
     them. `tools/broker-1.4-digest-vectors.py` rewrites them.
-
-### Deprecated
-
-- **The ZEOconnect client commands for seats** (`zeocore login`, `logout`,
-  `whoami`, `connections`, `invoke` and `artifact get`). A seat uses `zeo`,
-  ZEO-RT's front door, for every Broker operation (ZEOCORE-SOW-27). The
-  commands stay for a product running as its own macOS service user,
-  `zs-<product>` (the first is `zs-newsroom-intake`). From Broker contract 1.4
-  the Broker refuses a product's grant from any other user, `rodbot` and an
-  author's own login included, with `app_identity_unverified`, and a seat's
-  grant with `door_required`. The Broker enforces this, not zeocore.
-
-### Added
 
 - **Delegated PyPI releases** (`zeocore release pypi apply | approve`), on the
   operator's delegation of 2026-10-11.
@@ -314,7 +311,44 @@ These change what a caller sees. The session store API and the
     `FileAppKeySource`: the user's own regular file with no group or other access,
     never a symlink.
 
+### Changed
+
+- **`make setup` and CI install exactly what `uv.lock` pins** (`make sync`, which
+  runs `uv sync --locked` with every gate extra plus dev, lint and docs). Before
+  this, `uv pip install -e .[extras]` resolved the newest releases, so CI could
+  test dependencies a release never ships (pydantic 2.14 against the locked
+  2.13.4 on super PR #100). A stale lock now fails setup instead of drifting.
+- **One hosted error message is new.** A Broker response with no
+  `ZEOconnect-Protocol-Version` header now raises `HostedClientError("hosted
+  response did not come from the Broker")`. Before, it raised "hosted protocol
+  version is incompatible", which now means only a different or doubled header.
+  No other `HostedClientError` message changes, and neither do the session
+  store API or the `ZEOconnectHTTPTransport` constructor. Callers that match
+  on the old message for a headerless response must match on the new one.
+- **Breaking: `merge_pull_request` needs the head `sha` and merges only by
+  `merge`.** `sha` is a required keyword, the full 40-hex commit the merge was
+  approved for, and GitHub refuses the merge if the head has moved. `squash`
+  and `rebase` are refused. Nothing in zeocore called it. In ZEO, merging is
+  zeomerger's alone (operator decision, 2026-10-10).
+
+### Deprecated
+
+- **The ZEOconnect client commands for seats** (`zeocore login`, `logout`,
+  `whoami`, `connections`, `invoke` and `artifact get`). A seat uses `zeo`,
+  ZEO-RT's front door, for every Broker operation (ZEOCORE-SOW-27). The
+  commands stay for a product running as its own macOS service user,
+  `zs-<product>` (the first is `zs-newsroom-intake`). From Broker contract 1.4
+  the Broker refuses a product's grant from any other user, `rodbot` and an
+  author's own login included, with `app_identity_unverified`, and a seat's
+  grant with `door_required`. The Broker enforces this, not zeocore.
+
 ### Fixed
+
+- **A hidden ruleset bypass list is unreadable, not empty.** GitHub returns a
+  ruleset's `bypass_actors` only to a user with Admin on the repository.
+  `zeocore release pypi admit` now holds as `target_unreadable`, saying the
+  approver can't read the bypass list, instead of refusing as
+  `tag_ruleset_missing`.
 
 - **The YouTube custody relay no longer retries a failure no retry can cure.**
   Until now only a refusal ended a relayed upload: every other client error
@@ -343,26 +377,6 @@ These change what a caller sees. The session store API and the
   issue, write a file twice, or merge twice. Only GET and HEAD are retried now.
   POST, PUT, PATCH and DELETE are sent exactly once, and an unknown outcome is
   raised for the caller to reconcile by reading back.
-
-### Changed
-
-- **`make setup` and CI install exactly what `uv.lock` pins** (`make sync`, which
-  runs `uv sync --locked` with every gate extra plus dev, lint and docs). Before
-  this, `uv pip install -e .[extras]` resolved the newest releases, so CI could
-  test dependencies a release never ships (pydantic 2.14 against the locked
-  2.13.4 on super PR #100). A stale lock now fails setup instead of drifting.
-- **One hosted error message is new.** A Broker response with no
-  `ZEOconnect-Protocol-Version` header now raises `HostedClientError("hosted
-  response did not come from the Broker")`. Before, it raised "hosted protocol
-  version is incompatible", which now means only a different or doubled header.
-  No other `HostedClientError` message changes, and neither do the session
-  store API or the `ZEOconnectHTTPTransport` constructor. Callers that match
-  on the old message for a headerless response must match on the new one.
-- **Breaking: `merge_pull_request` needs the head `sha` and merges only by
-  `merge`.** `sha` is a required keyword, the full 40-hex commit the merge was
-  approved for, and GitHub refuses the merge if the head has moved. `squash`
-  and `rebase` are refused. Nothing in zeocore called it. In ZEO, merging is
-  zeomerger's alone (operator decision, 2026-10-10).
 
 ### Known issues
 

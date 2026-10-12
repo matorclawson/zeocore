@@ -514,6 +514,16 @@ def _tag_ruleset(ruleset_id: int, detail: Mapping[str, Any]) -> TagRuleset:
             raise TargetUnreadableError("a ruleset rule is unreadable")
         rules.append(kind)
     bypass = []
+    if "bypass_actors" not in detail:
+        # GitHub returns a ruleset's bypass list only to a user with Admin on
+        # the repository (checked 2026-10-12). A hidden list is not an empty
+        # one: say so, rather than call the ruleset missing. How the approver
+        # should read it, without an agent holding Admin (ruling r7), is the
+        # operator's open choice.
+        raise TargetUnreadableError(
+            "the approver can't read the ruleset's bypass list; "
+            "GitHub shows it only to a repository Admin"
+        )
     for actor in _listed(detail.get("bypass_actors"), "bypass actors"):
         if not isinstance(actor, dict) or not isinstance(actor.get("actor_type"), str):
             raise TargetUnreadableError("a bypass actor is unreadable")

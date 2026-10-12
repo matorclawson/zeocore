@@ -1553,3 +1553,25 @@ def test_the_reviewed_targets() -> None:
     ]
     assert {t.environment for t in TARGETS.values()} == {"pypi"}
     assert _manifest(project="zeocreator", repository="zeroemployeeorg/zeocreator").tag
+
+
+def test_a_hidden_bypass_list_is_unreadable_never_empty() -> None:
+    # GitHub omits bypass_actors for a user without Admin on the repository.
+    detail = _ruleset_detail()
+    del detail["bypass_actors"]
+    runner = Runner(ok([{"id": 7, "target": "tag"}]), ok(detail))
+    with pytest.raises(TargetUnreadableError, match="only to a repository Admin"):
+        GitHubCli(runner).tag_rulesets(REPO)
+
+
+def test_admit_holds_when_the_bypass_list_is_hidden() -> None:
+    class Hidden(FakeGitHub):
+        def tag_rulesets(self, repo: str) -> tuple[TagRuleset, ...]:
+            raise TargetUnreadableError(
+                "the approver can't read the ruleset's bypass list; "
+                "GitHub shows it only to a repository Admin"
+            )
+
+    outcome = admit(_manifest(), Hidden(), APP_ID)
+    assert (outcome.status, outcome.reason) == ("held", "target_unreadable")
+    assert "Admin" in outcome.message

@@ -81,7 +81,13 @@ Read through GitHub's own API; anything else is refused:
 - an active ruleset on `refs/tags/v*`, with no exclusions, restricts creation,
   update and deletion, and only the release App bypasses it
   (`tag_ruleset_missing`);
-- `gh` acts as matorclawson, the approver (`approver_mismatch`);
+- `gh` acts as matorclawson, the approver (`approver_mismatch`). GitHub
+  shows a ruleset's bypass list only to a repository Admin, and under ruling
+  r7 matorclawson administers nothing, so today the list is hidden from it.
+  A hidden list is held as `target_unreadable`, never read as empty. How the
+  bypass list is checked without an agent holding Admin is the operator's
+  open choice. A private repository under a personal account can't give a
+  collaborator Admin at all;
 - the release App's id is configured (`release_app_unconfigured`).
 
 ## apply and approve

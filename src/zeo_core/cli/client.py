@@ -50,6 +50,10 @@ from zeo_core.integrations.hosted.client import (
     access_refusal_of,
     stop_of,
 )
+from zeo_core.integrations.hosted.file_store import (
+    SESSION_FILE_ENV,
+    FileSecureSessionStore,
+)
 from zeo_core.integrations.hosted.pairing import (
     HostedConnectionManager,
     KeychainSecureSessionStore,
@@ -92,6 +96,18 @@ def make_store(profile: str | None) -> SecureSessionStore:
     # A grant is bound to the origin it was paired with: a production session
     # never reaches a development Broker, and the reverse.
     selected = origin()
+    named = os.environ.get(SESSION_FILE_ENV)
+    if named:
+        # Opt-in only, for a product's own service user. It names exactly one
+        # grant, so a profile can't select another.
+        if profile is not None:
+            raise SecureStoreError("a session file names one grant: drop --profile")
+        return FileSecureSessionStore(
+            named,
+            origin=None if selected == ZEOCONNECT_PRODUCTION_ORIGIN else selected,
+        )
+    # No session file: the Keychain, and a Keychain that can't be read is a
+    # refusal, never a reason to look for a file.
     return KeychainSecureSessionStore(
         profile=profile,
         origin=None if selected == ZEOCONNECT_PRODUCTION_ORIGIN else selected,
