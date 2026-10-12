@@ -145,6 +145,13 @@ These change what a caller sees. The session store API and the
 
 ## [Unreleased]
 
+### Fixed
+
+- **A hidden ruleset bypass list is unreadable, not empty.** GitHub returns a
+  ruleset's `bypass_actors` only to a user with Admin on the repository.
+  `zeocore release pypi admit` now holds as `target_unreadable`, saying the
+  approver needs the Admin role, instead of refusing as `tag_ruleset_missing`.
+
 ### Added
 
 - **Broker contract 1.4.0** (zeoconnect #73, merged at `c134661e`):
