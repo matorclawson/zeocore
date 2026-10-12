@@ -3,31 +3,27 @@ name: Publish
 # Two ways to trigger:
 #   1. Push a version tag (`v0.1.0`, matching pyproject.toml's `version`) --
 #      publishes straight to real PyPI. This is the release path.
-#   2. Manual dispatch (Actions tab -> Run workflow) with a `target` choice
-#      of testpypi / pypi / both -- lets a human stage a real publish
-#      attempt against TestPyPI (a real, separate package index with its
-#      own trusted-publisher binding) without cutting a tag, and is the
-#      right way to first verify PyPI's trusted-publisher link is actually
-#      configured correctly before it matters on a real release.
+#   2. Manual dispatch (Actions tab -> Run workflow) with target `pypi`.
+#      Either way the run waits on the `pypi` environment's protection.
+#
+# There is no TestPyPI target. Its environment had no protection, so any
+# account or App able to dispatch this workflow could publish there
+# unreviewed (ZEOCORE-SOW-30 §3.2). Every publish now goes through `pypi`.
 #
 # Runs the full `make verify` gate first so a broken build can never reach
 # either index even if someone tags/dispatches by mistake, then builds
 # sdist+wheel once and publishes via PyPI Trusted Publishing (OIDC) to
-# whichever index(es) were requested -- no API token stored as a repo
-# secret for either index.
+# PyPI -- no API token stored as a repo secret.
 #
-# One-time setup required on each index's own web UI before this workflow
-# can publish there (not done by this workflow, and not something a CI
-# session has credentials for):
-#   - PyPI:     https://pypi.org/manage/account/publishing/
-#   - TestPyPI: https://test.pypi.org/manage/account/publishing/
-# For each, register a trusted publisher with EXACTLY:
+# One-time setup required on PyPI's web UI before this workflow can publish
+# (not done by this workflow, and not something a CI session has
+# credentials for): https://pypi.org/manage/account/publishing/
+# Register a trusted publisher with EXACTLY:
 #   - repository owner: zeroemployeeorg  (moved from profrodai after 0.11.0;
 #     a publisher still bound to the old owner fails with invalid-publisher)
 #   - repository name:  zeocore
 #   - workflow filename: publish.yml  (not the full path, just the filename)
-#   - environment name: pypi (for the pypi.org publisher) or
-#                        testpypi (for the test.pypi.org publisher)
+#   - environment name: pypi
 # All four fields are baked into the OIDC token's claims and must match
 # byte-for-byte on PyPI's side -- a mismatch fails with
 # "invalid-publisher: valid token, but no corresponding publisher", which
@@ -43,10 +39,8 @@ on:
         required: true
         type: choice
         options:
-          - testpypi
           - pypi
-          - both
-        default: testpypi
+        default: pypi
   push:
     tags:
       - "v*.*.*"
@@ -164,40 +158,13 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  publish-testpypi:
-    name: publish to TestPyPI (trusted publishing)
-    needs: build
-    if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.target == 'testpypi' || github.event.inputs.target == 'both'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/project/zeocore/
-    permissions:
-      id-token: write
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          verbose: true
-          print-hash: true
-
   publish-pypi:
     name: publish to PyPI (trusted publishing)
     needs: build
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.target == 'pypi' || github.event.inputs.target == 'both'))
+       github.event.inputs.target == 'pypi')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
@@ -222,16 +189,13 @@ jobs:
 
   smoke-test:
     name: smoke-test the published package
-    needs: [build, publish-testpypi, publish-pypi]
-    # Runs if EITHER publish job ran and succeeded; skipped entirely (not
-    # failed) if a given publish job didn't run because its target wasn't
-    # selected -- `always()` plus explicit result checks, since `needs`
-    # results for a skipped job read as "success" by default, which would
-    # otherwise let this step silently no-op instead of actually verifying
-    # anything on a testpypi-only or pypi-only run.
+    needs: [build, publish-pypi]
+    # Runs only if the publish job ran and succeeded -- `always()` plus an
+    # explicit result check, since `needs` results for a skipped job read
+    # as "success" by default, which would otherwise let this step silently
+    # no-op instead of actually verifying anything.
     if: |
-      always() &&
-      (needs.publish-testpypi.result == 'success' || needs.publish-pypi.result == 'success')
+      always() && needs.publish-pypi.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -268,7 +232,6 @@ jobs:
         run: sleep 30
 
       - name: Install from PyPI and smoke-test
-        if: needs.publish-pypi.result == 'success'
         run: |
           # Pinned to the FLOOR, never a bare `uv venv` -- a bare venv
           # takes the runner's default interpreter (3.12 on
@@ -311,70 +274,6 @@ jobs:
           import json
           import subprocess
           result = subprocess.run(['/tmp/smoke-pypi/bin/zeo-capability', 'invoke'], capture_output=True, text=True)
-          assert result.returncode == 8, result
-          envelope = json.loads(result.stdout)
-          assert envelope['state'] == 'protocol_error', envelope
-          assert envelope['error_code'] == 'ZEO_HOST_PROTOCOL', envelope
-          assert envelope['binding'] is None and envelope['artifact_refs'] == [], envelope
-          print('Runtime CLI refuses invocation without launch authority')
-          "
-
-      - name: Install from TestPyPI and smoke-test
-        if: needs.publish-testpypi.result == 'success' && needs.publish-pypi.result != 'success'
-        run: |
-          uv venv --python "${PYTHON_FLOOR}" /tmp/smoke-testpypi
-          curl --fail --silent --show-error \
-            "https://test.pypi.org/pypi/zeocore/${EXPECTED_VERSION}/json" \
-            --output /tmp/zeocore-testpypi.json
-          wheel_url=$(/tmp/smoke-testpypi/bin/python -c "
-          import json
-          data = json.load(open('/tmp/zeocore-testpypi.json'))
-          expected = 'zeocore-${EXPECTED_VERSION}-py3-none-any.whl'
-          matches = [item['url'] for item in data['urls'] if item['filename'] == expected]
-          if len(matches) != 1:
-              raise SystemExit(f'expected exactly one {expected}, found {len(matches)}')
-          print(matches[0])
-          ")
-          case "${wheel_url}" in
-            https://test-files.pythonhosted.org/*/zeocore-${EXPECTED_VERSION}-py3-none-any.whl) ;;
-            *) echo "::error::unexpected TestPyPI wheel URL: ${wheel_url}"; exit 1 ;;
-          esac
-          # Address the staged ZeoCore wheel directly and resolve its
-          # dependencies only from PyPI. uv's safe first-index strategy makes
-          # --index-url/--extra-index-url unsuitable here: PyPI can hide the
-          # staged ZeoCore version, while reversing the indexes lets stale or
-          # hostile TestPyPI dependency names hide valid PyPI dependencies.
-          uv pip install --python /tmp/smoke-testpypi/bin/python --no-cache \
-            --default-index https://pypi.org/simple/ \
-            "${wheel_url}"
-          /tmp/smoke-testpypi/bin/python -c "
-          import sys
-          import zeo_core
-          expected = '${EXPECTED_VERSION}'
-          installed = zeo_core.__version__
-          print('expected version:', expected)
-          print('installed version:', installed)
-          if installed != expected:
-              print(f'MISMATCH: this run published {expected} but the index installed {installed} -- DO NOT trust this release', file=sys.stderr)
-              sys.exit(1)
-          from zeo_core.tools import BaseZeoTool, ToolContext
-          from zeo_core.contracts import CapabilityResult
-          from zeo_core.integrations.hosted import ServiceResolver, ExecutionProfile
-          from zeo_core.integrations.hubspot import HubSpotIntegration
-          from zeo_core.integrations.kit import KitIntegration
-          from zeo_core.integrations.gemini import ImageGenerationRequest
-          from zeo_core.integrations.environments import IntegrationEnvironment
-          print('import OK: authoring, native profiles, marketing, Gemini and environments')
-          print('SMOKE TEST PASSED: zeocore==' + installed + ' installs and imports on the published floor')
-          "
-          uv pip install --python /tmp/smoke-testpypi/bin/python --no-cache \
-            --default-index https://pypi.org/simple/ "zeocore[runtime-host] @ ${wheel_url}"
-          /tmp/smoke-testpypi/bin/python examples/runtime_host_catalogue_v1.py
-          /tmp/smoke-testpypi/bin/python examples/meeting_request_v1.py
-          /tmp/smoke-testpypi/bin/python -c "
-          import json
-          import subprocess
-          result = subprocess.run(['/tmp/smoke-testpypi/bin/zeo-capability', 'invoke'], capture_output=True, text=True)
           assert result.returncode == 8, result
           envelope = json.loads(result.stdout)
           assert envelope['state'] == 'protocol_error', envelope

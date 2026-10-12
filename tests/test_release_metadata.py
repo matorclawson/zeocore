@@ -47,3 +47,18 @@ def test_release_announcement_waits_for_installed_package_smoke() -> None:
     assert {"publish-pypi", "smoke-test"} <= set(release["needs"])
     assert "needs.smoke-test.result == 'success'" in release["if"]
     assert "needs.publish-pypi.result == 'success'" in release["if"]
+
+
+def test_every_publish_waits_on_the_protected_pypi_environment() -> None:
+    """A dispatch must not reach an index through an unprotected environment."""
+    workflow = Path(__file__).resolve().parents[1] / ".github/workflows/publish.yml"
+    document = yaml.safe_load(workflow.read_text())
+    # PyYAML reads the bare `on:` key as the boolean True.
+    dispatch = document[True]["workflow_dispatch"]["inputs"]["target"]
+    assert dispatch["options"] == ["pypi"]
+    environments = {
+        job["environment"]["name"]
+        for job in document["jobs"].values()
+        if "environment" in job
+    }
+    assert environments == {"pypi"}
