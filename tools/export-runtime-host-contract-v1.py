@@ -34,7 +34,9 @@ def main() -> int:
         path = root / f"{name}.schema.json"
         value = model.model_json_schema()
         value["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-        rendered = json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+        rendered = (
+            json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+        )
         if args.check:
             if not path.exists() or path.read_text() != rendered:
                 errors.append(str(path))

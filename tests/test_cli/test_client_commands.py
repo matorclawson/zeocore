@@ -30,11 +30,15 @@ from zeo_core.integrations.hosted import (
     SecureStoreError,
 )
 from zeo_core.integrations.hosted.client import (
+    ACCESS_GUIDANCE,
+    ACCESS_REFUSALS,
+    HostedAccessRefusedError,
     HostedClientError,
     HostedSessionError,
     HostedStoppedError,
     HostedUnavailableError,
     HostedUnreachableError,
+    HostedUpgradeRequiredError,
 )
 
 CONNECTION = "con_google_12345678"
@@ -492,3 +496,65 @@ def test_an_unusable_origin_is_invalid_input_not_an_internal_error(
     monkeypatch.delenv("ZEOCONNECT_DEVELOPMENT", raising=False)
     status, answer = client.whoami([], b"")
     assert (status, answer["outcome"]) == (2, "invalid_request")
+
+
+# -- Broker contract 1.4.0's refusals (base §9) --------------------------------------
+
+
+@pytest.mark.parametrize("name", sorted(ACCESS_REFUSALS))
+def test_an_invoke_refusal_answers_its_name_and_the_way_back(
+    broker: Broker, name: str
+) -> None:
+    _paired(broker)
+    broker.answers = [_refused(NormalizedErrorCode.REQUEST_REFUSED, name)]
+    status, answer = _invoke()
+    assert (status, answer["ok"], answer["outcome"], answer["retry"]) == (
+        20,
+        False,
+        name,
+        "none",
+    )
+    assert answer["message"] == ACCESS_GUIDANCE[name]
+    assert answer["status"] == "failed_safe"  # the Broker's answer is kept
+    assert len(broker.requests) == 1
+
+
+@pytest.mark.parametrize("name", sorted(ACCESS_REFUSALS))
+def test_a_403_refusal_answers_its_name_from_any_command(
+    broker: Broker, name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _paired(broker)
+
+    def refused(session: object) -> object:
+        raise HostedAccessRefusedError(name)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(broker, "list_connections", refused)
+    status, answer = client.connections([], b"")
+    assert (status, answer["outcome"], answer["retry"]) == (20, name, "none")
+    assert answer["message"] == ACCESS_GUIDANCE[name]
+
+
+def test_an_invoke_stop_carries_its_control_and_scope(broker: Broker) -> None:
+    _paired(broker)
+    broker.answers = [
+        _refused(NormalizedErrorCode.REQUEST_REFUSED, "stopped:dispatch:global")
+    ]
+    status, answer = _invoke()
+    assert (status, answer["retry"]) == (20, "same_request")
+    assert (answer["control"], answer["scope"]) == ("dispatch", "global")
+
+
+def test_a_transport_stop_carries_its_control_and_scope(broker: Broker) -> None:
+    _paired(broker)
+    broker.answers = [HostedStoppedError(control="admission", scope="github")]
+    status, answer = _invoke()
+    assert (status, answer["outcome"]) == (20, "stopped")
+    assert (answer["control"], answer["scope"]) == ("admission", "github")
+
+
+def test_an_old_protocol_says_upgrade(broker: Broker) -> None:
+    _paired(broker)
+    broker.answers = [HostedUpgradeRequiredError()]
+    status, answer = _invoke()
+    assert (status, answer["outcome"]) == (20, "upgrade_required")
+    assert "upgrade zeocore" in answer["message"]

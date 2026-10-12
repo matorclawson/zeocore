@@ -1,0 +1,611 @@
+{
+ "contract": "contract/broker-contract-v1-github-keymaster.md",
+ "note": "Conformance fixtures for 1.4.0 annex A: each instance must or must not validate against the named schema. zeocore's parity fixtures follow the freeze (ZEOCORE-SOW-27).",
+ "digest": {
+  "request": "annex A.2.1",
+  "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+  "canonical_bytes": 459
+ },
+ "cases": [
+  {
+   "name": "request: annex A.2.1 fixture",
+   "schema": "zeoconnect:1.4:request",
+   "valid": true,
+   "instance": {
+    "connection_id": "role_zeonewsroom_publish",
+    "operation_id": "github.pr.open",
+    "arguments": {
+     "repository": "rodriveracom/zeonewsroom",
+     "head": "zeonewsroom/example",
+     "head_sha": "0123456789abcdef0123456789abcdef01234567",
+     "title": "Example",
+     "body": "Fixture body ü",
+     "draft": false
+    },
+    "on_behalf_of": {
+     "principal_id": "prn_zeonewsroom",
+     "incarnation": 3,
+     "authenticated_as": {
+      "host_id": "host_matormini",
+      "host_incarnation": 2,
+      "os_account": "za-zeonewsroom",
+      "account_incarnation": 1
+     }
+    },
+    "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+    "door_request_id": "door-req-0001"
+   }
+  },
+  {
+   "name": "request: extra top-level field",
+   "schema": "zeoconnect:1.4:request",
+   "valid": false,
+   "instance": {
+    "connection_id": "role_zeonewsroom_publish",
+    "operation_id": "github.pr.open",
+    "arguments": {
+     "repository": "rodriveracom/zeonewsroom",
+     "head": "zeonewsroom/example",
+     "head_sha": "0123456789abcdef0123456789abcdef01234567",
+     "title": "Example",
+     "body": "Fixture body ü",
+     "draft": false
+    },
+    "on_behalf_of": {
+     "principal_id": "prn_zeonewsroom",
+     "incarnation": 3,
+     "authenticated_as": {
+      "host_id": "host_matormini",
+      "host_incarnation": 2,
+      "os_account": "za-zeonewsroom",
+      "account_incarnation": 1
+     }
+    },
+    "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+    "door_request_id": "door-req-0001",
+    "token": "fake-token"
+   }
+  },
+  {
+   "name": "request: a key under 32 characters",
+   "schema": "zeoconnect:1.4:request",
+   "valid": false,
+   "instance": {
+    "connection_id": "role_zeonewsroom_publish",
+    "operation_id": "github.pr.open",
+    "arguments": {
+     "repository": "rodriveracom/zeonewsroom",
+     "head": "zeonewsroom/example",
+     "head_sha": "0123456789abcdef0123456789abcdef01234567",
+     "title": "Example",
+     "body": "Fixture body ü",
+     "draft": false
+    },
+    "on_behalf_of": {
+     "principal_id": "prn_zeonewsroom",
+     "incarnation": 3,
+     "authenticated_as": {
+      "host_id": "host_matormini",
+      "host_incarnation": 2,
+      "os_account": "za-zeonewsroom",
+      "account_incarnation": 1
+     }
+    },
+    "idempotency_key": "short-key-0001",
+    "door_request_id": "door-req-0001"
+   }
+  },
+  {
+   "name": "response: confirmed pr.open",
+   "schema": "zeoconnect:1.4:response",
+   "valid": true,
+   "instance": {
+    "status": "confirmed",
+    "execution_id": "exe_1",
+    "result": {
+     "number": 12,
+     "url": "https://github.com/rodriveracom/zeonewsroom/pull/12",
+     "head_sha": "0123456789abcdef0123456789abcdef01234567",
+     "base": "main"
+    },
+    "receipt": {
+     "operation_id": "github.pr.open",
+     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+     "door": {
+      "principal_id": "prn_door",
+      "incarnation": 1,
+      "grant_id": "grant_door_1"
+     },
+     "effective": {
+      "principal_id": "prn_zeonewsroom",
+      "incarnation": 3,
+      "os_binding": {
+       "host_id": "host_matormini",
+       "host_incarnation": 2,
+       "os_account": "za-zeonewsroom",
+       "account_incarnation": 1
+      }
+     },
+     "may_act_for": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "door_request_id": "door-req-0001",
+     "role_policy": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "replayed": false
+    }
+   }
+  },
+  {
+   "name": "response: confirmed with a pr.update result under a pr.open receipt",
+   "schema": "zeoconnect:1.4:response",
+   "valid": false,
+   "instance": {
+    "status": "confirmed",
+    "execution_id": "exe_1",
+    "result": {
+     "number": 1,
+     "title_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+     "body_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "receipt": {
+     "operation_id": "github.pr.open",
+     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+     "door": {
+      "principal_id": "prn_door",
+      "incarnation": 1,
+      "grant_id": "grant_door_1"
+     },
+     "effective": {
+      "principal_id": "prn_zeonewsroom",
+      "incarnation": 3,
+      "os_binding": {
+       "host_id": "host_matormini",
+       "host_incarnation": 2,
+       "os_account": "za-zeonewsroom",
+       "account_incarnation": 1
+      }
+     },
+     "may_act_for": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "door_request_id": "door-req-0001",
+     "role_policy": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "replayed": false
+    }
+   }
+  },
+  {
+   "name": "response: failed_safe not_dispatched",
+   "schema": "zeoconnect:1.4:response",
+   "valid": true,
+   "instance": {
+    "status": "failed_safe",
+    "execution_id": "exe_2",
+    "normalized_error": {
+     "code": "not_dispatched"
+    },
+    "receipt": {
+     "operation_id": "github.pr.open",
+     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+     "door": {
+      "principal_id": "prn_door",
+      "incarnation": 1,
+      "grant_id": "grant_door_1"
+     },
+     "effective": {
+      "principal_id": "prn_zeonewsroom",
+      "incarnation": 3,
+      "os_binding": {
+       "host_id": "host_matormini",
+       "host_incarnation": 2,
+       "os_account": "za-zeonewsroom",
+       "account_incarnation": 1
+      }
+     },
+     "may_act_for": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "door_request_id": "door-req-0001",
+     "role_policy": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "replayed": false
+    }
+   }
+  },
+  {
+   "name": "response: a free-text detail in normalized_error",
+   "schema": "zeoconnect:1.4:response",
+   "valid": false,
+   "instance": {
+    "status": "failed_safe",
+    "execution_id": "exe_2",
+    "normalized_error": {
+     "code": "conflict",
+     "detail": "fake-credential-marker"
+    },
+    "receipt": {
+     "operation_id": "github.pr.open",
+     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+     "door": {
+      "principal_id": "prn_door",
+      "incarnation": 1,
+      "grant_id": "grant_door_1"
+     },
+     "effective": {
+      "principal_id": "prn_zeonewsroom",
+      "incarnation": 3,
+      "os_binding": {
+       "host_id": "host_matormini",
+       "host_incarnation": 2,
+       "os_account": "za-zeonewsroom",
+       "account_incarnation": 1
+      }
+     },
+     "may_act_for": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "door_request_id": "door-req-0001",
+     "role_policy": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "replayed": false
+    }
+   }
+  },
+  {
+   "name": "response: ambiguous in flight, with the original receipt",
+   "schema": "zeoconnect:1.4:response",
+   "valid": true,
+   "instance": {
+    "status": "ambiguous",
+    "execution_id": "exe_3",
+    "receipt": {
+     "operation_id": "github.pr.open",
+     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+     "door": {
+      "principal_id": "prn_door",
+      "incarnation": 1,
+      "grant_id": "grant_door_1"
+     },
+     "effective": {
+      "principal_id": "prn_zeonewsroom",
+      "incarnation": 3,
+      "os_binding": {
+       "host_id": "host_matormini",
+       "host_incarnation": 2,
+       "os_account": "za-zeonewsroom",
+       "account_incarnation": 1
+      }
+     },
+     "may_act_for": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "door_request_id": "door-req-0001",
+     "role_policy": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "replayed": true,
+     "in_flight": true
+    }
+   }
+  },
+  {
+   "name": "response: ambiguous carrying a result",
+   "schema": "zeoconnect:1.4:response",
+   "valid": false,
+   "instance": {
+    "status": "ambiguous",
+    "execution_id": "exe_1",
+    "result": {
+     "number": 12,
+     "url": "https://github.com/rodriveracom/zeonewsroom/pull/12",
+     "head_sha": "0123456789abcdef0123456789abcdef01234567",
+     "base": "main"
+    },
+    "receipt": {
+     "operation_id": "github.pr.open",
+     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+     "door": {
+      "principal_id": "prn_door",
+      "incarnation": 1,
+      "grant_id": "grant_door_1"
+     },
+     "effective": {
+      "principal_id": "prn_zeonewsroom",
+      "incarnation": 3,
+      "os_binding": {
+       "host_id": "host_matormini",
+       "host_incarnation": 2,
+       "os_account": "za-zeonewsroom",
+       "account_incarnation": 1
+      }
+     },
+     "may_act_for": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "door_request_id": "door-req-0001",
+     "role_policy": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "replayed": false
+    }
+   }
+  },
+  {
+   "name": "response: a nested token in the receipt",
+   "schema": "zeoconnect:1.4:response",
+   "valid": false,
+   "instance": {
+    "status": "confirmed",
+    "execution_id": "exe_1",
+    "result": {
+     "number": 12,
+     "url": "https://github.com/rodriveracom/zeonewsroom/pull/12",
+     "head_sha": "0123456789abcdef0123456789abcdef01234567",
+     "base": "main"
+    },
+    "receipt": {
+     "operation_id": "github.pr.open",
+     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+     "door": {
+      "principal_id": "prn_door",
+      "incarnation": 1,
+      "grant_id": "grant_door_1"
+     },
+     "effective": {
+      "principal_id": "prn_zeonewsroom",
+      "incarnation": 3,
+      "os_binding": {
+       "host_id": "host_matormini",
+       "host_incarnation": 2,
+       "os_account": "za-zeonewsroom",
+       "account_incarnation": 1
+      }
+     },
+     "may_act_for": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "door_request_id": "door-req-0001",
+     "role_policy": {
+      "record_id": "rp_1",
+      "revision": 1,
+      "record_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     "replayed": false,
+     "token": "fake-token"
+    }
+   }
+  },
+  {
+   "name": "refusal: scope refused",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": true,
+   "instance": {
+    "code": "github_scope_refused",
+    "reason": "door_required",
+    "subject": "door"
+   }
+  },
+  {
+   "name": "refusal: rate limited",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": true,
+   "instance": {
+    "code": "rate_limited",
+    "retry_after_s": 60
+   }
+  },
+  {
+   "name": "refusal: not enrolled",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": true,
+   "instance": {
+    "code": "unavailable",
+    "reason": "not_enrolled"
+   }
+  },
+  {
+   "name": "refusal: base 401",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": true,
+   "instance": {
+    "detail": "device authorization is unavailable"
+   }
+  },
+  {
+   "name": "refusal: base 426",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": true,
+   "instance": {
+    "code": "protocol_incompatible",
+    "reason": "header_missing",
+    "required": "ZEOconnect-Protocol-Version: 1"
+   }
+  },
+  {
+   "name": "refusal: base stopped",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": true,
+   "instance": {
+    "code": "stopped",
+    "control": "admission",
+    "scope": "github"
+   }
+  },
+  {
+   "name": "refusal: 401 with other text",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": false,
+   "instance": {
+    "detail": "no"
+   }
+  },
+  {
+   "name": "refusal: 426 without required",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": false,
+   "instance": {
+    "code": "protocol_incompatible",
+    "reason": "header_missing"
+   }
+  },
+  {
+   "name": "refusal: stopped with another scope",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": false,
+   "instance": {
+    "code": "stopped",
+    "control": "admission",
+    "scope": "global"
+   }
+  },
+  {
+   "name": "refusal: stopped without control",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": false,
+   "instance": {
+    "code": "stopped",
+    "scope": "github"
+   }
+  },
+  {
+   "name": "refusal: a free-text reason",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": false,
+   "instance": {
+    "code": "github_scope_refused",
+    "reason": "anything",
+    "subject": "door"
+   }
+  },
+  {
+   "name": "refusal: rate limited without retry_after_s",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": false,
+   "instance": {
+    "code": "rate_limited"
+   }
+  },
+  {
+   "name": "door-local: timeout",
+   "schema": "zeoconnect:1.4:door_local",
+   "valid": true,
+   "instance": {
+    "status": "ambiguous",
+    "local": true,
+    "reason": "timeout",
+    "operation_id": "github.pr.open",
+    "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+    "request_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+   }
+  },
+  {
+   "name": "door-local: request_too_large reported ambiguous",
+   "schema": "zeoconnect:1.4:door_local",
+   "valid": false,
+   "instance": {
+    "status": "ambiguous",
+    "local": true,
+    "reason": "request_too_large",
+    "operation_id": "github.pr.open",
+    "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
+    "request_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+   }
+  },
+  {
+   "name": "refusal: declared-capability door_required, complete",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": true,
+   "instance": {
+    "code": "github_scope_refused",
+    "reason": "door_required",
+    "subject": "door"
+   }
+  },
+  {
+   "name": "refusal: declared-capability door_required without subject",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": false,
+   "instance": {
+    "code": "github_scope_refused",
+    "reason": "door_required"
+   }
+  },
+  {
+   "name": "refusal: declared-capability app_identity_unverified, complete",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": true,
+   "instance": {
+    "code": "github_scope_refused",
+    "reason": "app_identity_unverified",
+    "subject": "effective"
+   }
+  },
+  {
+   "name": "refusal: declared-capability app_identity_unverified without subject",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": false,
+   "instance": {
+    "code": "github_scope_refused",
+    "reason": "app_identity_unverified"
+   }
+  },
+  {
+   "name": "refusal: declared-capability no_principal, complete",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": true,
+   "instance": {
+    "code": "github_scope_refused",
+    "reason": "no_principal",
+    "subject": "effective"
+   }
+  },
+  {
+   "name": "refusal: declared-capability no_principal without subject",
+   "schema": "zeoconnect:1.4:refusal",
+   "valid": false,
+   "instance": {
+    "code": "github_scope_refused",
+    "reason": "no_principal"
+   }
+  }
+ ]
+}
