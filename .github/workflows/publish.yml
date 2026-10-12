@@ -73,6 +73,13 @@ jobs:
           name: dist
           path: dist/
 
+      # Before the upload: under trusted publishing the publish action
+      # writes dist/<file>.publish.attestation beside each file, and those
+      # aren't PyPI files. tests/test_release_metadata.py runs this step and
+      # the check below.
+      - name: Record the built files' digests
+        run: ( cd dist && sha256sum -- *.whl *.tar.gz ) | sort > built.sha256
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
@@ -85,12 +92,12 @@ jobs:
       - name: Check PyPI holds exactly this build's files for the version
         env:
           VERSION: ${{ needs.release.outputs.version }}
+          INDEX: https://pypi.org/pypi
         run: |
           # skip-existing would otherwise hide a same-named file with other
           # bytes. Compare every digest, with a bounded wait for the API.
-          ( cd dist && sha256sum -- * ) | sort > built.sha256
           for attempt in $(seq 1 20); do
-            if curl --silent --fail "https://pypi.org/pypi/zeocore/${VERSION}/json" -o release.json &&
+            if curl --silent --fail --max-time 30 "${INDEX}/zeocore/${VERSION}/json" -o release.json &&
                python3 -c "
           import json
           files = json.load(open('release.json'))['urls']

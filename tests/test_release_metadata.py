@@ -5,6 +5,7 @@ inline in release-on-merge.yml is extracted and run against throwaway git
 repositories, with real merges, tags and changelog.d fragments.
 """
 
+import hashlib
 import http.server
 import json
 import os
@@ -75,6 +76,94 @@ def test_no_file_a_seat_edits_names_the_version() -> None:
     assert "version" not in project
     assert project["dynamic"] == ["version"]
     assert "version" not in yaml.safe_load((ROOT / "release.yaml").read_text())["pypi"]
+
+
+# --------------------------------------------------------------------------
+# The post-upload digest check
+# --------------------------------------------------------------------------
+
+
+def _publish_step(name: str) -> dict[str, Any]:
+    steps = _workflow("publish.yml")["jobs"]["publish-pypi"]["steps"]
+    found: dict[str, Any] = next(s for s in steps if s.get("name") == name)
+    return found
+
+
+def test_the_digests_are_recorded_before_the_upload() -> None:
+    names = [
+        s.get("name") for s in _workflow("publish.yml")["jobs"]["publish-pypi"]["steps"]
+    ]
+    assert names.index("Record the built files' digests") < names.index(
+        "Publish to PyPI"
+    )
+
+
+@pytest.mark.parametrize("tampered,status", [(False, 0), (True, 1)])
+def test_the_digest_check_compares_only_pypis_files(
+    tmp_path: Path, tampered: bool, status: int
+) -> None:
+    """The publish action leaves *.publish.attestation files; PyPI doesn't list them."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    files = {"demo-1.2.4-py3-none-any.whl": b"wheel", "demo-1.2.4.tar.gz": b"sdist"}
+    for name, content in files.items():
+        (dist / name).write_bytes(content)
+    subprocess.run(  # noqa: S603 - the workflow's own step
+        ["bash", "-c", _publish_step("Record the built files' digests")["run"]],  # noqa: S607
+        cwd=tmp_path,
+        check=True,
+    )
+    for name in files:  # what the publish action writes after the upload
+        (dist / f"{name}.publish.attestation").write_text("{}")
+    served = {
+        "urls": [
+            {
+                "filename": name,
+                "digests": {
+                    "sha256": hashlib.sha256(
+                        content + (b"x" if tampered and name.endswith(".gz") else b"")
+                    ).hexdigest()
+                },
+            }
+            for name, content in files.items()
+        ]
+    }
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 - the stdlib's name
+            ok = self.path == "/zeocore/1.2.4/json"
+            self.send_response(200 if ok else 404)
+            self.end_headers()
+            self.wfile.write(json.dumps(served).encode() if ok else b"{}")
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        check = _publish_step(
+            "Check PyPI holds exactly this build's files for the version"
+        )["run"]
+        result = subprocess.run(  # noqa: S603 - the workflow's own step
+            ["bash", "-c", check],  # noqa: S607
+            cwd=tmp_path,
+            env={
+                **os.environ,
+                "VERSION": "1.2.4",
+                "INDEX": f"http://127.0.0.1:{server.server_address[1]}",
+            },
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result.returncode == status, result.stdout + result.stderr
+    if tampered:
+        assert "are not this build's" in result.stdout
 
 
 # --------------------------------------------------------------------------
