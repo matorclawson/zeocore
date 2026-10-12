@@ -138,7 +138,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "invoke",
         "run one ZEOconnect operation; a repeat replays the stored outcome",
         "zeocore invoke <operation_id> --connection C [--occurrence N] "
-        "[--wait-approval SECONDS] [--profile P] < arguments.json",
+        "[--wait SECONDS | --wait-approval SECONDS] [--profile P] < arguments.json",
         stdin="the operation's arguments, as a JSON object",
         arguments=(
             Argument(
@@ -151,6 +151,12 @@ ENTRIES: Final[tuple[Entry, ...]] = (
             Argument(
                 "--wait-approval",
                 "block up to SECONDS (1 to 3600) for a person's approval",
+            ),
+            Argument(
+                "--wait",
+                "block up to SECONDS (1 to 3600) until the outcome is final: through "
+                "approval, an answer still in flight, and ZEOconnect being "
+                "unavailable; the exit is the final answer's own (never retries 13)",
             ),
             _PROFILE,
         ),

@@ -19,7 +19,7 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 | Check a value against a contract | `zeocore validate <name> < value.json`; `zeocore schema list` names them |
 | Get a contract as JSON Schema 2020-12 | `zeocore schema <name>` |
 | Fingerprint a request (RFC 8785 sha256) | `zeocore digest < value.json` |
-| Run a ZEOconnect operation | `zeocore invoke <operation_id> --connection C [--wait-approval SECONDS] < arguments.json` |
+| Run a ZEOconnect operation and wait for its outcome | `zeocore invoke <operation_id> --connection C --wait SECONDS < arguments.json` |
 | Check pairing and connections | `zeocore whoami`, then `zeocore connections` (pair first with `zeocore login`) |
 
 **Exit codes**, the same for every command, also listed in `help --json`:

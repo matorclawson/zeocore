@@ -374,12 +374,12 @@ def invoke(args: Sequence[str], stdin: bytes, *, out: Emit = emit) -> Answer:
     parser.add_argument("--connection", required=True)
     parser.add_argument("--occurrence", default="1")
     parser.add_argument("--wait-approval", type=int, metavar="SECONDS")
+    parser.add_argument("--wait", type=int, metavar="SECONDS")
     parser.add_argument("--profile")
 
     def body() -> Answer:
         options = parser.parse_args(list(args))
-        if options.wait_approval is not None and not 0 < options.wait_approval <= 3600:
-            raise ArgumentsError("--wait-approval is 1 to 3600 seconds")
+        seconds = _wait_seconds(options.wait, options.wait_approval)
         try:
             arguments = parse_json(stdin)
         except ProtocolError as error:
@@ -405,35 +405,95 @@ def invoke(args: Sequence[str], stdin: bytes, *, out: Emit = emit) -> Answer:
             ) from None
         store, transport = _open(_profile(options.profile))
         try:
-            client = HostedConnectionClient(transport=transport)
-            deadline = (
-                time.monotonic() + options.wait_approval
-                if options.wait_approval
-                else None
+            return _invoke_until_final(
+                HostedConnectionClient(transport=transport),
+                request,
+                key,
+                out,
+                deadline=time.monotonic() + seconds if seconds else None,
+                full=options.wait is not None,
             )
-            announced = False
-            while True:
-                try:
-                    response = client.invoke(request)
-                except HostedUnreachableError:
-                    return EXIT_AMBIGUOUS, _unknown(key)
-                waiting = response.status is HostedOperationStatus.APPROVAL_REQUIRED
-                if not waiting or deadline is None or time.monotonic() >= deadline:
-                    return _answer(response, key)
-                if not announced:
-                    out(
-                        {
-                            "event": "approval",
-                            "approval_url": str(response.approval_url),
-                            "request_key": key,
-                        }
-                    )
-                    announced = True
-                sleep(_APPROVAL_POLL_SECONDS)
         finally:
             transport.close()
 
     return _guarded(body)
+
+
+def _wait_seconds(wait: int | None, wait_approval: int | None) -> int | None:
+    if wait_approval is not None and not 0 < wait_approval <= 3600:
+        raise ArgumentsError("--wait-approval is 1 to 3600 seconds")
+    if wait is not None and not 0 < wait <= 3600:
+        raise ArgumentsError("--wait is 1 to 3600 seconds")
+    if wait is not None and wait_approval is not None:
+        raise ArgumentsError(
+            "--wait already covers approval; pass --wait or --wait-approval"
+        )
+    return wait if wait is not None else wait_approval
+
+
+def _invoke_until_final(
+    client: HostedConnectionClient,
+    request: HostedOperationRequest,
+    key: str,
+    out: Emit,
+    *,
+    deadline: float | None,
+    full: bool,
+) -> Answer:
+    """Ask the same request again until its answer is final, or the deadline.
+
+    --wait-approval (``full`` False) waits through approval only. --wait also
+    waits through an answer still in flight and through ZEOconnect being
+    unavailable: the states that ask for the same request again. Never
+    through ambiguous (13), which this command never retries.
+    """
+    announced: set[str] = set()
+    while True:
+        open_ = deadline is not None and time.monotonic() < deadline
+        try:
+            response = client.invoke(request)
+        except HostedUnreachableError:
+            return EXIT_AMBIGUOUS, _unknown(key)
+        except HostedUnavailableError:
+            if not (full and open_):
+                raise
+            _announce(out, announced, "waiting", key, reason="unavailable")
+            sleep(_APPROVAL_POLL_SECONDS)
+            continue
+        waiting = _waits_on(response, include_in_flight=full)
+        if not waiting or not open_:
+            return _answer(response, key)
+        if waiting == "approval":
+            _announce(
+                out, announced, "approval", key, approval_url=str(response.approval_url)
+            )
+        else:
+            _announce(out, announced, "waiting", key, reason="in_flight")
+        sleep(_APPROVAL_POLL_SECONDS)
+
+
+def _waits_on(
+    response: HostedOperationResponse, *, include_in_flight: bool
+) -> str | None:
+    """What a wait is waiting for in this answer, or None when it's final."""
+    if response.status is HostedOperationStatus.APPROVAL_REQUIRED:
+        return "approval"
+    in_flight = (
+        response.status is HostedOperationStatus.AMBIGUOUS
+        and (response.receipt or {}).get("in_flight") is True
+    )
+    return "in_flight" if include_in_flight and in_flight else None
+
+
+def _announce(
+    out: Emit, announced: set[str], event: str, key: str, **fields: str
+) -> None:
+    """Emit each kind of wait event once, however long the wait."""
+    tag = f"{event}:{fields.get('reason', '')}"
+    if tag in announced:
+        return
+    announced.add(tag)
+    out({"event": event, **fields, "request_key": key})
 
 
 def _unknown(key: str) -> dict[str, Any]:

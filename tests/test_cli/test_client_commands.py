@@ -383,9 +383,112 @@ def test_wait_approval_gives_up_at_its_deadline(
     assert answer["approval_url"] == "https://connect.zeo.ac/approve/exe_x"
 
 
+IN_FLIGHT = {"status": "ambiguous", "execution_id": "e", "receipt": {"in_flight": True}}
+
+
+def _confirmed(broker: Broker) -> dict[str, Any]:
+    answer = broker.invoke(
+        HostedOperationRequest(
+            connection_id=CONNECTION,
+            operation_id="x.y",
+            arguments={},
+            idempotency_key="k",
+        )
+    ).model_dump(mode="json")
+    broker.requests.clear()
+    return answer
+
+
+def test_wait_runs_through_approval_in_flight_and_unavailable_to_the_outcome(
+    broker: Broker,
+) -> None:
+    _paired(broker)
+    broker.answers = [
+        APPROVAL,
+        HostedUnavailableError(),
+        IN_FLIGHT,
+        IN_FLIGHT,
+        _confirmed(broker),
+    ]
+    seen, out = _events()
+    status, answer = client.invoke(
+        ["google.drive.file.download", "--connection", CONNECTION, "--wait", "60"],
+        b'{"file_id": "f"}',
+        out=out,
+    )
+    assert status == 0
+    key = answer["request_key"]
+    # One event per kind of wait, however long it lasts.
+    assert seen == [
+        {
+            "event": "approval",
+            "approval_url": APPROVAL["approval_url"],
+            "request_key": key,
+        },
+        {"event": "waiting", "reason": "unavailable", "request_key": key},
+        {"event": "waiting", "reason": "in_flight", "request_key": key},
+    ]
+    assert len(broker.requests) == 5
+    assert len({request.idempotency_key for request in broker.requests}) == 1
+
+
+def test_wait_never_retries_an_ambiguous_answer(broker: Broker) -> None:
+    _paired(broker)
+    broker.answers = [{"status": "ambiguous", "execution_id": "e"}]
+    status, answer = _invoke("--wait", "60")
+    assert (status, answer["outcome"] if "outcome" in answer else answer["status"]) == (
+        13,
+        "ambiguous",
+    )
+    assert len(broker.requests) == 1
+
+
+def test_wait_never_retries_an_unreachable_broker(broker: Broker) -> None:
+    _paired(broker)
+    broker.answers = [HostedUnreachableError()]
+    status, _ = _invoke("--wait", "60")
+    assert status == 13
+    assert len(broker.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("answers", "status"),
+    [([IN_FLIGHT], 11), ([HostedUnavailableError()], 11), ([APPROVAL], 10)],
+)
+def test_wait_gives_up_at_its_deadline_with_the_last_answer(
+    broker: Broker,
+    monkeypatch: pytest.MonkeyPatch,
+    answers: list[Any],
+    status: int,
+) -> None:
+    _paired(broker)
+    broker.answers = answers
+    clock = iter([0.0, 0.0, 30.0, 61.0, 61.0])
+    monkeypatch.setattr(client.time, "monotonic", lambda: next(clock))
+    got, _ = _invoke("--wait", "60")
+    assert got == status
+
+
+def test_wait_approval_still_returns_an_in_flight_answer_at_once(
+    broker: Broker,
+) -> None:
+    # --wait-approval keeps its meaning: approval only.
+    _paired(broker)
+    broker.answers = [IN_FLIGHT]
+    status, _ = _invoke("--wait-approval", "60")
+    assert status == 11
+    assert len(broker.requests) == 1
+
+
 @pytest.mark.parametrize(
     ("argv", "stdin"),
     [
+        (["x.y", "--connection", CONNECTION, "--wait", "0"], b"{}"),
+        (["x.y", "--connection", CONNECTION, "--wait", "3601"], b"{}"),
+        (
+            ["x.y", "--connection", CONNECTION, "--wait", "5", "--wait-approval", "5"],
+            b"{}",
+        ),
         (["x.y"], b"{}"),
         (["x.y", "--connection", CONNECTION], b"[]"),
         (["x.y", "--connection", CONNECTION], b"not json"),
