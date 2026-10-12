@@ -429,6 +429,31 @@ def test_audience_rejects_ambiguous_input(kwargs: dict[str, Any]) -> None:
         Audience(**kwargs)
 
 
+def test_a_draft_without_reply_to_sends_exactly_the_old_from(draft: EmailDraft) -> None:
+    # Unset, the payload is what every draft before reply_to existed sent.
+    assert draft.to_api()["from"] == {
+        "fromName": "Editor",
+        "replyTo": "editor@example.com",
+    }
+
+
+def test_reply_to_sets_hubspots_custom_reply_to(draft: EmailDraft) -> None:
+    replied = draft.model_copy(update={"reply_to": "desk@example.org"})
+    assert replied.to_api()["from"] == {
+        "fromName": "Editor",
+        "replyTo": "editor@example.com",
+        "customReplyTo": "desk@example.org",
+    }
+    # The reviewed send specification covers the reply-to: changing it after
+    # approval changes the digest, so the send is refused.
+    assert send_spec_digest(email_data(replied)) != send_spec_digest(email_data(draft))
+
+
+def test_reply_to_must_be_an_address(draft: EmailDraft) -> None:
+    with pytest.raises(ValidationError):
+        EmailDraft.model_validate({**draft.model_dump(), "reply_to": "not an address"})
+
+
 def test_empty_draft_audience_is_allowed_but_send_is_not() -> None:
     assert not Audience().contact_ids
     with pytest.raises(ValidationError):
