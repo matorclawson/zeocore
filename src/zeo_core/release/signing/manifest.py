@@ -243,6 +243,20 @@ class SigningManifest(_Strict):
                 raise ValueError(f"{each.path}: a nested identifier is {prefix}<name>")
         return self
 
+    @model_validator(mode="after")
+    def _bundle_identifiers_are_own(self) -> SigningManifest:
+        # A bundle's identifier is its own CFBundleIdentifier, or in this
+        # product's namespace: never another product's.
+        prefix = f"ac.zeo.{self.product}."
+        for bundle in self.bundles:
+            if bundle.identifier.startswith("ac.zeo.") and not (
+                bundle.identifier.startswith(prefix)
+            ):
+                raise ValueError(
+                    f"{bundle.name}: an ac.zeo bundle identifier is {prefix}<name>"
+                )
+        return self
+
 
 def _paths_apart(manifest: SigningManifest) -> None:
     paths = [item.path for item in manifest.executables]

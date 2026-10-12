@@ -62,10 +62,32 @@ class Limits:
 
 @dataclass(frozen=True)
 class Grant:
-    """One product a node may ask for: its repo and its declared identifiers."""
+    """One product a node may ask for: its repo and its declared identifiers.
+
+    ``identifiers`` are ``ac.zeo.<product>.<name>``, for executables and
+    nested code. ``bundle_identifiers`` are the only other identifiers a
+    product may sign, each an outer bundle's own ``CFBundleIdentifier``
+    (SOW-32 §1.5), and each belongs to exactly one product.
+    """
 
     repo: str
     identifiers: frozenset[str]
+    bundle_identifiers: frozenset[str] = frozenset()
+
+
+def check_allowlist(allowlist: Mapping[str, Mapping[str, Grant]]) -> None:
+    """Raise ``ValueError`` unless every grant's identifiers are its own."""
+    owners: dict[str, str] = {}
+    for grants in allowlist.values():
+        for product, grant in grants.items():
+            prefix = f"ac.zeo.{product}."
+            if not all(each.startswith(prefix) for each in grant.identifiers):
+                raise ValueError(f"{product}: an identifier is not {prefix}<name>")
+            for each in grant.bundle_identifiers:
+                if each.startswith("ac.zeo."):
+                    raise ValueError(f"{each}: a bundle identifier is not ac.zeo.")
+                if owners.setdefault(each, product) != product:
+                    raise ValueError(f"{each}: granted to two products")
 
 
 #: node -> product -> grant. Reviewed with zeocore's source, never configured
@@ -90,6 +112,8 @@ ALLOWLIST: Final[Mapping[str, Mapping[str, Grant]]] = {
     }
 }
 
+
+check_allowlist(ALLOWLIST)
 
 RULING_LIMITS: Final = Limits()
 
@@ -189,14 +213,19 @@ def admit(
             "refused", "caller_unadmitted", "this node may not ask for this product"
         )
     # A bundle counts once for itself and once for each nested item (SOW-32 §4).
+    # Only an outer bundle's identifier is looked up among the bundle
+    # identifiers; everything else must be one of the product's ac.zeo ones.
     signed = [
-        *((item.identifier, item.audience) for item in manifest.executables),
         *(
-            (identifier, bundle.audience)
+            (item.identifier, item.audience, grant.identifiers)
+            for item in manifest.executables
+        ),
+        *(
+            (identifier, bundle.audience, declared)
             for bundle in manifest.bundles
-            for identifier in (
-                bundle.identifier,
-                *(item.identifier for item in bundle.nested),
+            for identifier, declared in (
+                (bundle.identifier, grant.bundle_identifiers),
+                *((item.identifier, grant.identifiers) for item in bundle.nested),
             )
         ),
     ]
@@ -204,14 +233,14 @@ def admit(
         return Refusal(
             "refused", "request_invalid", "too many executables in one request"
         )
-    for identifier, audience in signed:
+    for identifier, audience, declared in signed:
         if audience != "internal":
             return Refusal(
                 "refused",
                 "audience_not_unattended",
                 "only internal releases are signed unattended",
             )
-        if identifier not in grant.identifiers:
+        if identifier not in declared:
             return Refusal(
                 "refused",
                 "identifier_undeclared",

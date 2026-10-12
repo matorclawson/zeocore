@@ -46,7 +46,7 @@ from .manifest import (
     MainExecutable,
 )
 from .toolchain import KeychainState, SignAnswerLostError, Toolchain, ToolError
-from .tree import TreeError, listing, sha256_file, tree_sha256
+from .tree import TreeError, copy_plain, listing, sha256_file, tree_sha256
 from .tree import digest as tree_digest
 
 RECEIPT_VERSION: Final = 1
@@ -152,7 +152,14 @@ def _expected_entitlements(
             "entitlements_invalid",
             f"{name}: the entitlements file is not a property-list dictionary",
         )
-    return value or None
+    if not value:
+        # "none" is the one way to say no entitlements, so that a signature
+        # carrying an entitlements blob, even an empty one, never matches it.
+        raise RecordInvalidError(
+            "entitlements_invalid",
+            f"{name}: the entitlements file is empty; declare none instead",
+        )
+    return value
 
 
 def _entitlements_match(
@@ -205,7 +212,9 @@ def _check_signature(
         return "identity_mismatch", facts
     if not toolchain.satisfies(path, expected):
         return "not_signed", facts
-    if (seen.entitlements or None) != expected_entitlements:
+    # Exact: "none" means no entitlements blob at all, and nothing undeclared
+    # is accepted on any signed item, nested, main or outer.
+    if seen.entitlements != expected_entitlements:
         return "entitlements_mismatch", facts
     return None, facts
 
@@ -281,15 +290,9 @@ def _unsigned_bundle(loaded: LoadedManifest, bundle: Bundle) -> Outcome | None:
     shape = _bundle_shape(bundle, source, entries)
     if shape is not None:
         return shape
-    for item in bundle.nested:
-        signed_sha256, tree = _code_digests(source / item.path)
-        if (signed_sha256 or tree) != item.unsigned_sha256:
-            return _stop(
-                "refused",
-                "input_mismatch",
-                "a nested item's digest differs from the manifest",
-                item.name,
-            )
+    nested = _nested_unsigned(bundle, source)
+    if nested is not None:
+        return nested
     for owner, _, path, main in _mains(bundle):
         if sha256_file(source / path) != main.unsigned_sha256:
             return _stop(
@@ -297,6 +300,28 @@ def _unsigned_bundle(loaded: LoadedManifest, bundle: Bundle) -> Outcome | None:
                 "input_mismatch",
                 "a main executable's digest differs from the manifest",
                 owner,
+            )
+    return None
+
+
+def _nested_unsigned(bundle: Bundle, source: Path) -> Outcome | None:
+    """Each nested item's unsigned digest against the manifest."""
+    for item in bundle.nested:
+        try:
+            signed_sha256, tree = _code_digests(source / item.path)
+        except TreeError as error:
+            # A nested bundle's own subtree, with a link that leaves it.
+            return _stop("refused", "bundle_unsafe", str(error), item.name)
+        except OSError:
+            return _stop(
+                "refused", "input_mismatch", "a nested item can't be read", item.name
+            )
+        if (signed_sha256 or tree) != item.unsigned_sha256:
+            return _stop(
+                "refused",
+                "input_mismatch",
+                "a nested item's digest differs from the manifest",
+                item.name,
             )
     return None
 
@@ -749,6 +774,14 @@ class _Run:
         existing = {name: self.work.read_receipt(name) for name in names}
         if existing[bundle.name] is not None:
             found = [existing[name] for name in names]
+            missing = [name for name in names if existing[name] is None]
+            if missing:
+                return _stop(
+                    "refused",
+                    "receipt_mismatch",
+                    "the bundle has a sign receipt, but a nested item has none",
+                    missing[0],
+                )
             if all(
                 receipt is not None
                 and receipt.get("manifest_sha256") == self.loaded.sha256
@@ -792,7 +825,12 @@ class _Run:
             # unsigned original.
             shutil.rmtree(candidate.parent)
         candidate.parent.mkdir(mode=0o700, parents=True)
-        shutil.copytree(self.loaded.resolve(bundle.path), candidate, symlinks=True)
+        shutil.copytree(
+            self.loaded.resolve(bundle.path),
+            candidate,
+            symlinks=True,
+            copy_function=copy_plain,
+        )
         try:
             copied = tree_sha256(candidate)
         except TreeError:
@@ -836,7 +874,10 @@ class _Run:
             )
         if refusal is not None:
             return self._close(opened, refusal)
-        return self._record_bundle(bundle, candidate, facts, reconciled=False)
+        recorded = self._record_bundle(bundle, candidate, facts, reconciled=False)
+        if isinstance(recorded, Outcome) and recorded.reason == "bundle_unsafe":
+            return self._close(opened, recorded)
+        return recorded
 
     def _close(self, names: list[str], outcome: Outcome) -> Outcome:
         """A bundle that failed cleanly closes every part it opened."""
@@ -855,8 +896,22 @@ class _Run:
     ) -> list[dict[str, Any]] | Outcome:
         receipts: list[dict[str, Any]] = []
         nested: dict[str, str] = {}
+        try:
+            # Read before anything is written, so a refusal leaves no receipt.
+            digests = {
+                item.name: _code_digests(candidate / item.path)
+                for item in bundle.nested
+            }
+            bundle_tree = tree_sha256(candidate)
+        except TreeError, OSError:
+            return _stop(
+                "refused",
+                "bundle_unsafe",
+                "the signed bundle's tree can't be described",
+                bundle.name,
+            )
         for item in bundle.nested:
-            signed_sha256, signed_tree = _code_digests(candidate / item.path)
+            signed_sha256, signed_tree = digests[item.name]
             receipt = {
                 **_common(self.loaded, item.name, item.identifier, bundle.audience),
                 "bundle": bundle.name,
@@ -894,7 +949,7 @@ class _Run:
             "bundle_identifier": bundle.bundle_identifier,
             "path": bundle.path,
             "unsigned_tree_sha256": bundle.unsigned_tree_sha256,
-            "signed_tree_sha256": tree_sha256(candidate),
+            "signed_tree_sha256": bundle_tree,
             "main_executable": _main_record(
                 candidate, _main_path(bundle.main_executable), bundle.main_executable
             ),

@@ -304,10 +304,8 @@ def _tree_of(bundle: Path) -> str:
 
 
 def _digest_of(path: Path) -> str:
-    from zeo_core.release.signing.tree import tree_sha256
-
     if path.is_dir() and not path.is_symlink():
-        return tree_sha256(path)
+        return _tree_of(path)
     if path.is_file() and not path.is_symlink():
         return _sha(path.read_bytes())
     return "0" * 64

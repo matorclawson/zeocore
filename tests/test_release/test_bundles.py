@@ -7,6 +7,7 @@ import io
 import json
 import os
 import plistlib
+import stat
 import tarfile
 from collections.abc import Callable
 from dataclasses import replace
@@ -33,7 +34,7 @@ from zeo_core.release.signing import (
     sign,
     verify,
 )
-from zeo_core.release.signing.admission import Grant, Limits, admit
+from zeo_core.release.signing.admission import Grant, Limits, admit, check_allowlist
 from zeo_core.release.signing.tree import (
     TreeError,
     contained_target,
@@ -269,6 +270,12 @@ _EXECUTABLE = {
             _entry(),
             _entry(name="other", bundle_identifier="o.x", identifier="o.x", nested=[]),
         ),
+        # Never another product's namespace, even as its own bundle identifier.
+        _signing(
+            _entry(
+                bundle_identifier="ac.zeo.pomar.host", identifier="ac.zeo.pomar.host"
+            )
+        ),
         # Version 1 is unchanged: executables only.
         _signing(_entry(), release_manifest=1),
         _signing(),
@@ -283,23 +290,24 @@ def test_a_bad_bundle_entry_is_refused(tmp_path: Path, document: object) -> None
 
 
 def test_the_tree_digest_is_canonical(tmp_path: Path) -> None:
-    root = tmp_path / "Zeo.app"
-    (root / "Contents").mkdir(parents=True)
-    (root / "Contents" / "a").write_bytes(b"a")
-    (root / "Contents" / "b").symlink_to("a")
+    root = tmp_path / "A.framework"
+    (root / "Versions" / "A").mkdir(parents=True)
+    (root / "Versions" / "A" / "a").write_bytes(b"a")
+    (root / "Versions" / "Current").symlink_to("A")
     entries = listing(root)
     assert [entry.line() for entry in entries] == [
-        "Contents\tdir\t755\t-\n",
-        "Contents/a\tfile\t644\t"
+        "Versions\tdir\t755\t-\n",
+        "Versions/A\tdir\t755\t-\n",
+        "Versions/A/a\tfile\t644\t"
         "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb\n",
-        "Contents/b\tsymlink\t-\ta\n",
+        "Versions/Current\tsymlink\t-\tA\n",
     ]
     first = tree_sha256(root)
-    (root / "Contents" / "a").chmod(0o700)
+    (root / "Versions" / "A" / "a").chmod(0o700)
     assert tree_sha256(root) != first
-    (root / "Contents" / "a").chmod(0o640)
+    (root / "Versions" / "A" / "a").chmod(0o640)
     assert tree_sha256(root) == first  # only the owner's execute bit counts
-    (root / "Contents" / "empty").mkdir()
+    (root / "Versions" / "empty").mkdir()
     assert tree_sha256(root) != first
 
 
@@ -341,6 +349,114 @@ def test_only_files_directories_and_links(tmp_path: Path) -> None:
     (tmp_path / "file.app").write_bytes(b"")
     with pytest.raises(TreeError):
         listing(tmp_path / "file.app")
+
+
+def _framework(tmp_path: Path) -> Path:
+    """A minimal framework inside an app, with its two usual links."""
+    root = tmp_path / "Zeo.app"
+    framework = root / "Contents" / "Frameworks" / "A.framework"
+    (framework / "Versions" / "A" / "Resources").mkdir(parents=True)
+    (framework / "Versions" / "A" / "A").write_bytes(MACHO)
+    (framework / "Versions" / "Current").symlink_to("A")
+    (framework / "A").symlink_to("Versions/Current/A")
+    return root
+
+
+def test_a_frameworks_own_links_are_allowed(tmp_path: Path) -> None:
+    root = _framework(tmp_path)
+    links = [entry.path for entry in listing(root) if entry.type == "symlink"]
+    assert links == [
+        "Contents/Frameworks/A.framework/A",
+        "Contents/Frameworks/A.framework/Versions/Current",
+    ]
+    # A framework's own subtree digest, as a nested item's, sees the same.
+    assert len(listing(root / "Contents/Frameworks/A.framework")) == 6
+
+
+_FW = "Contents/Frameworks/A.framework"
+
+
+@pytest.mark.parametrize(
+    ("link", "target"),
+    [
+        # Only a framework's Versions/Current and its top-level links.
+        ("Contents/Resources/x", "../Info.plist"),
+        (f"{_FW}/Versions/A/Resources/x", "../A"),
+        (f"{_FW}/Versions/Other", "A"),
+        # Versions/Current names one version beside it.
+        (f"{_FW}/Versions/Current", "A/Resources"),
+        (f"{_FW}/Versions/Current", "."),
+        # A top-level link names something under Versions/.
+        (f"{_FW}/B", "Versions"),
+        (f"{_FW}/B", "../A.framework/Versions/A/A"),
+        # Every hop stays inside the framework.
+        (f"{_FW}/B", "Versions/Current/../../.."),
+        (f"{_FW}/B", "Versions/../../../Info.plist"),
+        (f"{_FW}/B", "Versions/Current/missing"),
+    ],
+)
+def test_a_link_out_of_place_or_out_of_its_framework_is_refused(
+    tmp_path: Path, link: str, target: str
+) -> None:
+    root = _framework(tmp_path)
+    (root / "Contents" / "Resources").mkdir(parents=True, exist_ok=True)
+    (root / "Contents" / "Info.plist").write_bytes(b"")
+    if (root / link).is_symlink():
+        (root / link).unlink()
+    (root / link).symlink_to(target)
+    with pytest.raises(TreeError):
+        listing(root)
+
+
+def test_each_hop_is_resolved_inside_the_framework(tmp_path: Path) -> None:
+    root = _framework(tmp_path)
+    # Through Versions/Current and back, never above the framework: allowed.
+    (root / _FW / "B").symlink_to("Versions/Current/../Current/A")
+    assert any(entry.path == f"{_FW}/B" for entry in listing(root))
+    # Resolved through Current, "../.." is the framework itself, then above it,
+    # though lexically from B it would be inside: refused.
+    (root / _FW / "B").unlink()
+    (root / _FW / "B").symlink_to("Versions/Current/../../../A.framework/A")
+    with pytest.raises(TreeError):
+        listing(root)
+
+
+def test_a_link_loop_is_refused(tmp_path: Path) -> None:
+    root = _framework(tmp_path)
+    (root / _FW / "Versions" / "Current").unlink()
+    (root / _FW / "Versions" / "Current").symlink_to("Current")
+    with pytest.raises(TreeError):
+        listing(root)
+
+
+@pytest.mark.parametrize("name", ["tab\there", "line\nfeed", "bell\x07", "del\x7f"])
+def test_a_control_character_in_a_path_is_refused(tmp_path: Path, name: str) -> None:
+    root = tmp_path / "Zeo.app"
+    root.mkdir()
+    (root / name).write_bytes(b"")
+    with pytest.raises(TreeError):
+        listing(root)
+
+
+def test_a_hard_link_is_refused(tmp_path: Path) -> None:
+    root = tmp_path / "Zeo.app"
+    root.mkdir()
+    (root / "a").write_bytes(b"a")
+    os.link(root / "a", root / "b")
+    with pytest.raises(TreeError, match="hard link"):
+        listing(root)
+
+
+@pytest.mark.parametrize("bit", [0o4000, 0o2000])
+def test_a_setuid_or_setgid_file_is_refused(tmp_path: Path, bit: int) -> None:
+    root = tmp_path / "Zeo.app"
+    root.mkdir()
+    (root / "a").write_bytes(b"a")
+    (root / "a").chmod(0o755 | bit)
+    if not (root / "a").stat().st_mode & bit:
+        pytest.skip("this filesystem doesn't keep the bit")
+    with pytest.raises(TreeError, match="setuid"):
+        listing(root)
 
 
 @pytest.mark.parametrize(
@@ -413,6 +529,15 @@ def _add_code(path: str) -> Callable[[Path], object]:
     return tweak
 
 
+def _add_magic(magic: str) -> Callable[[Path], object]:
+    def tweak(bundle: Path) -> None:
+        path = bundle / "Contents" / "Resources" / f"data-{magic}"
+        path.write_bytes(bytes.fromhex(magic) + b"\x00" * 28)
+        path.chmod(0o644)
+
+    return tweak
+
+
 def _identifier(value: str) -> Callable[[Path], object]:
     def tweak(bundle: Path) -> None:
         (bundle / "Contents" / "Info.plist").write_bytes(
@@ -428,6 +553,38 @@ def _identifier(value: str) -> Callable[[Path], object]:
         # Code is found by its magic number, not its name.
         ({"tweak": _add_code("Contents/Resources/readme.txt")}, "nested_unlisted"),
         ({"tweak": _add_code("Contents/MacOS/second")}, "nested_unlisted"),
+        # Every Mach-O magic, thin and universal, either byte order, even
+        # in a file without an execute bit.
+        *(
+            ({"tweak": _add_magic(magic)}, "nested_unlisted")
+            for magic in (
+                "feedface",
+                "cefaedfe",
+                "feedfacf",
+                "cffaedfe",
+                "cafebabe",
+                "bebafeca",
+                "cafebabf",
+                "bfbafeca",
+            )
+        ),
+        # A link in a nested bundle that leaves that bundle, though not the app.
+        (
+            {
+                "tweak": lambda b: (b / _AUDIO / "Up").symlink_to(
+                    "Versions/Current/../../../libZEOConsoleRenderer.dylib"
+                )
+            },
+            "bundle_unsafe",
+        ),
+        (
+            {
+                "tweak": lambda b: (
+                    b / "Contents/Resources/SwiftTerm_SwiftTerm.bundle/x"
+                ).symlink_to("Contents/Info.plist")
+            },
+            "bundle_unsafe",
+        ),
         (
             {
                 "tweak": lambda b: (b / "Contents/PlugIns/Share.appex").mkdir(
@@ -441,7 +598,7 @@ def _identifier(value: str) -> Callable[[Path], object]:
             {"nested": (*NESTED, {"path": "Contents/Helpers/gone", "name": "gone"})},
             "nested_missing",
         ),
-        # A link is not code of its own.
+        # A link is not code of its own, and codesign is never pointed at one.
         (
             {
                 "nested": (
@@ -449,7 +606,19 @@ def _identifier(value: str) -> Callable[[Path], object]:
                     {"path": "Contents/Frameworks/Audio.framework/Audio", "name": "a"},
                 )
             },
-            "nested_missing",
+            "bundle_unsafe",
+        ),
+        (
+            {
+                "nested": (
+                    *NESTED,
+                    {
+                        "path": f"{_AUDIO}/Versions/Current/libinner.dylib",
+                        "name": "x",
+                    },
+                )
+            },
+            "bundle_unsafe",
         ),
         (
             {"tweak": _identifier("org.zeroemployee.other")},
@@ -928,7 +1097,15 @@ def _admit(
     built = framework_app()
     create_request(built, _request(), tmp_path / "request.tar")
     opened = open_request(tmp_path / "request.tar", tmp_path / "in")
-    grants = {NODE: {"zeoapp": Grant(REPO, frozenset(identifiers))}}
+    grants = {
+        NODE: {
+            "zeoapp": Grant(
+                REPO,
+                frozenset(identifiers - {BUNDLE_ID}),
+                frozenset(identifiers & {BUNDLE_ID}),
+            )
+        }
+    }
     refusal = admit(
         opened, NODE, _Reviewed(opened.manifest_bytes), grants, limits or Limits()
     )
@@ -956,6 +1133,42 @@ def test_a_bundle_counts_once_for_itself_and_once_per_nested_item(
 ) -> None:
     reason = _admit(framework_app, tmp_path, DECLARED, Limits(max_executables=4))
     assert reason == "request_invalid"
+
+
+def test_an_outer_identifier_granted_as_nested_is_refused(
+    framework_app: App, tmp_path: Path
+) -> None:
+    built = framework_app()
+    create_request(built, _request(), tmp_path / "request.tar")
+    opened = open_request(tmp_path / "request.tar", tmp_path / "in")
+    grants = {NODE: {"zeoapp": Grant(REPO, frozenset(DECLARED))}}
+    refusal = admit(opened, NODE, _Reviewed(opened.manifest_bytes), grants, Limits())
+    assert refusal is not None
+    assert refusal.reason == "identifier_undeclared"
+
+
+@pytest.mark.parametrize(
+    "allowlist",
+    [
+        {NODE: {"zeoapp": Grant(REPO, frozenset({"ac.zeo.pomar.x"}))}},
+        {NODE: {"zeoapp": Grant(REPO, frozenset(), frozenset({"ac.zeo.zeoapp.x"}))}},
+        {
+            NODE: {"zeoapp": Grant(REPO, frozenset(), frozenset({BUNDLE_ID}))},
+            "other": {"pomar": Grant(REPO, frozenset(), frozenset({BUNDLE_ID}))},
+        },
+    ],
+)
+def test_an_allowlist_binds_each_identifier_to_one_product(
+    allowlist: dict[str, dict[str, Grant]],
+) -> None:
+    with pytest.raises(ValueError, match="identifier|two products"):
+        check_allowlist(allowlist)
+
+
+def test_the_allowlist_is_consistent() -> None:
+    from zeo_core.release.signing.admission import ALLOWLIST
+
+    check_allowlist(ALLOWLIST)
 
 
 def test_zeoapp_has_no_grant_yet() -> None:
@@ -1257,3 +1470,97 @@ def test_a_frameworks_binary_through_versions_current_isnt_unlisted(
     framework = loaded.resolve(APP) / _AUDIO
     assert (framework / "Audio").is_symlink()
     assert sign(loaded, work, FakeToolchain(), HOST).status == "done"
+
+
+# --- the council's review of 1856aaca ---------------------------------------
+
+
+def test_a_nested_item_signed_by_another_leaf_is_refused_at_verify(
+    framework_app: App, work: WorkDir
+) -> None:
+    built = framework_app()
+    tools = FakeToolchain()
+    assert sign(built, work, tools, HOST).status == "done"
+    renderer = work.bundle_candidate(_bundle(built)) / RENDERER["path"]
+    tools.inspections[renderer] = signed_as(
+        "ac.zeo.zeoapp.console-renderer", leaf_sha1="AB" * 20
+    )
+    outcome = verify(built, work, tools)
+    assert (outcome.status, outcome.reason) == ("refused", "identity_mismatch")
+    assert outcome.executable == "console-renderer"
+
+
+def test_an_undeclared_entitlement_or_an_empty_blob_is_refused_at_verify(
+    framework_app: App, work: WorkDir
+) -> None:
+    built = framework_app()
+    tools = FakeToolchain()
+    assert sign(built, work, tools, HOST).status == "done"
+    renderer = work.bundle_candidate(_bundle(built)) / RENDERER["path"]
+    for granted in ({"com.apple.security.get-task-allow": True}, {}):
+        tools.inspections[renderer] = signed_as(
+            "ac.zeo.zeoapp.console-renderer", entitlements=granted
+        )
+        outcome = verify(built, work, tools)
+        assert outcome.reason == "entitlements_mismatch"
+
+
+@pytest.mark.parametrize("target", ["..", ".", "../signed"])
+def test_a_response_whose_bundle_is_a_link_is_refused(
+    framework_app: App, tmp_path: Path, target: str
+) -> None:
+    built = framework_app()
+    work = WorkDir(tmp_path / "work")
+    assert sign(built, work, FakeToolchain(), HOST).status == "done"
+    create_response(built, work, tmp_path / "response.tar")
+
+    def swap(members: list[tuple[tarfile.TarInfo, bytes]]) -> None:
+        members[:] = [m for m in members if not m[0].name.startswith("signed/")]
+        members.append(_link("signed/zeoapp", target))
+
+    _repack(tmp_path / "response.tar", tmp_path / "bad.tar", swap)
+    with pytest.raises(PackError):
+        open_response(built, tmp_path / "bad.tar", tmp_path / "in")
+
+
+def test_a_sticky_or_flagged_entry_is_refused(tmp_path: Path) -> None:
+    root = tmp_path / "Zeo.app"
+    (root / "dir").mkdir(parents=True)
+    (root / "dir").chmod(0o1755)
+    with pytest.raises(TreeError, match="sticky"):
+        listing(root)
+    (root / "dir").chmod(0o755)
+    (root / "file").write_bytes(b"x")
+    if not hasattr(os, "chflags") or not hasattr(stat, "UF_HIDDEN"):
+        pytest.skip("no BSD file flags here")
+    os.chflags(root / "file", stat.UF_HIDDEN)
+    with pytest.raises(TreeError, match="flags"):
+        listing(root)
+
+
+def test_the_signing_copy_carries_only_a_packs_mode(tmp_path: Path) -> None:
+    from zeo_core.release.signing.tree import copy_plain
+
+    source, copied = tmp_path / "a", tmp_path / "b"
+    source.write_bytes(b"x")
+    source.chmod(0o750)
+    copy_plain(str(source), str(copied))
+    assert stat.S_IMODE(copied.stat().st_mode) == 0o755
+    assert copied.read_bytes() == b"x"
+
+
+def test_a_nested_subtree_that_cant_be_described_is_refused_not_raised(
+    framework_app: App, work: WorkDir, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from zeo_core.release.signing import step
+
+    built = framework_app()
+
+    def unsafe(path: Path) -> tuple[str | None, str | None]:
+        raise TreeError("a link leaves the nested bundle")
+
+    monkeypatch.setattr(step, "_code_digests", unsafe)
+    tools = FakeToolchain()
+    outcome = sign(built, work, tools, HOST)
+    assert (outcome.status, outcome.reason) == ("refused", "bundle_unsafe")
+    assert tools.sign_calls == []

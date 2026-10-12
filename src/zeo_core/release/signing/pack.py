@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import stat
 import tarfile
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -313,6 +314,20 @@ def _receipt_names(loaded: LoadedManifest) -> list[str]:
     ]
 
 
+def _real_directory(dest: Path, relative: str) -> bool:
+    """Whether ``relative`` and every directory above it, below ``dest``, are
+    real directories, so a signed bundle is never read through a link."""
+    parts = PurePosixPath(relative).parts
+    for end in range(1, len(parts) + 1):
+        try:
+            info = dest.joinpath(*parts[:end]).lstat()
+        except OSError:
+            return False
+        if not stat.S_ISDIR(info.st_mode):
+            return False
+    return dest.joinpath(*parts).resolve().is_relative_to(dest.resolve())
+
+
 def _signed_root(bundle: Bundle) -> str:
     return f"signed/{bundle.name}/{PurePosixPath(bundle.path).name}"
 
@@ -366,6 +381,10 @@ def open_response(loaded: LoadedManifest, pack: Path, dest: Path) -> WorkDir:
     )
     if files != expected or trees_outside:
         raise PackError("input_mismatch", "the response doesn't match the manifest")
+    if not all(_real_directory(dest, root) for root in roots):
+        raise PackError(
+            "request_invalid", "the pack has an unsafe member: a bundle is a link"
+        )
     for name in receipts:
         try:
             json.loads(extracted.files[name].read_text())

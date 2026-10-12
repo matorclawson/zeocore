@@ -80,13 +80,27 @@ signing:
   names its receipt, is the identifier's last part.
 - **The tree digest.** `zeocore release tree-digest < {"path": "app/build/Zeo.app"}`
   prints `unsigned_tree_sha256`: the sha256 of one line per entry, sorted by
-  path, of the path, its type (`file`, `dir`, `symlink`), its mode (`755` for
-  a directory or a file with any execute bit, `644` otherwise, `-` for a
-  link) and the file's sha256 or the link's target. The pack and the step
+  path as UTF-8 bytes, each `path TAB type TAB mode TAB value LF`. The path is
+  relative and UTF-8; the type is `file`, `dir` or `symlink`; the mode is
+  `755` for a directory or a file with any execute bit, `644` otherwise, `-`
+  for a link; the value is the file's sha256, the link's target, or `-`. A
+  path or target with a control character, a backslash or bytes that aren't
+  UTF-8 is refused, so nothing is escaped. So are a fifo, socket or device, a
+  file with more than one hard link, an entry with the setuid, setgid or
+  sticky bit, and one with any BSD file flag but transparent compression.
+  Extended attributes, owners and times aren't part of it: xattrs are neither
+  described nor sealed by the tree digest (codesign seals the resources), and
+  the signing copy carries only each file's bytes and its pack mode. The pack and the step
   compute it with the same code.
-- **Links** are allowed inside a bundle only when they are relative and
-  resolve inside it, through any other link. Anything else refuses the bundle
-  as `bundle_unsafe`.
+- **Links** are allowed only where a framework needs them: its
+  `Versions/Current`, naming one version beside it, and a link at its top
+  whose target starts `Versions/`. Every hop of the resolution, through any
+  other link, stays inside that framework. Anything else, an absolute
+  target, a `..` that leaves it, a dangling link or a loop, refuses the
+  bundle as `bundle_unsafe`. The walk and the copy never follow a link, the
+  check runs on the unsigned original, on the copy before signing and at
+  every verify, and a listed path or main executable with a link in it is
+  `bundle_unsafe`: codesign is never pointed through one.
 - **Every piece of code is listed.** Before anything is signed, the step finds
   every Mach-O file by its magic number, every other file with an execute bit,
   and every nested `.app`, `.framework`, `.bundle`, `.xpc`, `.appex`,
@@ -115,8 +129,16 @@ signing:
   part of it, so the next run signs a fresh copy; a lost answer is
   reconciled by reading the whole bundle back.
 - **Admission** counts the bundle once and each nested item once against the
-  16-item limit (a main executable doesn't count), and every identifier, nested ones included, must be declared
-  for the product.
+  16-item limit (a main executable doesn't count). Nested identifiers must be
+  among the grant's `ac.zeo.<product>.<name>` identifiers, and the outer
+  bundle's among its `bundle_identifiers`: the only identifiers outside
+  `ac.zeo.`, each granted to exactly one product. An outer identifier in
+  another product's `ac.zeo.` namespace is refused in the manifest.
+- **No hardened runtime** for internal signing, so library validation is off:
+  a process running as the same user can load a dylib into the app, and it
+  then acts with the app's TCC grants and its connections. The signature
+  shows what was released; it doesn't stop a same-user process. That user
+  boundary is the control for internal releases.
 
 ## Running it
 
@@ -155,7 +177,11 @@ $ echo '{"manifest": "release.yaml", "response": "response.tar",
   directory, then runs `verify` on this host. A release counts as signed only
   when that passes.
 - Opening a pack refuses links, absolute paths, `..`, duplicates, unlisted
-  files and any digest that differs.
+  files and any digest that differs. A link is allowed only inside a listed
+  bundle, under the bundle's link rules. In a response, `signed/<name>/` and
+  the signed bundle must be real directories inside the work directory,
+  never links.
+
 ### The service on matormini
 
 ```console
@@ -209,10 +235,14 @@ A valid Apple signature alone is not enough. For every executable:
 - the designated requirement is exactly the binding's, and `codesign --verify
   --strict -R` accepts the file against it. Only codesign's exit 3 is a
   non-match; a syntax or tool error holds as unreadable;
-- the signed entitlements equal the manifest's file: none dropped, none added.
+- the signed entitlements equal the manifest's file exactly: none dropped,
+  none added. `none` means no entitlements blob at all, so an empty
+  entitlements file is refused as `entitlements_invalid`: declare `none`.
 
-For a bundle, each nested item is checked like that, then the outer bundle,
-and then `codesign --verify --strict --deep` on the whole: `--deep` verifies
+For a bundle, each nested item is checked like that, then the outer bundle
+with the same checks (its identifier is `bundle_identifier`, which must
+still be Info.plist's `CFBundleIdentifier`), then each main executable under
+its bundle's identifier and entitlements, and then `codesign --verify --strict --deep` on the whole: `--deep` verifies
 every nested signature and the sealed resources, and is used only to verify.
 The signed tree's digest must match the bundle's receipt, each nested item's
 digest its own receipt, and the bundle's receipt must name each nested

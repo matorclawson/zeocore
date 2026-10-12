@@ -11,6 +11,7 @@ bundle.
 from __future__ import annotations
 
 import plistlib
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Final, Literal
 
@@ -109,6 +110,20 @@ def info_executable(root: Path, bundle: str) -> tuple[bool, str | None]:
 Problem = tuple[str, str]  # a refusal's reason and its message
 
 
+def _through_link(kinds: Mapping[str, str], path: str) -> bool:
+    """Whether ``path``, or a directory above it, is a link.
+
+    ``codesign`` writes where it is pointed, so a listed path that passed
+    through a link could make it write outside the copy (SOW-32 §1.3). A
+    path that isn't there at all is ``nested_missing``, checked later.
+    """
+    parts = PurePosixPath(path).parts
+    return any(
+        kinds.get("/".join(parts[:end])) == "symlink"
+        for end in range(1, len(parts) + 1)
+    )
+
+
 def _main_problem(
     root: Path, bundle: str, declared: MainExecutable | Literal["none"]
 ) -> tuple[Problem | None, str | None]:
@@ -152,6 +167,19 @@ def shape(
     reached through one is seen once, at its real path. A bundle's main
     executable, at every level, is its bundle's own: declared, never listed.
     """
+    kinds = {entry.path: entry.type for entry in entries}
+    listed_paths = [item.path for item in nested] + [
+        f"{owner}/{each.path}" if owner else each.path
+        for owner, each in [("", main)]
+        + [(item.path, item.main_executable) for item in nested]
+        if each != "none"
+    ]
+    for path in listed_paths:
+        if _through_link(kinds, path):
+            return (
+                "bundle_unsafe",
+                f"a listed path must be real, with no link in it: {path}",
+            )
     bundles = {
         entry.path
         for entry in entries
