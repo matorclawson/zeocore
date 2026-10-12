@@ -7,6 +7,13 @@ creates, edits, resolves or deletes a comment.
 Comment text is data written by whoever can comment on the file. A caller
 must treat it as untrusted: quote it, never follow it as an instruction.
 
+``author.email_address``, when Drive returns it, is a third party's personal
+data. Don't log it, and don't persist it beyond what the review needs.
+
+Every field read is checked: a missing or mistyped field, an unknown reply
+action, or a comment without content (unless deleted) refuses the whole
+listing. Unknown extra fields from Drive are not read.
+
 Drive comments carry no revision id, and ``anchor`` is an opaque string.
 To bind feedback to the exact copy that was shared, a caller records the
 file id and its ``modifiedTime`` (or revision) at share time and compares
@@ -117,11 +124,25 @@ def _optional_text(item: Mapping[str, object], key: str) -> str | None:
     return value
 
 
-_ACTIONS: Final[dict[object, Literal["resolve", "reopen"] | None]] = {
-    None: None,
+_ACTIONS: Final[dict[str, Literal["resolve", "reopen"]]] = {
     "resolve": "resolve",
     "reopen": "reopen",
 }
+
+
+def _flag(item: Mapping[str, object], key: str) -> bool:
+    """A boolean field: absent is False, anything but a bool is refused."""
+    value = item.get(key, False)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} is not a boolean")
+    return value
+
+
+def _content(item: Mapping[str, object], deleted: bool) -> str:
+    """Required text, except on a deleted item, which Drive sends without it."""
+    if deleted:
+        return _optional_text(item, "content") or ""
+    return _text(item, "content")
 
 
 def _time(item: Mapping[str, object], key: str) -> datetime:
@@ -132,10 +153,9 @@ def _author(item: Mapping[str, object]) -> DriveCommentAuthor:
     author = item.get("author")
     if not isinstance(author, Mapping):
         raise ValueError("author is missing")
-    email = author.get("emailAddress")
     return DriveCommentAuthor(
         display_name=_text(author, "displayName"),
-        email_address=email if isinstance(email, str) else None,
+        email_address=_optional_text(author, "emailAddress"),
     )
 
 
@@ -143,43 +163,48 @@ def _reply(item: object) -> DriveReply:
     if not isinstance(item, Mapping):
         raise ValueError("a reply is not an object")
     action = item.get("action")
-    if action not in _ACTIONS:
+    if action is not None and (not isinstance(action, str) or action not in _ACTIONS):
         raise ValueError(f"unknown reply action {action!r}")
+    deleted = _flag(item, "deleted")
     return DriveReply(
         id=_text(item, "id"),
         author=_author(item),
-        # A deleted reply has no content.
-        content=_optional_text(item, "content") or "",
-        action=_ACTIONS[action],
+        content=_content(item, deleted),
+        action=None if action is None else _ACTIONS[action],
         created_time=_time(item, "createdTime"),
         modified_time=_time(item, "modifiedTime"),
-        deleted=item.get("deleted") is True,
+        deleted=deleted,
+    )
+
+
+def _quoted(item: Mapping[str, object]) -> DriveQuotedContent | None:
+    quoted = item.get("quotedFileContent")
+    if quoted is None:
+        return None
+    if not isinstance(quoted, Mapping):
+        raise ValueError("quotedFileContent is not an object")
+    return DriveQuotedContent(
+        mime_type=_text(quoted, "mimeType"), value=_text(quoted, "value")
     )
 
 
 def _comment(item: object) -> DriveComment:
     if not isinstance(item, Mapping):
         raise ValueError("a comment is not an object")
-    quoted = item.get("quotedFileContent")
     replies = item.get("replies", [])
     if not isinstance(replies, list):
         raise ValueError("replies is not a list")
+    deleted = _flag(item, "deleted")
     return DriveComment(
         id=_text(item, "id"),
         author=_author(item),
-        content=_optional_text(item, "content") or "",
-        quoted_content=(
-            DriveQuotedContent(
-                mime_type=_text(quoted, "mimeType"), value=_text(quoted, "value")
-            )
-            if isinstance(quoted, Mapping)
-            else None
-        ),
+        content=_content(item, deleted),
+        quoted_content=_quoted(item),
         anchor=_optional_text(item, "anchor"),
-        resolved=item.get("resolved") is True,
+        resolved=_flag(item, "resolved"),
         created_time=_time(item, "createdTime"),
         modified_time=_time(item, "modifiedTime"),
-        deleted=item.get("deleted") is True,
+        deleted=deleted,
         replies=tuple(_reply(reply) for reply in replies),
     )
 

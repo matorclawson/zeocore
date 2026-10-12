@@ -172,7 +172,15 @@ def test_a_repeated_page_token_is_refused() -> None:
         ({**comment(1), "createdTime": None}, "createdTime"),
         ({**comment(1), "author": "x"}, "author"),
         ({**comment(1), "replies": [{**reply(1), "action": "delete"}]}, "action"),
+        # An unhashable action must refuse, not escape as a TypeError.
+        ({**comment(1), "replies": [{**reply(1), "action": {"x": 1}}]}, "action"),
         ({**comment(1), "anchor": 7}, "anchor"),
+        ({**comment(1), "author": {"displayName": "E", "emailAddress": 7}}, "email"),
+        ({**comment(1), "quotedFileContent": "text"}, "quotedFileContent"),
+        ({**comment(1), "resolved": "yes"}, "resolved"),
+        ({**comment(1), "deleted": 1}, "deleted"),
+        ({k: v for k, v in comment(1).items() if k != "content"}, "content"),
+        ({**comment(1), "createdTime": "not a time"}, "isoformat"),
         ("not an object", "not an object"),
     ],
 )
@@ -215,6 +223,54 @@ def test_replies_are_listed_with_their_action() -> None:
         "pageSize": 100,
         "includeDeleted": False,
     }
+
+
+@pytest.mark.parametrize(
+    "pages,reason",
+    [
+        ({None: {"replies": [{**reply(1), "action": "delete"}]}}, "action"),
+        ({None: {"replies": "x"}}, "without a replies list"),
+        (
+            {
+                None: {"replies": [reply(1)], "nextPageToken": "q"},
+                "q": {"replies": [reply(2)], "nextPageToken": "q"},
+            },
+            "repeated a page token",
+        ),
+    ],
+)
+def test_replies_refuse_like_comments(
+    pages: dict[str | None, Page], reason: str
+) -> None:
+    result = list_replies(FakeDrive(pages), "file1", "c1")
+    assert not result.success
+    assert reason in str(result.error)
+    assert "comment c1 on file file1" in str(result.error)
+
+
+def test_a_reply_listing_past_its_bound_is_refused() -> None:
+    drive = FakeDrive(
+        {
+            None: {"replies": [reply(1)], "nextPageToken": "q"},
+            "q": {"replies": [reply(2)], "nextPageToken": "r"},
+        }
+    )
+    result = list_replies(drive, "file1", "c1", max_pages=2)
+    assert not result.success
+    assert "more than 2 pages" in str(result.error)
+
+
+def test_the_service_passes_max_pages_through() -> None:
+    drive = FakeDrive(
+        {
+            None: {"comments": [comment(1)], "nextPageToken": "p2"},
+            "p2": {"comments": [comment(2)]},
+        }
+    )
+    refused = _service(drive).list_comments("file1", max_pages=1)
+    assert not refused.success
+    assert "more than 1 pages" in str(refused.error)
+    assert _service(drive).list_comments("file1", max_pages=2).success
 
 
 def test_ids_are_required_and_the_error_says_where_to_get_them() -> None:
