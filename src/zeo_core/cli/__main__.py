@@ -1,7 +1,9 @@
 """``zeocore <command>``: JSON on stdin, JSON lines on stdout.
 
-Commands:
+Commands (``zeocore help`` is the machine catalogue of all of them):
 
+- ``zeocore help [--json]``: every command, its arguments, stdin, the exit
+  family and its result schema (``zeo_core.cli.catalogue``).
 - ``zeocore version``: the release, this command's protocol and the
   ZEOconnect protocol it speaks.
 - ``zeocore schema list``: the stable schema names.
@@ -22,8 +24,9 @@ Rules every command keeps (``cli_protocol`` 1):
 
 - stdout is JSON lines and nothing else. Events (a pairing code, an approval
   link, waiting) carry an ``event`` key; the result is always the last line,
-  carries ``ok`` and never ``event``. A command with no events prints one
-  line. Diagnostics go to stderr.
+  carries ``ok`` and ``schema`` (``zeocore.<command>/v1``) and never
+  ``event``. A command with no events prints one line. Diagnostics go to
+  stderr.
 - Input JSON is strict: no duplicate keys, no NaN, at most 1 MiB.
 - Exit status is zeocore's one family, shared with the YouTube publish
   command: 0 done; 2 invalid input, nothing sent; 10 approval required; 11
@@ -50,6 +53,7 @@ from zeo_core.adapters.runtime_host.canonical import (
 )
 
 from . import client
+from .catalogue import catalogue
 from .protocol import (
     CLI_PROTOCOL,
     EXIT_AMBIGUOUS,
@@ -68,6 +72,10 @@ from .protocol import (
 from .schemas import SCHEMAS, adapter, render_schema
 
 OK, INVALID = EXIT_DONE, EXIT_INVALID
+#: The schema of the answer to an unknown or missing command.
+USAGE_SCHEMA: Final = "zeocore.usage/v1"
+#: The schema of the answer when zeocore itself failed.
+INTERNAL_SCHEMA: Final = "zeocore.internal/v1"
 __all__ = [
     "CLI_PROTOCOL",
     "COMMANDS",
@@ -193,11 +201,20 @@ def _release(args: Sequence[str], stdin: bytes) -> Answer:
     return release(args, stdin)
 
 
+def _help(args: Sequence[str], _stdin: bytes) -> Answer:
+    # Every answer is JSON already; --json is accepted so the agentic
+    # experience standard's spelling works too.
+    if list(args) not in ([], ["--json"]):
+        return _invalid("help takes no arguments, or --json")
+    return OK, catalogue()
+
+
 #: Every command, named explicitly. Nothing is discovered or loaded by name.
 COMMANDS: Final[dict[str, Command]] = {
     "artifact": client.artifact,
     "connections": client.connections,
     "digest": _digest,
+    "help": _help,
     "invoke": client.invoke,
     "login": client.login,
     "logout": client.logout,
@@ -212,9 +229,20 @@ _READS_STDIN: Final = frozenset({"artifact", "digest", "invoke", "release", "val
 
 def run(argv: Sequence[str], stdin: Callable[[], bytes]) -> Answer:
     if not argv or argv[0] not in COMMANDS:
-        return _invalid("commands: " + ", ".join(sorted(COMMANDS)))
+        status, answer = _invalid(
+            "commands: " + ", ".join(sorted(COMMANDS)) + "; run zeocore help for each "
+            "command's arguments, stdin, exit codes and result schema"
+        )
+        return status, {**answer, "schema": USAGE_SCHEMA}
     name, args = argv[0], argv[1:]
-    return COMMANDS[name](args, stdin() if name in _READS_STDIN else b"")
+    status, answer = COMMANDS[name](args, stdin() if name in _READS_STDIN else b"")
+    if "$schema" in answer:
+        # `zeocore schema <name>` answers with the contract itself, which
+        # names itself by $schema and $id; adding a key would alter it.
+        return status, answer
+    # Every other result line names its schema, so an agent can check what
+    # it parses.
+    return status, {"schema": f"zeocore.{name}/v1", **answer}
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -227,7 +255,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     except Exception:
         # Never a traceback in place of the answer. The detail could quote
         # input, so it goes nowhere.
-        status, answer = EXIT_INTERNAL, {"ok": False, "outcome": "internal"}
+        status, answer = (
+            EXIT_INTERNAL,
+            {
+                "ok": False,
+                "outcome": "internal",
+                "schema": INTERNAL_SCHEMA,
+            },
+        )
     emit(answer)
     raise SystemExit(status)
 
