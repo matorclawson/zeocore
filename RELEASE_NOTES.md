@@ -1,91 +1,74 @@
-# zeocore 0.12.0
+# zeocore 0.15.0
 
-ZeoCore 0.12.0 adds YouTube publishing for multi-gigabyte files, a local Revolut
-Business profile for an individual's own account, and inert connection setup and
-availability contracts. Python 3.14 or newer remains required. See
-[CHANGELOG.md](CHANGELOG.md) for the complete history.
+ZeoCore 0.15.0 ships every change since 0.12.0. Three planned releases were never
+published (0.13.0, 0.14.0 and the binding-fence release), and their changes ship
+together here. Python 3.14 or newer remains required. See
+[CHANGELOG.md](CHANGELOG.md) for the complete history, with every entry.
 
-Both provider integrations in this release are **offline contracts only: no live
-request has been made to YouTube or to Revolut.** The models, bounds and refusals
-are tested against recorded shapes, not against either provider's running API.
+## The `zeocore` command
 
-## YouTube publishing
+`zeocore` is now an installed command with one protocol: JSON lines on stdout,
+the result last, and one exit family (0 done; 2 invalid; 10 approval required;
+11 waiting; 12 not paired; 13 ambiguous; 20 held or refused). It has
+`version`, `schema`, `validate` and `digest`, the ZEOconnect client, and
+`release`.
 
-The `youtube` extra adds `zeo_core.integrations.google.youtube`: resumable
-chunked upload with progress, schedule (`publish_at`), metadata, thumbnail,
-caption track, playlist item, channel identity and video state. It takes
-injected credentials only (`GoogleCredentialSource`) and reads no credential
-file. Models refuse what YouTube would reject before any call is made, and a
-failed upload is never retried. When YouTube keeps an upload private because the
-API project is unverified, the result says so rather than reporting success.
+**The ZEOconnect client** (`login`, `logout`, `whoami`, `connections`,
+`invoke`, `artifact get`) is **for products**, running as their own macOS
+service user (`zs-<product>`). It is **not for seats**: a seat reaches the
+Broker through ZEO-RT's front door, with `zeo`. A product's service user can
+keep its grant in a named file (`ZEOCORE_SESSION_FILE`, 0600 in its own 0700
+directory), opt-in and never a fallback from the Keychain.
 
-For files too large to hold in memory, the provider client opens resumable
-sessions **inside** the custody boundary and never sends the bytes itself.
-`transfer` sends a file to a session link with no credential attached, probing
-first so that a drop, a kill or a reboot resumes at the exact byte. `job` and
-`publish` are a write-once job directory and an executor CLI (`pair`,
-`connections`, `run`, `status`); if the final answer is lost, the executor adopts
-one matching upload, holds when it finds several, and never uploads twice. If
-YouTube refuses a link without a token, the job switches to a custody relay —
-sealed 4 MiB chunks through ZEOconnect, same session, same resume. This replaces
-0.11's `upload_video`.
+## ZEOconnect Broker contracts 1.0.0 to 1.4.0
 
-YouTube's own fields (video id, privacy, schedule and link) live only in a
-replaceable `youtube.json`, never in the write-once job files. `retain` refreshes
-each record once it is 20 days old, and deletes it when the video is gone, when
-access has lapsed, or when no refresh succeeded by day 29, logging when and why.
-This follows the Developer Policies' 30-day limit (§III.E.4).
+The client conforms to Broker contract 1.0.0 and follows 1.2.0's expected-binding
+fence, 1.2.1's changed-request marker and 1.2.2's re-enrolment code. From
+1.4.0 it recognises the three access refusals, `door_required`,
+`app_identity_unverified` and `no_principal`, in both of their forms, and says
+how to get access back. A stop names its control and scope, and an old
+protocol says to upgrade. `contracts/broker-1.4/` holds the request-digest parity
+fixtures that ZEO-RT's Go door is checked against.
 
-YouTube is deliberately **not** in the setup catalogue.
+## The shared release component
 
-## Local Revolut Business enrollment
+- **Sign and verify** (`zeocore release sign | verify | pack | receive | send |
+  serve`): one signing step for every org executable, internal Darwin
+  releases first. Signing happens on matormini only, through a tailnet service
+  that admits only reviewed, merged manifests. That service doesn't run against
+  the key until the operator signs the code-signing ruling.
+- **The PyPI adapter** (`zeocore release pypi plan | admit | apply | approve |
+  reconcile | verify`) for a reviewed table of targets: zeocore, zeocreator and
+  sovereign-agent. Under the operator's delegation, the `zeo-release` App
+  creates the release tag and matorclawson approves the deployment once.
+  `admit` refuses unless the two of them, together, are the only way to release.
 
-The base package gains a read-only Revolut Business client: accounts, and one
-bounded, explicitly paged transaction page over a fixed origin, with exact
-`Decimal` amounts, declared normalization, byte bounds on both the upstream body
-and the normalized result, observation timestamps, and no credential path of its
-own.
+## Also new
 
-The `revolut` extra adds `zeo_core.integrations.revolut.local` for an individual
-enrolling **their own** account: a private key and certificate in per-user files
-that are never written inside a repository, a one-time consent state, and a
-refresh marker made durable before the request is sent. Because a Revolut refresh
-invalidates the previous access token, an attempt whose answer was lost is
-recorded as unknown and **stays blocked**; no elapsed time makes it known. A
-fresh consent on the same registration does not clear that block, and a stored
-enrollment is bound to its environment, so a sandbox file is refused by a
-production-selected object and the reverse, before any client is built or any
-credential is sent.
+- **The merger**, a zeocore app: a port of ZEO-LEDGER's Go core, held to its
+  parity fixtures.
+- **GitHub App installation tokens** for a principal that holds its own key.
+- **Revolut Business reads** for expenses, receipts and labels: an offline
+  contract, with no live request made to Revolut.
 
-This is the hobbyist path: credentials in private local files, no database. The
-hosted organizational path remains ZEOconnect's.
+## Breaking and deprecated
 
-## Connection setup and availability
+- `merge_pull_request` needs the head `sha`, and merges only by `merge`.
+- The ZEOconnect client commands are deprecated for seats.
 
-Versioned, inert setup manifests for all twenty integration tracks, with current
-operation and capability mappings and explicit unadmitted hosted profiles;
-seven-dimension availability snapshots that preserve every blocker, expiry and
-known revocation **without conferring dispatch authority**; and versioned
-resource-selection metadata that distinguishes exact objects, fixed collections
-and explicitly dynamic future membership. `HostedServiceRegistry` replaces the
-hosted resolver's hard-coded service branch with explicit, immutable
-registrations; the reviewed default registers exactly the previously resolvable
-`google.drive` download, so resolution is unchanged.
+## Fixes
 
-## Install and upgrade
+- **Hosted access:** it reaches ZEOconnect again. A Broker 503 is an outage, never a
+  refusal or a stop, and a response without its protocol header is terminal.
+- **YouTube:** retention no longer deletes data during a stop or an outage, and a
+  job survives a kill mid-write.
+- **The custody relay** no longer retries what no retry can cure.
+- **A GitHub effect** is sent once and never retried.
+- **`make setup` and CI** install exactly what `uv.lock` pins.
+
+## Upgrade
 
 ```bash
-uv pip install --upgrade "zeocore==0.12.0"
-uv pip install "zeocore[youtube]==0.12.0"
-uv pip install "zeocore[revolut]==0.12.0"
+uv tool install zeocore==0.15.0      # the command
+uv pip install "zeocore==0.15.0"     # the library, pinned with hashes in your lock
 ```
-
-The first command includes the read-only Revolut client and the setup and
-availability contracts. The `youtube` extra adds the publishing integration and
-its executor; the `revolut` extra adds local enrollment (client key, certificate
-and RS256 assertion). `zeocore[all]` already carries every dependency both new
-extras need. Install other provider extras only as needed.
-
-Examples are repository assets, not installed shell commands; run them from the
-matching `v0.12.0` checkout. The [example catalog](examples/README.md) and
-[API reference](docs/reference/api.md) describe the supported public imports.

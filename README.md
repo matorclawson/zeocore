@@ -225,6 +225,18 @@ and [the authoring reference](docs/integrations/authoring-reference.md) provide
 fresh-kernel execution and independently checked staging receipts.
 See [release notes](RELEASE_NOTES.md) for migration and remaining qualification limits.
 
+## New in 0.15.0: the `zeocore` command, Broker contracts to 1.4.0, and the release component
+
+```bash
+uv tool install zeocore==0.15.0
+```
+
+`zeocore` is an installed command with one JSON-lines protocol and one exit
+family. Its ZEOconnect client is for products running as their own service
+user, not for seats, which use `zeo`. The release component signs org
+executables and releases to PyPI under the operator's delegation. See the
+[release notes](RELEASE_NOTES.md).
+
 ## New in 0.12.0: YouTube publishing and local Revolut Business
 
 ```bash
@@ -337,7 +349,7 @@ module by module.
 
 ## Project status
 
-ZeoCore **0.12.0** is a beta library: the API is typed and tested, and this
+ZeoCore **0.15.0** is a beta library: the API is typed and tested, and this
 release is the canonical capability-authoring surface for the Zero Employee
 ecosystem. The surface may still shift before 1.0. Issues, questions, and API
 feedback are welcome.

@@ -12,7 +12,7 @@ so scripts, services, Zeocreator and Sovereign Agent can call the same capabilit
 [Register a provider](how-to/provider-registration.md){ .md-button }
 
 ```bash
-uv pip install "zeocore==0.12.0"
+uv pip install "zeocore==0.15.0"
 ```
 
 Python **3.14+** · Package `zeocore` · Import `zeo_core`
@@ -60,6 +60,17 @@ Capabilities describe and perform bounded work. Your host supplies authorization
 credentials, scheduling and delivery policy. Marketing examples start offline;
 real sending requires explicit setup and host authorization.
 
+## New in 0.15.0
+
+The [`zeocore` command](reference/cli.md), with one JSON-lines protocol; the
+ZEOconnect client for products; Broker contracts up to 1.4.0; and the shared
+release component ([signing](how-to/release-signing.md) and
+[PyPI](how-to/release-pypi.md)).
+
+```bash
+uv tool install zeocore==0.15.0
+```
+
 ## New in 0.12.0
 
 [YouTube publishing](integrations/youtube.md) for multi-gigabyte files and a
@@ -98,7 +109,7 @@ required before deploying the generic host.
 | Run working examples | [Example catalog](../examples/README.md) |
 | Look up supported imports | [Public API map](reference/api.md) |
 | Inspect signatures and docstrings | [Generated API reference](reference/generated.md) |
-| Upgrade to 0.12.0 | [Release notes](../RELEASE_NOTES.md) |
+| Upgrade to 0.15.0 | [Release notes](../RELEASE_NOTES.md) |
 | Use complete agent projects | [Sovereign Agent Resources](https://github.com/profrodai/sovereign-agent-resources) |
 
 ## Runnable examples
