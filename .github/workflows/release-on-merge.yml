@@ -11,13 +11,15 @@ name: Release on merge
 #       permissions: {contents: write}
 #       with: {project: <distribution name>, verify: <shell>}
 #
-# 1. plan:  the version is computed, never edited: the highest v tag
-#           reachable from the pushed commit plus one increment. The
-#           increment is the highest `bump:` declared by the changelog.d
-#           fragments this merge ADDED (patch when there are none), so the
-#           level is part of the reviewed head. A fragment the merge changed
-#           or deleted fails the run. A commit that already carries a v tag
-#           is a re-run of that release.
+# 1. plan:  the version is computed, never edited: the higher of the last v
+#           tag reachable from the pushed commit and the newest version on
+#           PyPI, plus one increment. The increment is the highest `bump:`
+#           declared by the changelog.d fragments added since that tag
+#           (patch when there are none), so the level is part of the
+#           reviewed head, and a merge whose run failed still counts in the
+#           next one. A fragment changed or deleted since the tag fails the
+#           run, and so does a computed version PyPI already has (only a 404
+#           is free). A commit that already carries a v tag is a re-run.
 # 2. build: run the caller's verify, then build with the computed version
 #           (hatch-vcs reads it from a local tag), and check that dist/
 #           holds exactly that version's sdist and wheel.
@@ -75,12 +77,15 @@ jobs:
           fetch-depth: 0
 
       # Inline, so the caller runs exactly the script at the sha it pinned.
-      # tests/test_release_on_merge.py extracts and runs it.
-      - name: Compute the version from tags and this merge's fragments
+      # tests/test_release_metadata.py extracts and runs it.
+      - name: Compute the version from tags, PyPI and the fragments since the last tag
         id: compute
+        env:
+          PROJECT: ${{ inputs.project }}
+          INDEX: https://pypi.org/pypi
         run: |
           python3 - release-notes.md <<'PY' >> "$GITHUB_OUTPUT"
-          import re, subprocess, sys, tomllib
+          import json, os, re, subprocess, sys, tomllib, urllib.error, urllib.request
           from pathlib import Path
 
           LEVELS = ("patch", "minor", "major")
@@ -102,12 +107,37 @@ jobs:
                   if m
               )
 
-          parents = git("rev-list", "--parents", "-n", "1", "HEAD")[1:]
-          base = parents[0] if parents else None
+          def text(version):
+              return ".".join(map(str, version))
+
+          def index(path):
+              """(status, JSON) for INDEX/PROJECT/path; only 200 and 404 are answers."""
+              url = f"{os.environ['INDEX']}/{os.environ['PROJECT']}/{path}"
+              try:
+                  with urllib.request.urlopen(url, timeout=30) as answer:
+                      return 200, json.load(answer)
+              except urllib.error.HTTPError as error:
+                  if error.code == 404:
+                      return 404, None
+                  fail(f"{url} answered {error.code}")
+              except (urllib.error.URLError, OSError, ValueError) as error:
+                  fail(f"{url} could not be read: {error}")
+
+          # The release tag at HEAD, if this is a re-run, and every reachable one.
+          here = versions(git("tag", "--points-at", "HEAD", "--list", "v*"))
+          if len(here) > 1:
+              fail(f"HEAD carries more than one release tag: {here}")
+          earlier = [v for v in versions(git("tag", "--merged", "HEAD", "--list", "v*")) if v not in here]
+          if not earlier and not here:
+              fail("no vX.Y.Z tag is reachable from HEAD to count from")
+
+          # Every fragment added since the last release tag, so a merge whose
+          # run was cancelled or failed still counts in the next release.
           added = []
-          if base is not None:
+          if earlier:
+              since = "v" + text(earlier[-1])
               status = subprocess.run(
-                  ["git", "diff", "--name-status", "--no-renames", base, "HEAD",
+                  ["git", "diff", "--name-status", "--no-renames", since, "HEAD",
                    "--", "changelog.d/"],
                   check=True, capture_output=True, text=True,
               ).stdout.splitlines()
@@ -116,7 +146,7 @@ jobs:
                   if path == "changelog.d/README.md":
                       continue
                   if code != "A":
-                      fail(f"{path} was changed or deleted; a fragment is added once and kept")
+                      fail(f"{path} was changed or deleted since {since}; a fragment is added once and kept")
                   added.append(path)
           level, notes = "patch", []
           for path in sorted(added):
@@ -127,26 +157,30 @@ jobs:
               level = max(level, found[1], key=LEVELS.index)
               notes.append(body.strip())
 
-          here = versions(git("tag", "--points-at", "HEAD", "--list", "v*"))
-          if len(here) > 1:
-              fail(f"HEAD carries more than one release tag: {here}")
           if here:
               version = here[0]
-              print(f"HEAD already carries v{'.'.join(map(str, version))}: a re-run", file=sys.stderr)
+              print(f"HEAD already carries v{text(version)}: a re-run", file=sys.stderr)
           else:
-              reachable = versions(git("tag", "--merged", "HEAD", "--list", "v*"))
-              if not reachable:
-                  fail("no vX.Y.Z tag is reachable from HEAD to count from")
-              major, minor, patch = reachable[-1]
+              # Count from the higher of the last tag and the newest version
+              # on the index: a version can reach PyPI without a tag (0.15.1
+              # did), and a file name is never accepted twice.
+              status, project = index("json")
+              if status != 200 or not project.get("releases"):
+                  fail(f"{os.environ['PROJECT']} isn't on the index yet; its first upload is a separate step")
+              published = versions("v" + name for name in project["releases"])
+              major, minor, patch = max(earlier[-1], published[-1] if published else earlier[-1])
               version = {
                   "major": (major + 1, 0, 0),
                   "minor": (major, minor + 1, 0),
                   "patch": (major, minor, patch + 1),
               }[level]
-              name = "v" + ".".join(map(str, version))
-              if git("tag", "--list", name):
-                  fail(f"{name} already exists at another commit")
-          text = ".".join(map(str, version))
+              if git("tag", "--list", "v" + text(version)):
+                  fail(f"v{text(version)} already exists at another commit")
+              # Only a 404 is free. The project answer above is the positive
+              # control that the index is reachable and names this project.
+              if index(f"{text(version)}/json")[0] != 404:
+                  fail(f"{text(version)} is already on the index")
+          version_text = text(version)
 
           spec = tomllib.load(open("pyproject.toml", "rb"))["project"].get("requires-python", "")
           floor = re.fullmatch(r">=(\d+\.\d+)(\.\d+)?", spec)
@@ -156,8 +190,8 @@ jobs:
           sha = git("rev-parse", "HEAD")[0]
           body = "\n\n".join(notes) or f"A patch release of {sha}, with no changelog fragment."
           Path(sys.argv[1]).write_text(f"{body}\n", encoding="utf-8")
-          print(f"{level} increment: v{text} at {sha}", file=sys.stderr)
-          print(f"version={text}")
+          print(f"{level} increment: v{version_text} at {sha}", file=sys.stderr)
+          print(f"version={version_text}")
           print(f"floor={floor[1]}")
           PY
 

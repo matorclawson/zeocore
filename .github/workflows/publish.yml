@@ -75,6 +75,9 @@ jobs:
         with:
           verbose: true
           print-hash: true
+          # Only a re-run of a release already uploaded meets an existing
+          # file: the plan refuses any new version the index already has.
+          skip-existing: true
 
   smoke-test:
     name: smoke-test the published package
@@ -86,7 +89,7 @@ jobs:
     if: |
       always() && needs.publish-pypi.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     env:
       # The version THIS RUN published, from the release job's output (which
       # the build checked against the sdist and wheel file names), never
@@ -115,8 +118,22 @@ jobs:
           fi
           echo "expecting zeocore==${EXPECTED_VERSION} on Python >=${PYTHON_FLOOR}"
 
-      - name: Wait for index propagation
-        run: sleep 30
+      - name: Wait until the index serves this version (at most 10 minutes)
+        run: |
+          # A fixed wait wasn't enough: 0.15.1's smoke test failed on index
+          # lag 30 s after its upload. Poll the simple index the installer
+          # reads, for both of this version's files.
+          for attempt in $(seq 1 40); do
+            page=$(curl --silent --fail https://pypi.org/simple/zeocore/ || true)
+            if grep -q "zeocore-${EXPECTED_VERSION}-py3-none-any.whl" <<<"$page" &&
+               grep -q "zeocore-${EXPECTED_VERSION}.tar.gz" <<<"$page"; then
+              echo "the index serves ${EXPECTED_VERSION} (attempt ${attempt})"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::the index didn't serve ${EXPECTED_VERSION} within 10 minutes"
+          exit 1
 
       - name: Install from PyPI and smoke-test
         run: |
@@ -183,9 +200,9 @@ jobs:
   # "announced on the repo" are two different acts and only the first was
   # automated. Nobody should have to remember the second one.
   #
-  # The release page is the changelog from 0.15.1 on: its notes are the
-  # fragments this merge added, then GitHub's list of merged PRs since the
-  # previous tag. `contents: write` is scoped to THIS job rather than raised
+  # The release page is the changelog from 0.15.2 on: its notes are the
+  # fragments added since the previous tag, then GitHub's list of merged PRs
+  # since it. `contents: write` is scoped to THIS job rather than raised
   # on the whole workflow, which otherwise runs read-only.
   # --------------------------------------------------------------------------
   github-release:

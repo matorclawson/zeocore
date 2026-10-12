@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-**From 0.15.1 on, every merge to `main` is a release, and this file no longer
+**From 0.15.2 on, every merge to `main` is a release, and this file no longer
 grows.** Each PR adds a fragment to [`changelog.d/`](changelog.d/README.md), and
 each version's notes are on its
 [GitHub Release](https://github.com/zeroemployeeorg/zeocore/releases). The
@@ -15,6 +15,12 @@ history below runs up to 0.15.1.
 
 A patch release: 0.15.0's `zeocore` command didn't run on a plain install.
 It also closes the unprotected TestPyPI publish target.
+
+**0.15.1 has no tag.** It was published from `e22a16ca` by Publish run
+38201406179, a manual dispatch, before release on merge. Its smoke test failed
+on index lag 30 s after the upload, so that run made no GitHub Release. The
+files on PyPI carry GitHub attestations for `zeroemployeeorg/zeocore`,
+`publish.yml` and `pypi`, and install and run on a plain install.
 
 ### Fixed
 

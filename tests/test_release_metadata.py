@@ -5,11 +5,15 @@ inline in release-on-merge.yml is extracted and run against throwaway git
 repositories, with real merges, tags and changelog.d fragments.
 """
 
+import http.server
+import json
 import os
 import re
 import subprocess
 import sys
 import textwrap
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -89,9 +93,55 @@ def _script() -> str:
     return textwrap.dedent(found.group(1))
 
 
+class Index:
+    """A local stand-in for PyPI's JSON API, answering for project ``demo``.
+
+    ``listed`` is what the project page lists; ``present`` is which
+    per-version pages answer 200, normally the same versions; ``status``
+    forces every answer's code.
+    """
+
+    def __init__(self) -> None:
+        self.listed: set[str] = {"1.2.3"}
+        self.present: set[str] | None = None
+        self.status: int | None = None
+        self.paths: list[str] = []
+        index = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - the stdlib's name
+                index.paths.append(self.path)
+                body, code = index.answer(self.path)
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def answer(self, path: str) -> tuple[bytes, int]:
+        if self.status is not None:
+            return b"{}", self.status
+        present = self.listed if self.present is None else self.present
+        if path == "/demo/json":
+            if not self.listed:
+                return b"{}", 404
+            return json.dumps({"releases": {v: [] for v in self.listed}}).encode(), 200
+        found = re.fullmatch(r"/demo/([^/]+)/json", path)
+        if found and found[1] in present:
+            return b"{}", 200
+        return b"{}", 404
+
+
 class Repo:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, index: Index) -> None:
         self.root = root
+        self.index = index
         # Never inherit GIT_DIR, GIT_INDEX_FILE or GIT_WORK_TREE: a git hook
         # (pre-push runs make verify) sets them, and git would then act on
         # the real repository instead of this throwaway one.
@@ -144,7 +194,7 @@ class Repo:
             [sys.executable, "-", str(notes)],
             input=_script(),
             cwd=self.root,
-            env=self.env,
+            env={**self.env, "PROJECT": "demo", "INDEX": self.index.url},
             capture_output=True,
             text=True,
             check=False,
@@ -157,8 +207,16 @@ class Repo:
 
 
 @pytest.fixture
-def repo(tmp_path: Path) -> Repo:
-    made = Repo(tmp_path)
+def index() -> Iterator[Index]:
+    made = Index()
+    yield made
+    made.server.shutdown()
+    made.server.server_close()
+
+
+@pytest.fixture
+def repo(tmp_path: Path, index: Index) -> Repo:
+    made = Repo(tmp_path, index)
     made.git("tag", "v1.2.3")
     return made
 
@@ -252,9 +310,73 @@ def test_a_computed_tag_already_at_another_commit_fails(repo: Repo) -> None:
     assert "already exists at another commit" in stderr
 
 
-def test_with_no_release_tag_to_count_from_it_fails(tmp_path: Path) -> None:
-    repo = Repo(tmp_path)
+def test_with_no_release_tag_to_count_from_it_fails(
+    tmp_path: Path, index: Index
+) -> None:
+    repo = Repo(tmp_path, index)
     repo.merge("fix", **{"src.py": "x = 1\n"})
     status, _, _, stderr = repo.release()
     assert status == 1
     assert "no vX.Y.Z tag" in stderr
+
+
+def test_a_version_on_pypi_without_a_tag_is_counted_from(
+    repo: Repo, index: Index
+) -> None:
+    """0.15.1 reached PyPI from a dispatch and has no tag: count above it."""
+    index.listed = {"1.2.3", "1.2.4"}
+    repo.merge("fix", **{"changelog.d__a.md": "bump: patch\nFixed.\n"})
+    status, outputs, _, stderr = repo.release()
+    assert status == 0, stderr
+    assert outputs["version"] == "1.2.5"
+    assert "/demo/1.2.5/json" in index.paths
+
+
+def test_a_computed_version_the_index_already_has_is_refused(
+    repo: Repo, index: Index
+) -> None:
+    # The project page lags behind the version page: only a 404 is free.
+    index.present = {"1.2.3", "1.2.4"}
+    repo.merge("fix", **{"src.py": "x = 1\n"})
+    status, _, _, stderr = repo.release()
+    assert status == 1
+    assert "1.2.4 is already on the index" in stderr
+
+
+@pytest.mark.parametrize("code", [500, 503, 403])
+def test_an_index_that_answers_neither_200_nor_404_fails(
+    repo: Repo, index: Index, code: int
+) -> None:
+    index.status = code
+    repo.merge("fix", **{"src.py": "x = 1\n"})
+    status, _, _, stderr = repo.release()
+    assert status == 1
+    assert f"answered {code}" in stderr
+
+
+def test_a_project_the_index_doesnt_know_fails(repo: Repo, index: Index) -> None:
+    index.listed = set()
+    repo.merge("fix", **{"src.py": "x = 1\n"})
+    status, _, _, stderr = repo.release()
+    assert status == 1
+    assert "isn't on the index yet" in stderr
+
+
+def test_a_fragment_from_a_merge_whose_run_failed_still_counts(repo: Repo) -> None:
+    # Merge one's run never tagged; merge two's run must still see its bump.
+    repo.merge("one", **{"changelog.d__a.md": "bump: minor\nAdded a thing.\n"})
+    repo.merge("two", **{"src.py": "x = 1\n"})
+    status, outputs, notes, stderr = repo.release()
+    assert status == 0, stderr
+    assert outputs["version"] == "1.3.0"
+    assert "Added a thing." in notes
+
+
+def test_a_re_run_never_asks_the_index(repo: Repo, index: Index) -> None:
+    repo.merge("fix", **{"src.py": "x = 1\n"})
+    repo.git("tag", "v1.2.4")
+    index.status = 500
+    status, outputs, _, stderr = repo.release()
+    assert status == 0, stderr
+    assert outputs["version"] == "1.2.4"
+    assert index.paths == []

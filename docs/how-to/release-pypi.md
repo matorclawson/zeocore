@@ -1,7 +1,7 @@
 # Release to PyPI
 
 !!! note "Release on merge replaces the tag and approval stages"
-    Since 0.15.1, every merge to `main` is a release. `publish.yml` computes
+    Since 0.15.2, every merge to `main` is a release. `publish.yml` computes
     the version, tags it and publishes it, with no approval
     ([`changelog.d/README.md`](https://github.com/zeroemployeeorg/zeocore/blob/main/changelog.d/README.md)).
     Another repository calls the same workflow,
