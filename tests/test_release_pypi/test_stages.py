@@ -112,7 +112,8 @@ GOOD_RULESET = TagRuleset(
     includes=("refs/tags/v*",),
     excludes=(),
     rules=frozenset({"creation", "update", "deletion"}),
-    bypass=(("Integration", APP_ID, "always"),),
+    current_user_can_bypass="never",
+    bypass=None,  # hidden from a non-Admin, as under ruling r7
 )
 WAITING = WorkflowRun("waiting", None, "v0.13.0", 99)
 PENDING = (PendingDeployment(555, "pypi", True),)
@@ -324,6 +325,15 @@ def _ruleset(**changes: object) -> TagRuleset:
 _BOTH = (("Integration", APP_ID, "always"), ("RepositoryRole", 5, "always"))
 
 
+@pytest.mark.parametrize("bypass", [None, (), (("Integration", 1, "always"),), _BOTH])
+def test_admit_doesnt_rely_on_the_bypass_list(
+    bypass: tuple[tuple[str, int | None, str], ...] | None,
+) -> None:
+    # SOW-29 option C: hidden or not, the bypass list decides nothing.
+    github = FakeGitHub(rulesets=(_ruleset(bypass=bypass),))
+    assert admit(_manifest(), github, APP_ID).reason == "admitted"
+
+
 @pytest.mark.parametrize(
     ("github", "reason"),
     [
@@ -376,12 +386,16 @@ _BOTH = (("Integration", APP_ID, "always"), ("RepositoryRole", 5, "always"))
             FakeGitHub(rulesets=(_ruleset(rules=frozenset({"creation"})),)),
             "tag_ruleset_missing",
         ),
-        (FakeGitHub(rulesets=(_ruleset(bypass=()),)), "tag_ruleset_missing"),
         (
-            FakeGitHub(rulesets=(_ruleset(bypass=(("Integration", 1, "always"),)),)),
-            "tag_ruleset_missing",
+            FakeGitHub(rulesets=(_ruleset(current_user_can_bypass="always"),)),
+            "approver_can_bypass",
         ),
-        (FakeGitHub(rulesets=(_ruleset(bypass=_BOTH),)), "tag_ruleset_missing"),
+        (
+            FakeGitHub(
+                rulesets=(_ruleset(current_user_can_bypass="pull_requests_only"),)
+            ),
+            "approver_can_bypass",
+        ),
         (FakeGitHub(approver=Identity("rodriveracom", True)), "approver_mismatch"),
     ],
 )
@@ -1449,6 +1463,7 @@ def _ruleset_detail(**changes: object) -> dict[str, object]:
         "bypass_actors": [
             {"actor_id": APP_ID, "actor_type": "Integration", "bypass_mode": "always"}
         ],
+        "current_user_can_bypass": "never",
     }
     detail.update(changes)
     return detail
@@ -1460,7 +1475,9 @@ def test_github_reads_tag_rulesets() -> None:
         ok(_ruleset_detail()),
     )
     rulesets = GitHubCli(runner).tag_rulesets(REPO)
-    assert rulesets == (GOOD_RULESET,)
+    assert rulesets == (
+        replace(GOOD_RULESET, bypass=(("Integration", APP_ID, "always"),)),
+    )
     assert runner.calls[0][2].endswith("rulesets?per_page=100&includes_parents=true")
 
 
@@ -1545,22 +1562,27 @@ def test_a_lost_approval_answer(answer: Completed | Exception) -> None:
 def test_the_reviewed_targets() -> None:
     from zeo_core.release.pypi import TARGETS
 
-    assert sorted(TARGETS) == [
-        "sovereign-agent",
-        "zeocore",
-        "zeocreator",
-        "zero-employee",
-    ]
+    assert sorted(TARGETS) == ["sovereign-agent", "zeocore", "zeocreator"]
+    assert "zero-employee" not in TARGETS  # Go-only now, never PyPI
     assert {t.environment for t in TARGETS.values()} == {"pypi"}
     assert _manifest(project="zeocreator", repository="zeroemployeeorg/zeocreator").tag
 
 
-def test_a_hidden_bypass_list_is_unreadable_never_empty() -> None:
+def test_a_hidden_bypass_list_is_read_as_hidden_never_empty() -> None:
     # GitHub omits bypass_actors for a user without Admin on the repository.
     detail = _ruleset_detail()
     del detail["bypass_actors"]
     runner = Runner(ok([{"id": 7, "target": "tag"}]), ok(detail))
-    with pytest.raises(TargetUnreadableError, match="only to a repository Admin"):
+    (ruleset,) = GitHubCli(runner).tag_rulesets(REPO)
+    assert ruleset.bypass is None
+    assert ruleset.current_user_can_bypass == "never"
+
+
+def test_a_ruleset_without_current_user_can_bypass_is_unreadable() -> None:
+    detail = _ruleset_detail()
+    del detail["current_user_can_bypass"]
+    runner = Runner(ok([{"id": 7, "target": "tag"}]), ok(detail))
+    with pytest.raises(TargetUnreadableError, match="can bypass"):
         GitHubCli(runner).tag_rulesets(REPO)
 
 

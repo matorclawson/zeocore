@@ -26,9 +26,11 @@ secret) with `ZEOCORE_RELEASE_APP_ID`; set
 ## The targets
 
 Each target is a row in zeocore's reviewed table
-(`zeo_core.release.pypi.targets.TARGETS`): `zeocore`, `zeocreator`,
-`zero-employee` and `sovereign-agent`. Each row gives the repository, the
-workflow and the environment. A manifest can name only a row in that table.
+(`zeo_core.release.pypi.targets.TARGETS`): `zeocore`, `zeocreator` and
+`sovereign-agent`. Each row gives the repository, the workflow and the
+environment. A manifest can name only a row in that table. `zero-employee` is
+not a PyPI target: it is now zeoruntime, released Go-only through the shared
+signed release component (the operator, 2026-10-12).
 
 ## The manifest
 
@@ -79,15 +81,16 @@ Read through GitHub's own API; anything else is refused:
   (`deployment_policy_unrestricted`). Every page of the policy list is read,
   and a list read short of GitHub's count is unreadable;
 - an active ruleset on `refs/tags/v*`, with no exclusions, restricts creation,
-  update and deletion, and only the release App bypasses it
-  (`tag_ruleset_missing`);
-- `gh` acts as matorclawson, the approver (`approver_mismatch`). GitHub
-  shows a ruleset's bypass list only to a repository Admin, and under ruling
-  r7 matorclawson administers nothing, so today the list is hidden from it.
-  A hidden list is held as `target_unreadable`, never read as empty. How the
-  bypass list is checked without an agent holding Admin is the operator's
-  open choice. A private repository under a personal account can't give a
-  collaborator Admin at all;
+  update and deletion (`tag_ruleset_missing`), and matorclawson can't bypass
+  it: its own `current_user_can_bypass` is `never` (`approver_can_bypass`);
+- `gh` acts as matorclawson, the approver (`approver_mismatch`).
+
+The ruleset's exact bypass list isn't checked. GitHub shows it only to a
+repository Admin, and under ruling r7 no agent is one, so the operator chose to
+check what is visible instead (SOW-29, option C). The residual risk is an unseen
+bypass actor creating a `v*` tag, and that can't publish on its own: the run
+still waits on matorclawson, and `approve` approves only a reviewed commit on
+the default branch. The runbook already accepts that risk.
 - the release App's id is configured (`release_app_unconfigured`).
 
 ## apply and approve

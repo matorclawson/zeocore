@@ -39,7 +39,9 @@ class Target:
     environment: str
 
 
-#: Read from each repository and from PyPI on 2026-10-11.
+#: Read from each repository and from PyPI on 2026-10-11. zero-employee is
+#: not here: it is now zeoruntime, released Go-only through the shared signed
+#: release component, never PyPI (the operator, 2026-10-12, SOW-29 §4).
 TARGETS: Final[Mapping[str, Target]] = {
     target.project: target
     for target in (
@@ -47,10 +49,6 @@ TARGETS: Final[Mapping[str, Target]] = {
         # 0.5.4 was published from profrodai/zeocreator with no environment;
         # its PyPI publisher is re-bound to this row before a release.
         Target("zeocreator", "zeroemployeeorg/zeocreator", "publish.yml", "pypi"),
-        # 0.12.0 was published from zeroemployeeorg/zero-employee, which now
-        # resolves to this repository; its default branch has no publish.yml
-        # yet, so plan refuses until the owner restores it.
-        Target("zero-employee", "rodriveracom/zero-employee", "publish.yml", "pypi"),
         Target("sovereign-agent", "profrodai/sovereign-agent", "publish.yml", "pypi"),
     )
 }

@@ -1,0 +1,10 @@
+# zeocore's release manifest, read by `zeocore release pypi` (ZEOCORE-SOW-26
+# to SOW-29). A file can't name the commit it is part of, so this section has
+# no `commit`: the local copy the stages read adds it. Changed only in a
+# release's own reviewed PR.
+pypi:
+  project: zeocore
+  version: 0.15.0
+  repository: zeroemployeeorg/zeocore
+  workflow: publish.yml
+  environment: pypi

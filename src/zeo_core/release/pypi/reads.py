@@ -84,7 +84,12 @@ class TagRuleset:
     includes: tuple[str, ...]
     excludes: tuple[str, ...]
     rules: frozenset[str]
-    bypass: tuple[tuple[str, int | None, str], ...]  # (actor_type, actor_id, mode)
+    #: Whether the identity reading it can bypass it: "never" or "always" and
+    #: so on, as GitHub reports it for that identity.
+    current_user_can_bypass: str
+    #: (actor_type, actor_id, mode), or None when GitHub hides the list, which
+    #: it does from anyone without Admin. admit doesn't rely on it (option C).
+    bypass: tuple[tuple[str, int | None, str], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -513,27 +518,29 @@ def _tag_ruleset(ruleset_id: int, detail: Mapping[str, Any]) -> TagRuleset:
         if not isinstance(kind, str):
             raise TargetUnreadableError("a ruleset rule is unreadable")
         rules.append(kind)
-    bypass = []
-    if "bypass_actors" not in detail:
-        # GitHub returns a ruleset's bypass list only to a user with Admin on
-        # the repository (checked 2026-10-12). A hidden list is not an empty
-        # one: say so, rather than call the ruleset missing. How the approver
-        # should read it, without an agent holding Admin (ruling r7), is the
-        # operator's open choice.
-        raise TargetUnreadableError(
-            "the approver can't read the ruleset's bypass list; "
-            "GitHub shows it only to a repository Admin"
-        )
-    for actor in _listed(detail.get("bypass_actors"), "bypass actors"):
-        if not isinstance(actor, dict) or not isinstance(actor.get("actor_type"), str):
-            raise TargetUnreadableError("a bypass actor is unreadable")
-        actor_id = actor.get("actor_id")
-        bypass.append(
-            (
-                actor["actor_type"],
-                actor_id if isinstance(actor_id, int) else None,
-                str(actor.get("bypass_mode", "always")),
+    bypass: list[tuple[str, int | None, str]] | None = None
+    if "bypass_actors" in detail:
+        # GitHub returns a ruleset's bypass list only to a repository Admin.
+        # Under ruling r7 no agent is one, so it is usually hidden, and admit
+        # doesn't depend on it (SOW-29, option C). It is kept when visible.
+        bypass = []
+        for actor in _listed(detail.get("bypass_actors"), "bypass actors"):
+            if not isinstance(actor, dict) or not isinstance(
+                actor.get("actor_type"), str
+            ):
+                raise TargetUnreadableError("a bypass actor is unreadable")
+            actor_id = actor.get("actor_id")
+            bypass.append(
+                (
+                    actor["actor_type"],
+                    actor_id if isinstance(actor_id, int) else None,
+                    str(actor.get("bypass_mode", "always")),
+                )
             )
+    can_bypass = detail.get("current_user_can_bypass")
+    if not isinstance(can_bypass, str):
+        raise TargetUnreadableError(
+            "the ruleset doesn't say whether the approver can bypass it"
         )
     enforcement = detail.get("enforcement")
     if not isinstance(enforcement, str) or not all(
@@ -546,5 +553,6 @@ def _tag_ruleset(ruleset_id: int, detail: Mapping[str, Any]) -> TagRuleset:
         tuple(includes),
         tuple(excludes),
         frozenset(rules),
-        tuple(bypass),
+        can_bypass,
+        None if bypass is None else tuple(bypass),
     )

@@ -23,6 +23,12 @@ managed environments, native profiles, Gemini images, notebook execution and
 conversion/staging receipts. [Release notes](RELEASE_NOTES.md) list installation
 extras and the boundaries that still require host authorization or live validation.
 
+## Added in 0.15.0
+
+The [`zeocore` command](docs/reference/cli.md) (`uv tool install zeocore`),
+with one JSON-lines protocol and one exit family. Its ZEOconnect client is for
+products running as their own service user, not for seats, which use `zeo`.
+
 ## Added in 0.12.0
 
 [YouTube publishing](docs/integrations/youtube.md) (`zeocore[youtube]`) and
