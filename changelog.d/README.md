@@ -22,6 +22,10 @@ What changed, for the release notes, in a sentence or a short list.
   is the only exception.
 - **The version** counts from the higher of the last tag and the newest version
   on PyPI, and a version PyPI already has is refused before anything is tagged.
+- **Yank a bad release on PyPI; never delete it.** A deleted version drops out of
+  PyPI's API, but PyPI still refuses its file names, so the next release would
+  compute it again and its upload would fail. If that happens, the tag it left
+  stops the following release until a reviewed PR declares a higher bump.
 
 From 0.15.2 on, the GitHub Releases page is the changelog. `CHANGELOG.md` keeps
 the history up to 0.15.1.

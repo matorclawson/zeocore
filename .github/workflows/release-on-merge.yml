@@ -168,7 +168,15 @@ jobs:
               if status != 200 or not project.get("releases"):
                   fail(f"{os.environ['PROJECT']} isn't on the index yet; its first upload is a separate step")
               published = versions("v" + name for name in project["releases"])
-              major, minor, patch = max(earlier[-1], published[-1] if published else earlier[-1])
+              # A tag whose publish failed, with a merge landing before the
+              # re-run, would otherwise never reach PyPI and lose its notes.
+              last = earlier[-1]
+              if last not in published and index(f"{text(last)}/json")[0] == 404:
+                  fail(
+                      f"v{text(last)} is tagged but not on the index: re-run the Publish run "
+                      f"for v{text(last)}'s commit, which reuses its tag, before releasing again"
+                  )
+              major, minor, patch = max(last, published[-1] if published else last)
               version = {
                   "major": (major + 1, 0, 0),
                   "minor": (major, minor + 1, 0),

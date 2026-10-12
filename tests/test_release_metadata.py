@@ -254,9 +254,12 @@ def test_the_highest_declared_level_of_the_added_fragments_wins(
         assert text.split("\n", 1)[1].strip() in notes
 
 
-def test_an_old_fragment_on_main_is_never_counted_again(repo: Repo) -> None:
+def test_an_old_fragment_on_main_is_never_counted_again(
+    repo: Repo, index: Index
+) -> None:
     repo.merge("one", **{"changelog.d__a.md": "bump: major\nBig.\n"})
     repo.git("tag", "v2.0.0")
+    index.listed.add("2.0.0")
     repo.merge("two", **{"src.py": "x = 2\n"})
     status, outputs, _, stderr = repo.release()
     assert status == 0, stderr
@@ -370,6 +373,32 @@ def test_a_fragment_from_a_merge_whose_run_failed_still_counts(repo: Repo) -> No
     assert status == 0, stderr
     assert outputs["version"] == "1.3.0"
     assert "Added a thing." in notes
+
+
+def test_a_tag_that_never_reached_the_index_stops_the_next_release(
+    repo: Repo, index: Index
+) -> None:
+    # v1.2.4's publish failed, and another merge landed before its re-run.
+    repo.merge("one", **{"changelog.d__a.md": "bump: patch\nLost notes.\n"})
+    repo.git("tag", "v1.2.4")
+    repo.merge("two", **{"src.py": "x = 1\n"})
+    status, _, _, stderr = repo.release()
+    assert status == 1
+    assert "v1.2.4 is tagged but not on the index" in stderr
+
+
+def test_a_tag_the_project_page_omits_but_the_index_serves_is_fine(
+    repo: Repo, index: Index
+) -> None:
+    # The project page can lag the version page: only the version's own 404
+    # means it never reached the index.
+    repo.merge("one", **{"src.py": "x = 1\n"})
+    repo.git("tag", "v1.2.4")
+    index.present = {"1.2.3", "1.2.4"}
+    repo.merge("two", **{"src.py": "x = 2\n"})
+    status, outputs, _, stderr = repo.release()
+    assert status == 0, stderr
+    assert outputs["version"] == "1.2.5"
 
 
 def test_a_re_run_never_asks_the_index(repo: Repo, index: Index) -> None:

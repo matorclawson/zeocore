@@ -4,16 +4,19 @@ name: Publish
 # cycle and cadence have to be completely programmatic and not depend on a
 # seat"). Nobody bumps a version, tags or approves:
 #
-#   1. release    (release-on-merge.yml) compute the version from the tags
-#                 and this merge's changelog.d fragments, make verify,
-#                 build, then create v<version> at this commit;
-#   2. publish    PyPI trusted publishing in the `pypi` environment;
+#   1. release    (release-on-merge.yml) compute the version from the last
+#                 tag, the newest version on PyPI and the changelog.d
+#                 fragments added since that tag, make verify, build, then
+#                 create v<version> at this commit;
+#   2. publish    PyPI trusted publishing in the `pypi` environment, then a
+#                 check that PyPI's files for the version are this build's;
 #   3. smoke-test install the published version on its floor and run it;
-#   4. github-release  the GitHub Release, from this merge's fragments.
+#   4. github-release  the GitHub Release, from those fragments.
 #
 # The tag comes before the publish, so a refused tag publishes nothing. A
 # re-run on the same commit reuses its tag; nothing is published twice,
-# because PyPI never accepts a file name again.
+# because PyPI never accepts a file name again. A tag whose version never
+# reached PyPI stops the next release until its own run is re-run.
 #
 # The `pypi` environment has no reviewer and deploys from main only, and the
 # `release tags` ruleset makes v tags permanent: the operator's one-time
@@ -55,7 +58,7 @@ jobs:
     name: publish to PyPI (trusted publishing)
     needs: release
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     environment:
       name: pypi
       url: https://pypi.org/project/zeocore/
@@ -78,6 +81,35 @@ jobs:
           # Only a re-run of a release already uploaded meets an existing
           # file: the plan refuses any new version the index already has.
           skip-existing: true
+
+      - name: Check PyPI holds exactly this build's files for the version
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          # skip-existing would otherwise hide a same-named file with other
+          # bytes. Compare every digest, with a bounded wait for the API.
+          ( cd dist && sha256sum -- * ) | sort > built.sha256
+          for attempt in $(seq 1 20); do
+            if curl --silent --fail "https://pypi.org/pypi/zeocore/${VERSION}/json" -o release.json &&
+               python3 -c "
+          import json
+          files = json.load(open('release.json'))['urls']
+          for item in sorted(files, key=lambda f: f['filename']):
+              print(item['digests']['sha256'] + '  ' + item['filename'])
+          " | sort > published.sha256 && [ -s published.sha256 ]; then
+              if diff -u built.sha256 published.sha256; then
+                echo "PyPI holds exactly this build's files for ${VERSION}"
+                exit 0
+              fi
+              if [ "$(wc -l < published.sha256)" -ge "$(wc -l < built.sha256)" ]; then
+                echo "::error::PyPI's files for ${VERSION} are not this build's"
+                exit 1
+              fi
+            fi
+            sleep 15
+          done
+          echo "::error::PyPI didn't list ${VERSION}'s files within 5 minutes"
+          exit 1
 
   smoke-test:
     name: smoke-test the published package
