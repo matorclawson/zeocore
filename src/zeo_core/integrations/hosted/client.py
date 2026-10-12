@@ -315,6 +315,62 @@ class HostedRequestChangedError(HostedClientError):
         )
 
 
+AccessRefusal = Literal["door_required", "app_identity_unverified", "no_principal"]
+#: The refusals Broker contract 1.4.0 applies to every operation (base §9).
+#: Each comes before custody, before any claim and with no provider call, so
+#: nothing happened. The names are part of the contract, byte for byte.
+ACCESS_REFUSALS: Final[frozenset[str]] = frozenset(
+    {"door_required", "app_identity_unverified", "no_principal"}
+)
+#: The way back, for each refusal (contract 1.4.0 companion §2.5).
+ACCESS_GUIDANCE: Final[Mapping[str, str]] = {
+    "door_required": (
+        "ZEOconnect refused a seat's grant: seats reach the Broker only through"
+        " ZEO-RT's front door, with zeo, not with zeocore"
+    ),
+    "app_identity_unverified": (
+        "ZEOconnect refused this product's grant: it is accepted only from the"
+        " product's own macOS service user (zs-<product>), never from another"
+        " user such as rodbot or an author's own login"
+    ),
+    "no_principal": (
+        "ZEOconnect refused a grant that is adopted as no principal: the owner"
+        " must adopt this device grant as the product's principal first"
+    ),
+}
+
+
+class HostedAccessRefusedError(HostedClientError):
+    """The Broker refused this grant for every operation (contract 1.4.0 §9).
+
+    Nothing happened: it is refused before custody, before any claim and with
+    no provider call. Retrying the same request with the same grant can't
+    succeed; ``reason`` says what has to change.
+    """
+
+    def __init__(self, reason: AccessRefusal) -> None:
+        self.reason: AccessRefusal = reason
+        super().__init__(ACCESS_GUIDANCE[reason])
+
+
+def access_refusal_of(response: HostedOperationResponse) -> AccessRefusal | None:
+    """The 1.4.0 access refusal an invocation reports, or ``None``.
+
+    To a client that doesn't declare ``github-keymaster``, as zeocore's
+    doesn't, the Broker answers ``:invoke`` as ``failed_safe`` with
+    ``REQUEST_REFUSED`` and the message exactly the refusal's name.
+    """
+    error = response.normalized_error
+    if (
+        response.status is not HostedOperationStatus.FAILED_SAFE
+        or error is None
+        or error.code is not NormalizedErrorCode.REQUEST_REFUSED
+        or error.message not in ACCESS_REFUSALS
+    ):
+        return None
+    return cast("AccessRefusal", error.message)
+
+
 class HostedUpgradeRequiredError(HostedClientError):
     """The Broker does not speak this client's protocol version (426)."""
 
@@ -427,6 +483,10 @@ def _contains_secret_key(value: JsonValue | dict[str, JsonValue] | None) -> bool
 
 
 __all__ = [
+    "ACCESS_GUIDANCE",
+    "ACCESS_REFUSALS",
+    "AccessRefusal",
+    "HostedAccessRefusedError",
     "CONNECTION_REVISION_PATTERN",
     "FenceUnsupportedReason",
     "REQUEST_CHANGED_UNDER_KEY",
@@ -447,6 +507,7 @@ __all__ = [
     "HostedUnavailableError",
     "HostedUnreachableError",
     "HostedUpgradeRequiredError",
+    "access_refusal_of",
     "binding_mismatch_of",
     "is_outage",
     "request_changed_of",

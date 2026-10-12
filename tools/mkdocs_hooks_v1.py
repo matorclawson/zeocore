@@ -18,13 +18,22 @@ from mkdocs.structure.pages import Page
 
 ROOT = Path(__file__).resolve().parents[1]
 GUIDES = (
-    "README.md", "QUICKSTART.md", "GET-STARTED.md", "RELEASE_NOTES.md",
-    "CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
-    "examples/README.md", "src/zeo_core/contracts/README.md",
+    "README.md",
+    "QUICKSTART.md",
+    "GET-STARTED.md",
+    "RELEASE_NOTES.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "examples/README.md",
+    "src/zeo_core/contracts/README.md",
     "src/zeo_core/contracts/EXAMPLES.md",
 )
 # Match inline Markdown and reference-link destinations, excluding whitespace.
-LINK = re.compile(r"(?P<prefix>\]\(|^ {0,3}\[[^]\n]+\]:[ \t]*)(?P<url>[^\s)]+)", re.MULTILINE)
+LINK = re.compile(
+    r"(?P<prefix>\]\(|^ {0,3}\[[^]\n]+\]:[ \t]*)(?P<url>[^\s)]+)", re.MULTILINE
+)
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
@@ -44,30 +53,42 @@ def on_files(files: Files, config: MkDocsConfig) -> Files:
     return files
 
 
-def rewrite_target(target: str, source: str, destination: str, mapping: dict[str, str]) -> str:
+def rewrite_target(
+    target: str, source: str, destination: str, mapping: dict[str, str]
+) -> str:
     """Resolve a local destination honestly; nonexistent source targets fail."""
     parts = urlsplit(target)
     if parts.scheme or parts.netloc or not parts.path:
         return target
-    path = posixpath.normpath(posixpath.join(posixpath.dirname(source), unquote(parts.path)))
+    path = posixpath.normpath(
+        posixpath.join(posixpath.dirname(source), unquote(parts.path))
+    )
     actual = ROOT / path
     if path.startswith("../") or not actual.exists():
         raise PluginError(f"Missing documentation target in {source}: {target}")
     if actual.is_dir() and (actual / "README.md").is_file():
         path += "/README.md"
     if path in mapping:
-        relative = posixpath.relpath(mapping[path], posixpath.dirname(destination) or ".")
+        relative = posixpath.relpath(
+            mapping[path], posixpath.dirname(destination) or "."
+        )
         return urlunsplit(("", "", relative, parts.query, parts.fragment))
     kind = "tree" if actual.is_dir() else "blob"
     url = f"https://github.com/zeroemployeeorg/zeocore/{kind}/main/{quote(path)}"
     return urlunsplit((*urlsplit(url)[:3], parts.query, parts.fragment))
 
 
-def on_page_markdown(markdown: str, page: Page, config: MkDocsConfig, files: Files) -> str:
+def on_page_markdown(
+    markdown: str, page: Page, config: MkDocsConfig, files: Files
+) -> str:
     """Translate prose links while leaving fenced runnable code untouched."""
     mapping = source_map(files)
     destination = page.file.src_uri
-    source = destination.removeprefix("project/") if destination.startswith("project/") else "docs/" + destination
+    source = (
+        destination.removeprefix("project/")
+        if destination.startswith("project/")
+        else "docs/" + destination
+    )
     output: list[str] = []
     fence: str | None = None
     for line in markdown.splitlines(keepends=True):
@@ -81,6 +102,12 @@ def on_page_markdown(markdown: str, page: Page, config: MkDocsConfig, files: Fil
             output.append(line)
             continue
         if fence is None:
-            line = LINK.sub(lambda m: m.group("prefix") + rewrite_target(m.group("url"), source, destination, mapping), line)
+            line = LINK.sub(
+                lambda m: (
+                    m.group("prefix")
+                    + rewrite_target(m.group("url"), source, destination, mapping)
+                ),
+                line,
+            )
         output.append(line)
     return "".join(output)

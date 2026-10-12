@@ -14,8 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr, Validat
 
 from zeo_core.core.managed_execution import is_managed_execution
 from zeo_core.integrations.hosted.client import (
+    ACCESS_REFUSALS,
     CONNECTION_REVISION_PATTERN,
     REQUEST_CHANGED_UNDER_KEY,
+    AccessRefusal,
+    HostedAccessRefusedError,
     HostedClientError,
     HostedConnectionChangedError,
     HostedFenceUnsupportedError,
@@ -563,8 +566,8 @@ class ZEOconnectHTTPTransport:
         status = response.status_code
         if status == 401:
             raise _BearerRefusedError()
-        if status == 403 and (stop := _stop(response)) is not None:
-            raise stop
+        if status == 403:
+            _raise_named_403(response)
         if status == 426:
             raise HostedUpgradeRequiredError()
         if status in {409, 425, 428} and _is_pending(response):
@@ -594,6 +597,16 @@ class ZEOconnectHTTPTransport:
                 "Bearer " + session.access_token.get_secret_value()
             )
         return headers
+
+
+def _raise_named_403(response: httpx.Response) -> None:
+    """Raise the stop or the 1.4.0 access refusal a 403 names, if exactly one."""
+    if (stop := _stop(response)) is not None:
+        raise stop
+    if (refusal := _code(response)) in ACCESS_REFUSALS:
+        # Contract 1.4.0 §9: every endpoint but :invoke answers these as
+        # 403 {"code": <name>}, before custody. Nothing happened.
+        raise HostedAccessRefusedError(cast("AccessRefusal", refusal))
 
 
 def _raise_marked_refusal(response: httpx.Response) -> None:

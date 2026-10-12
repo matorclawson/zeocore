@@ -1,0 +1,2283 @@
+{
+ "zeoconnect:1.4:common": {
+  "$id": "zeoconnect:1.4:common",
+  "$defs": {
+   "sha": {
+    "type": "string",
+    "pattern": "^[0-9a-f]{40}$"
+   },
+   "sha256": {
+    "type": "string",
+    "pattern": "^[0-9a-f]{64}$"
+   },
+   "repository": {
+    "type": "string",
+    "pattern": "^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$"
+   },
+   "branch": {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 250
+   },
+   "path": {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 4096
+   },
+   "cursor": {
+    "type": "string",
+    "pattern": "^[A-Za-z0-9_-]{1,512}$"
+   },
+   "execution_id": {
+    "type": "string",
+    "pattern": "^exe_[A-Za-z0-9_-]{1,64}$"
+   },
+   "idempotency_key": {
+    "type": "string",
+    "pattern": "^[A-Za-z0-9._:-]{32,128}$"
+   },
+   "triple": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "record_id",
+     "revision",
+     "record_sha256"
+    ],
+    "properties": {
+     "record_id": {
+      "type": "string",
+      "maxLength": 128
+     },
+     "revision": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "record_sha256": {
+      "$ref": "#/$defs/sha256"
+     }
+    }
+   },
+   "authenticated_as": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "host_id",
+     "host_incarnation",
+     "os_account",
+     "account_incarnation"
+    ],
+    "properties": {
+     "host_id": {
+      "type": "string",
+      "pattern": "^host_[A-Za-z0-9_-]{1,64}$"
+     },
+     "host_incarnation": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "os_account": {
+      "type": "string",
+      "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+     },
+     "account_incarnation": {
+      "type": "integer",
+      "minimum": 1
+     }
+    }
+   },
+   "on_behalf_of": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "principal_id",
+     "incarnation",
+     "authenticated_as"
+    ],
+    "properties": {
+     "principal_id": {
+      "type": "string",
+      "pattern": "^prn_[A-Za-z0-9_-]{1,64}$"
+     },
+     "incarnation": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "authenticated_as": {
+      "$ref": "#/$defs/authenticated_as"
+     }
+    }
+   }
+  }
+ },
+ "zeoconnect:1.4:request": {
+  "$id": "zeoconnect:1.4:request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "connection_id",
+   "operation_id",
+   "arguments",
+   "idempotency_key",
+   "on_behalf_of",
+   "door_request_id"
+  ],
+  "properties": {
+   "connection_id": {
+    "type": "string",
+    "pattern": "^role_[A-Za-z0-9_-]{1,64}$"
+   },
+   "operation_id": {
+    "enum": [
+     "github.git.publish",
+     "github.git.reconcile",
+     "github.intent.resolve",
+     "github.pr.open",
+     "github.pr.update",
+     "github.contents.read",
+     "github.pr.read",
+     "github.checks.read",
+     "github.pr.list",
+     "github.ref.read",
+     "github.fork.sync"
+    ]
+   },
+   "arguments": {
+    "type": "object"
+   },
+   "idempotency_key": {
+    "$ref": "zeoconnect:1.4:common#/$defs/idempotency_key"
+   },
+   "on_behalf_of": {
+    "$ref": "zeoconnect:1.4:common#/$defs/on_behalf_of"
+   },
+   "door_request_id": {
+    "type": "string",
+    "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+   }
+  },
+  "allOf": [
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.git.publish"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:publish.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.git.reconcile"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:reconcile.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.intent.resolve"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:resolve.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.pr.open"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:pr_open.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.pr.update"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:pr_update.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.contents.read"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:contents_read.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.pr.read"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:pr_read.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.checks.read"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:checks_read.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.pr.list"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:pr_list.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.ref.read"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:ref_read.arguments"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "operation_id": {
+       "const": "github.fork.sync"
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "arguments": {
+       "$ref": "zeoconnect:1.4:fork_sync.arguments"
+      }
+     }
+    }
+   }
+  ]
+ },
+ "zeoconnect:1.4:publish.arguments": {
+  "$id": "zeoconnect:1.4:publish.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "repository",
+   "ref",
+   "expected_old_sha",
+   "parents",
+   "changes",
+   "message",
+   "author"
+  ],
+  "properties": {
+   "repository": {
+    "$ref": "zeoconnect:1.4:common#/$defs/repository"
+   },
+   "ref": {
+    "type": "string",
+    "pattern": "^refs/heads/.{1,250}$"
+   },
+   "expected_old_sha": {
+    "oneOf": [
+     {
+      "type": "null"
+     },
+     {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     }
+    ]
+   },
+   "parents": {
+    "type": "array",
+    "minItems": 1,
+    "maxItems": 2,
+    "items": {
+     "$ref": "zeoconnect:1.4:common#/$defs/sha"
+    }
+   },
+   "changes": {
+    "type": "array",
+    "minItems": 1,
+    "maxItems": 500,
+    "items": {
+     "oneOf": [
+      {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "path",
+        "mode",
+        "content_base64"
+       ],
+       "properties": {
+        "path": {
+         "$ref": "zeoconnect:1.4:common#/$defs/path"
+        },
+        "mode": {
+         "enum": [
+          "100644",
+          "100755",
+          "120000"
+         ]
+        },
+        "content_base64": {
+         "type": "string",
+         "contentEncoding": "base64",
+         "maxLength": 1398104
+        }
+       }
+      },
+      {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "path",
+        "delete"
+       ],
+       "properties": {
+        "path": {
+         "$ref": "zeoconnect:1.4:common#/$defs/path"
+        },
+        "delete": {
+         "const": true
+        }
+       }
+      }
+     ]
+    }
+   },
+   "message": {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 65536
+   },
+   "author": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "name",
+     "email"
+    ],
+    "properties": {
+     "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+     },
+     "email": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 256
+     }
+    }
+   }
+  }
+ },
+ "zeoconnect:1.4:reconcile.arguments": {
+  "$id": "zeoconnect:1.4:reconcile.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "execution_id"
+  ],
+  "properties": {
+   "execution_id": {
+    "$ref": "zeoconnect:1.4:common#/$defs/execution_id"
+   }
+  }
+ },
+ "zeoconnect:1.4:resolve.arguments": {
+  "$id": "zeoconnect:1.4:resolve.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "idempotency_key",
+   "request_sha256"
+  ],
+  "properties": {
+   "idempotency_key": {
+    "$ref": "zeoconnect:1.4:common#/$defs/idempotency_key"
+   },
+   "request_sha256": {
+    "$ref": "zeoconnect:1.4:common#/$defs/sha256"
+   }
+  }
+ },
+ "zeoconnect:1.4:pr_open.arguments": {
+  "$id": "zeoconnect:1.4:pr_open.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "repository",
+   "head",
+   "head_sha",
+   "title",
+   "body",
+   "draft"
+  ],
+  "properties": {
+   "repository": {
+    "$ref": "zeoconnect:1.4:common#/$defs/repository"
+   },
+   "head": {
+    "$ref": "zeoconnect:1.4:common#/$defs/branch"
+   },
+   "head_sha": {
+    "$ref": "zeoconnect:1.4:common#/$defs/sha"
+   },
+   "base": {
+    "$ref": "zeoconnect:1.4:common#/$defs/branch"
+   },
+   "title": {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 256
+   },
+   "body": {
+    "type": "string",
+    "maxLength": 49152
+   },
+   "draft": {
+    "type": "boolean"
+   }
+  }
+ },
+ "zeoconnect:1.4:pr_update.arguments": {
+  "$id": "zeoconnect:1.4:pr_update.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "repository",
+   "number"
+  ],
+  "anyOf": [
+   {
+    "required": [
+     "title"
+    ]
+   },
+   {
+    "required": [
+     "body"
+    ]
+   }
+  ],
+  "properties": {
+   "repository": {
+    "$ref": "zeoconnect:1.4:common#/$defs/repository"
+   },
+   "number": {
+    "type": "integer",
+    "minimum": 1
+   },
+   "title": {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 256
+   },
+   "body": {
+    "type": "string",
+    "maxLength": 49152
+   }
+  }
+ },
+ "zeoconnect:1.4:contents_read.arguments": {
+  "$id": "zeoconnect:1.4:contents_read.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "repository",
+   "path"
+  ],
+  "oneOf": [
+   {
+    "required": [
+     "ref"
+    ]
+   },
+   {
+    "required": [
+     "sha"
+    ]
+   }
+  ],
+  "properties": {
+   "repository": {
+    "$ref": "zeoconnect:1.4:common#/$defs/repository"
+   },
+   "ref": {
+    "type": "string",
+    "pattern": "^refs/heads/.{1,250}$"
+   },
+   "sha": {
+    "$ref": "zeoconnect:1.4:common#/$defs/sha"
+   },
+   "path": {
+    "$ref": "zeoconnect:1.4:common#/$defs/path"
+   },
+   "cursor": {
+    "$ref": "zeoconnect:1.4:common#/$defs/cursor"
+   }
+  }
+ },
+ "zeoconnect:1.4:pr_read.arguments": {
+  "$id": "zeoconnect:1.4:pr_read.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "repository",
+   "number",
+   "include"
+  ],
+  "properties": {
+   "repository": {
+    "$ref": "zeoconnect:1.4:common#/$defs/repository"
+   },
+   "number": {
+    "type": "integer",
+    "minimum": 1
+   },
+   "include": {
+    "type": "array",
+    "uniqueItems": true,
+    "maxItems": 3,
+    "items": {
+     "enum": [
+      "files",
+      "reviews",
+      "commits"
+     ]
+    }
+   },
+   "cursor": {
+    "$ref": "zeoconnect:1.4:common#/$defs/cursor"
+   }
+  }
+ },
+ "zeoconnect:1.4:checks_read.arguments": {
+  "$id": "zeoconnect:1.4:checks_read.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "repository",
+   "sha"
+  ],
+  "properties": {
+   "repository": {
+    "$ref": "zeoconnect:1.4:common#/$defs/repository"
+   },
+   "sha": {
+    "$ref": "zeoconnect:1.4:common#/$defs/sha"
+   },
+   "cursor": {
+    "$ref": "zeoconnect:1.4:common#/$defs/cursor"
+   }
+  }
+ },
+ "zeoconnect:1.4:pr_list.arguments": {
+  "$id": "zeoconnect:1.4:pr_list.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "repository",
+   "state"
+  ],
+  "properties": {
+   "repository": {
+    "$ref": "zeoconnect:1.4:common#/$defs/repository"
+   },
+   "state": {
+    "enum": [
+     "open",
+     "closed",
+     "all"
+    ]
+   },
+   "updated_since": {
+    "type": "string",
+    "format": "date-time"
+   },
+   "cursor": {
+    "$ref": "zeoconnect:1.4:common#/$defs/cursor"
+   }
+  }
+ },
+ "zeoconnect:1.4:ref_read.arguments": {
+  "$id": "zeoconnect:1.4:ref_read.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "repository",
+   "ref"
+  ],
+  "properties": {
+   "repository": {
+    "$ref": "zeoconnect:1.4:common#/$defs/repository"
+   },
+   "ref": {
+    "type": "string",
+    "pattern": "^refs/heads/.{1,250}$"
+   }
+  }
+ },
+ "zeoconnect:1.4:fork_sync.arguments": {
+  "$id": "zeoconnect:1.4:fork_sync.arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "repository"
+  ],
+  "properties": {
+   "repository": {
+    "$ref": "zeoconnect:1.4:common#/$defs/repository"
+   }
+  }
+ },
+ "zeoconnect:1.4:response": {
+  "$id": "zeoconnect:1.4:response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "status",
+   "execution_id",
+   "receipt"
+  ],
+  "properties": {
+   "status": {
+    "enum": [
+     "confirmed",
+     "refused",
+     "failed_safe",
+     "ambiguous"
+    ]
+   },
+   "execution_id": {
+    "$ref": "zeoconnect:1.4:common#/$defs/execution_id"
+   },
+   "result": {
+    "type": "object"
+   },
+   "normalized_error": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "code"
+    ],
+    "properties": {
+     "code": {
+      "enum": [
+       "conflict",
+       "commit_mismatch",
+       "not_published",
+       "not_dispatched",
+       "superseded_not_landed",
+       "fork_diverged",
+       "provider_rejected",
+       "digest_mismatch",
+       "not_found"
+      ]
+     }
+    }
+   },
+   "receipt": {
+    "$ref": "#/$defs/receipt"
+   }
+  },
+  "allOf": [
+   {
+    "if": {
+     "properties": {
+      "status": {
+       "const": "confirmed"
+      }
+     }
+    },
+    "then": {
+     "required": [
+      "result"
+     ],
+     "not": {
+      "required": [
+       "normalized_error"
+      ]
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "status": {
+       "enum": [
+        "refused",
+        "failed_safe"
+       ]
+      }
+     }
+    },
+    "then": {
+     "required": [
+      "normalized_error"
+     ],
+     "not": {
+      "required": [
+       "result"
+      ]
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "status": {
+       "const": "ambiguous"
+      }
+     }
+    },
+    "then": {
+     "not": {
+      "anyOf": [
+       {
+        "required": [
+         "result"
+        ]
+       },
+       {
+        "required": [
+         "normalized_error"
+        ]
+       }
+      ]
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.git.publish"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/publish"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.git.reconcile"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/reconcile"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.intent.resolve"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/resolve"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.pr.open"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/pr_open"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.pr.update"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/pr_update"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.contents.read"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/contents_read"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.pr.read"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/pr_read"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.checks.read"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/checks_read"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.pr.list"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/pr_list"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.ref.read"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/ref_read"
+      }
+     }
+    }
+   },
+   {
+    "if": {
+     "properties": {
+      "receipt": {
+       "properties": {
+        "operation_id": {
+         "const": "github.fork.sync"
+        }
+       }
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "result": {
+       "$ref": "zeoconnect:1.4:results#/$defs/fork_sync"
+      }
+     }
+    }
+   }
+  ],
+  "$defs": {
+   "receipt": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "operation_id",
+     "request_sha256",
+     "idempotency_key",
+     "door",
+     "effective",
+     "may_act_for",
+     "door_request_id",
+     "role_policy",
+     "replayed"
+    ],
+    "properties": {
+     "operation_id": {
+      "$ref": "zeoconnect:1.4:request#/properties/operation_id"
+     },
+     "request_sha256": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha256"
+     },
+     "idempotency_key": {
+      "$ref": "zeoconnect:1.4:common#/$defs/idempotency_key"
+     },
+     "door": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "principal_id",
+       "incarnation",
+       "grant_id"
+      ],
+      "properties": {
+       "principal_id": {
+        "type": "string",
+        "maxLength": 68
+       },
+       "incarnation": {
+        "type": "integer",
+        "minimum": 1
+       },
+       "grant_id": {
+        "type": "string",
+        "maxLength": 128
+       }
+      }
+     },
+     "effective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "principal_id",
+       "incarnation",
+       "os_binding"
+      ],
+      "properties": {
+       "principal_id": {
+        "type": "string",
+        "maxLength": 68
+       },
+       "incarnation": {
+        "type": "integer",
+        "minimum": 1
+       },
+       "os_binding": {
+        "$ref": "zeoconnect:1.4:common#/$defs/authenticated_as"
+       }
+      }
+     },
+     "may_act_for": {
+      "$ref": "zeoconnect:1.4:common#/$defs/triple"
+     },
+     "role_policy": {
+      "$ref": "zeoconnect:1.4:common#/$defs/triple"
+     },
+     "door_request_id": {
+      "type": "string",
+      "maxLength": 128
+     },
+     "repository_id": {
+      "type": "integer"
+     },
+     "installation_id": {
+      "type": "integer"
+     },
+     "ruleset_ids": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+       "type": "integer"
+      }
+     },
+     "fence_read_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "precomputed_commit_oid": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     },
+     "observed_commit_oid": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     },
+     "in_flight": {
+      "type": "boolean"
+     },
+     "replayed": {
+      "type": "boolean"
+     }
+    }
+   }
+  }
+ },
+ "zeoconnect:1.4:results": {
+  "$id": "zeoconnect:1.4:results",
+  "$defs": {
+   "publish": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "ref",
+     "commit_oid",
+     "tree_oid",
+     "parents",
+     "previous"
+    ],
+    "properties": {
+     "ref": {
+      "type": "string",
+      "pattern": "^refs/heads/.{1,250}$"
+     },
+     "commit_oid": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     },
+     "tree_oid": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     },
+     "parents": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {
+       "$ref": "zeoconnect:1.4:common#/$defs/sha"
+      }
+     },
+     "previous": {
+      "oneOf": [
+       {
+        "type": "null"
+       },
+       {
+        "$ref": "zeoconnect:1.4:common#/$defs/sha"
+       }
+      ]
+     }
+    }
+   },
+   "reconcile": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "target_execution_id",
+     "outcome",
+     "observed_ref_sha"
+    ],
+    "properties": {
+     "target_execution_id": {
+      "$ref": "zeoconnect:1.4:common#/$defs/execution_id"
+     },
+     "outcome": {
+      "enum": [
+       "confirmed",
+       "ambiguous",
+       "failed_safe"
+      ]
+     },
+     "observed_ref_sha": {
+      "oneOf": [
+       {
+        "type": "null"
+       },
+       {
+        "$ref": "zeoconnect:1.4:common#/$defs/sha"
+       }
+      ]
+     },
+     "reason": {
+      "enum": [
+       "superseded_not_landed",
+       "commit_mismatch",
+       "not_published"
+      ]
+     }
+    }
+   },
+   "resolve": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "state"
+    ],
+    "properties": {
+     "state": {
+      "enum": [
+       "claim_found",
+       "no_claim"
+      ]
+     },
+     "stored": {
+      "$ref": "zeoconnect:1.4:response"
+     }
+    },
+    "allOf": [
+     {
+      "if": {
+       "properties": {
+        "state": {
+         "const": "claim_found"
+        }
+       }
+      },
+      "then": {
+       "required": [
+        "stored"
+       ]
+      },
+      "else": {
+       "not": {
+        "required": [
+         "stored"
+        ]
+       }
+      }
+     }
+    ]
+   },
+   "pr_open": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "number",
+     "url",
+     "head_sha",
+     "base"
+    ],
+    "properties": {
+     "number": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "url": {
+      "type": "string",
+      "pattern": "^https://github\\.com/[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}/pull/[0-9]{1,10}$"
+     },
+     "head_sha": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     },
+     "base": {
+      "$ref": "zeoconnect:1.4:common#/$defs/branch"
+     }
+    }
+   },
+   "pr_update": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "number",
+     "title_sha256",
+     "body_sha256"
+    ],
+    "properties": {
+     "number": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "title_sha256": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha256"
+     },
+     "body_sha256": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha256"
+     }
+    }
+   },
+   "contents_read": {
+    "oneOf": [
+     {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "kind",
+       "blob_sha",
+       "mode",
+       "content_base64"
+      ],
+      "properties": {
+       "kind": {
+        "const": "file"
+       },
+       "blob_sha": {
+        "$ref": "zeoconnect:1.4:common#/$defs/sha"
+       },
+       "mode": {
+        "enum": [
+         "100644",
+         "100755",
+         "120000"
+        ]
+       },
+       "content_base64": {
+        "type": "string",
+        "maxLength": 1398104
+       }
+      }
+     },
+     {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "kind",
+       "entries",
+       "complete"
+      ],
+      "properties": {
+       "kind": {
+        "const": "tree"
+       },
+       "complete": {
+        "type": "boolean"
+       },
+       "cursor": {
+        "$ref": "zeoconnect:1.4:common#/$defs/cursor"
+       },
+       "entries": {
+        "type": "array",
+        "maxItems": 1000,
+        "items": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "path",
+          "type",
+          "sha",
+          "mode"
+         ],
+         "properties": {
+          "path": {
+           "$ref": "zeoconnect:1.4:common#/$defs/path"
+          },
+          "type": {
+           "enum": [
+            "blob",
+            "tree",
+            "commit"
+           ]
+          },
+          "sha": {
+           "$ref": "zeoconnect:1.4:common#/$defs/sha"
+          },
+          "mode": {
+           "type": "string",
+           "pattern": "^[0-7]{5,6}$"
+          }
+         }
+        }
+       }
+      }
+     }
+    ]
+   },
+   "pr_read": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "number",
+     "state",
+     "title",
+     "head",
+     "base",
+     "complete"
+    ],
+    "properties": {
+     "number": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "state": {
+      "enum": [
+       "open",
+       "closed",
+       "merged"
+      ]
+     },
+     "title": {
+      "type": "string",
+      "maxLength": 256
+     },
+     "head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "repository",
+       "branch",
+       "sha"
+      ],
+      "properties": {
+       "repository": {
+        "$ref": "zeoconnect:1.4:common#/$defs/repository"
+       },
+       "branch": {
+        "$ref": "zeoconnect:1.4:common#/$defs/branch"
+       },
+       "sha": {
+        "$ref": "zeoconnect:1.4:common#/$defs/sha"
+       }
+      }
+     },
+     "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "repository",
+       "branch",
+       "sha"
+      ],
+      "properties": {
+       "repository": {
+        "$ref": "zeoconnect:1.4:common#/$defs/repository"
+       },
+       "branch": {
+        "$ref": "zeoconnect:1.4:common#/$defs/branch"
+       },
+       "sha": {
+        "$ref": "zeoconnect:1.4:common#/$defs/sha"
+       }
+      }
+     },
+     "files": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "path",
+        "status"
+       ],
+       "properties": {
+        "path": {
+         "$ref": "zeoconnect:1.4:common#/$defs/path"
+        },
+        "status": {
+         "enum": [
+          "added",
+          "modified",
+          "removed",
+          "renamed",
+          "copied",
+          "changed",
+          "unchanged"
+         ]
+        }
+       }
+      }
+     },
+     "reviews": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "author",
+        "state",
+        "commit_sha"
+       ],
+       "properties": {
+        "author": {
+         "type": "string",
+         "maxLength": 39
+        },
+        "state": {
+         "enum": [
+          "APPROVED",
+          "CHANGES_REQUESTED",
+          "COMMENTED",
+          "DISMISSED",
+          "PENDING"
+         ]
+        },
+        "commit_sha": {
+         "$ref": "zeoconnect:1.4:common#/$defs/sha"
+        }
+       }
+      }
+     },
+     "commits": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+       "$ref": "zeoconnect:1.4:common#/$defs/sha"
+      }
+     },
+     "complete": {
+      "type": "boolean"
+     },
+     "cursor": {
+      "$ref": "zeoconnect:1.4:common#/$defs/cursor"
+     }
+    }
+   },
+   "pr_list": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "items",
+     "complete"
+    ],
+    "properties": {
+     "complete": {
+      "type": "boolean"
+     },
+     "cursor": {
+      "$ref": "zeoconnect:1.4:common#/$defs/cursor"
+     },
+     "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "number",
+        "state",
+        "updated_at",
+        "head",
+        "base"
+       ],
+       "properties": {
+        "number": {
+         "type": "integer",
+         "minimum": 1
+        },
+        "state": {
+         "enum": [
+          "open",
+          "closed",
+          "merged"
+         ]
+        },
+        "updated_at": {
+         "type": "string",
+         "format": "date-time"
+        },
+        "head": {
+         "$ref": "#/$defs/side"
+        },
+        "base": {
+         "$ref": "#/$defs/side"
+        }
+       }
+      }
+     }
+    }
+   },
+   "ref_read": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "ref",
+     "exists"
+    ],
+    "properties": {
+     "ref": {
+      "type": "string",
+      "pattern": "^refs/heads/.{1,250}$"
+     },
+     "exists": {
+      "type": "boolean"
+     },
+     "sha": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     }
+    },
+    "allOf": [
+     {
+      "if": {
+       "properties": {
+        "exists": {
+         "const": true
+        }
+       }
+      },
+      "then": {
+       "required": [
+        "sha"
+       ]
+      },
+      "else": {
+       "not": {
+        "required": [
+         "sha"
+        ]
+       }
+      }
+     }
+    ]
+   },
+   "fork_sync": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "no_op",
+     "converged",
+     "attributed",
+     "observed_head"
+    ],
+    "properties": {
+     "no_op": {
+      "type": "boolean"
+     },
+     "converged": {
+      "const": true
+     },
+     "attributed": {
+      "type": "boolean"
+     },
+     "observed_head": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     },
+     "adopted_gold_head": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     },
+     "policy_violation": {
+      "const": "unexpected_merge"
+     }
+    }
+   },
+   "side": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "repository",
+     "branch",
+     "sha"
+    ],
+    "properties": {
+     "repository": {
+      "$ref": "zeoconnect:1.4:common#/$defs/repository"
+     },
+     "branch": {
+      "$ref": "zeoconnect:1.4:common#/$defs/branch"
+     },
+     "sha": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     }
+    }
+   },
+   "checks_read": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "sha",
+     "items",
+     "complete"
+    ],
+    "properties": {
+     "sha": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha"
+     },
+     "complete": {
+      "type": "boolean"
+     },
+     "cursor": {
+      "$ref": "zeoconnect:1.4:common#/$defs/cursor"
+     },
+     "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "kind",
+        "name",
+        "state",
+        "app_id"
+       ],
+       "properties": {
+        "kind": {
+         "enum": [
+          "check_run",
+          "status"
+         ]
+        },
+        "name": {
+         "type": "string",
+         "maxLength": 256
+        },
+        "state": {
+         "enum": [
+          "queued",
+          "in_progress",
+          "success",
+          "failure",
+          "neutral",
+          "cancelled",
+          "skipped",
+          "timed_out",
+          "action_required",
+          "stale",
+          "error",
+          "pending"
+         ]
+        },
+        "app_id": {
+         "oneOf": [
+          {
+           "type": "null"
+          },
+          {
+           "type": "integer"
+          }
+         ]
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "zeoconnect:1.4:topology": {
+  "$id": "zeoconnect:1.4:topology",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "principal_id",
+   "incarnation",
+   "roles"
+  ],
+  "properties": {
+   "principal_id": {
+    "type": "string",
+    "maxLength": 68
+   },
+   "incarnation": {
+    "type": "integer",
+    "minimum": 1
+   },
+   "roles": {
+    "type": "array",
+    "maxItems": 64,
+    "items": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "role_id",
+      "kind",
+      "operations",
+      "role_policy"
+     ],
+     "properties": {
+      "role_id": {
+       "type": "string",
+       "pattern": "^role_[A-Za-z0-9_-]{1,64}$"
+      },
+      "kind": {
+       "enum": [
+        "write",
+        "read"
+       ]
+      },
+      "fork_repository": {
+       "$ref": "zeoconnect:1.4:common#/$defs/repository"
+      },
+      "gold_repository": {
+       "$ref": "zeoconnect:1.4:common#/$defs/repository"
+      },
+      "repositories": {
+       "type": "array",
+       "maxItems": 64,
+       "items": {
+        "$ref": "zeoconnect:1.4:common#/$defs/repository"
+       }
+      },
+      "branch_prefix": {
+       "type": "string",
+       "maxLength": 200
+      },
+      "operations": {
+       "type": "array",
+       "maxItems": 16,
+       "items": {
+        "type": "string",
+        "maxLength": 64
+       }
+      },
+      "role_policy": {
+       "$ref": "zeoconnect:1.4:common#/$defs/triple"
+      }
+     }
+    }
+   }
+  }
+ },
+ "zeoconnect:1.4:door_local": {
+  "$id": "zeoconnect:1.4:door_local",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "status",
+   "local",
+   "reason",
+   "operation_id",
+   "idempotency_key",
+   "request_sha256"
+  ],
+  "properties": {
+   "status": {
+    "enum": [
+     "ambiguous",
+     "refused"
+    ]
+   },
+   "local": {
+    "const": true
+   },
+   "reason": {
+    "enum": [
+     "timeout",
+     "transport_failure",
+     "response_invalid",
+     "request_too_large",
+     "door_unavailable",
+     "seat_host_unqualified"
+    ]
+   },
+   "operation_id": {
+    "type": "string",
+    "maxLength": 64
+   },
+   "idempotency_key": {
+    "$ref": "zeoconnect:1.4:common#/$defs/idempotency_key"
+   },
+   "request_sha256": {
+    "$ref": "zeoconnect:1.4:common#/$defs/sha256"
+   }
+  },
+  "allOf": [
+   {
+    "if": {
+     "properties": {
+      "reason": {
+       "enum": [
+        "request_too_large",
+        "seat_host_unqualified"
+       ]
+      }
+     }
+    },
+    "then": {
+     "properties": {
+      "status": {
+       "const": "refused"
+      }
+     }
+    },
+    "else": {
+     "properties": {
+      "status": {
+       "const": "ambiguous"
+      }
+     }
+    }
+   }
+  ]
+ },
+ "zeoconnect:1.4:refusal": {
+  "$id": "zeoconnect:1.4:refusal",
+  "oneOf": [
+   {
+    "$ref": "#/$defs/door_refusal"
+   },
+   {
+    "$ref": "#/$defs/unauthorized"
+   },
+   {
+    "$ref": "#/$defs/protocol"
+   },
+   {
+    "$ref": "#/$defs/stopped"
+   }
+  ],
+  "$defs": {
+   "door_refusal": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "code"
+    ],
+    "properties": {
+     "code": {
+      "enum": [
+       "invalid_request",
+       "github_scope_refused",
+       "idempotency_conflict",
+       "request_too_large",
+       "rate_limited",
+       "unavailable",
+       "fork_diverged"
+      ]
+     },
+     "reason": {
+      "enum": [
+       "on_behalf_of_invalid",
+       "door_request_id_invalid",
+       "body_invalid",
+       "capability_missing",
+       "door_required",
+       "not_door_listed",
+       "seat_host_unqualified",
+       "no_principal",
+       "stale_incarnation",
+       "role_not_bound",
+       "repository_not_in_role",
+       "operation_not_in_role",
+       "ref_outside_prefix",
+       "principal_not_isolated",
+       "reserved_app",
+       "ref_held",
+       "ref_unresolved",
+       "ci_gate_missing",
+       "ruleset_unverified",
+       "not_enrolled",
+       "github_unavailable",
+       "app_identity_unverified"
+      ]
+     },
+     "retry_after_s": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600
+     },
+     "subject": {
+      "enum": [
+       "door",
+       "host",
+       "effective"
+      ]
+     }
+    },
+    "allOf": [
+     {
+      "if": {
+       "properties": {
+        "code": {
+         "const": "github_scope_refused"
+        }
+       }
+      },
+      "then": {
+       "required": [
+        "reason",
+        "subject"
+       ]
+      }
+     },
+     {
+      "if": {
+       "properties": {
+        "code": {
+         "const": "invalid_request"
+        }
+       }
+      },
+      "then": {
+       "required": [
+        "reason"
+       ]
+      }
+     },
+     {
+      "if": {
+       "properties": {
+        "code": {
+         "const": "rate_limited"
+        }
+       }
+      },
+      "then": {
+       "required": [
+        "retry_after_s"
+       ]
+      }
+     },
+     {
+      "if": {
+       "properties": {
+        "code": {
+         "const": "unavailable"
+        }
+       }
+      },
+      "then": {
+       "required": [
+        "reason"
+       ],
+       "properties": {
+        "reason": {
+         "enum": [
+          "not_enrolled",
+          "github_unavailable"
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   "unauthorized": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "detail"
+    ],
+    "properties": {
+     "detail": {
+      "const": "device authorization is unavailable"
+     }
+    }
+   },
+   "protocol": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "code",
+     "reason",
+     "required"
+    ],
+    "properties": {
+     "code": {
+      "const": "protocol_incompatible"
+     },
+     "reason": {
+      "enum": [
+       "header_missing",
+       "header_duplicated",
+       "version_unsupported"
+      ]
+     },
+     "required": {
+      "const": "ZEOconnect-Protocol-Version: 1"
+     }
+    }
+   },
+   "stopped": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "code",
+     "control",
+     "scope"
+    ],
+    "properties": {
+     "code": {
+      "const": "stopped"
+     },
+     "control": {
+      "enum": [
+       "admission",
+       "dispatch",
+       "refresh"
+      ]
+     },
+     "scope": {
+      "const": "github"
+     }
+    }
+   }
+  }
+ },
+ "zeoconnect:1.4:receipt_feed": {
+  "$id": "zeoconnect:1.4:receipt_feed",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "principal_id",
+   "items",
+   "complete"
+  ],
+  "properties": {
+   "principal_id": {
+    "type": "string",
+    "maxLength": 68
+   },
+   "complete": {
+    "type": "boolean"
+   },
+   "cursor": {
+    "$ref": "zeoconnect:1.4:common#/$defs/cursor"
+   },
+   "items": {
+    "type": "array",
+    "maxItems": 100,
+    "items": {
+     "oneOf": [
+      {
+       "$ref": "#/$defs/claim_item"
+      },
+      {
+       "$ref": "#/$defs/quota_item"
+      }
+     ]
+    }
+   }
+  },
+  "$defs": {
+   "claim_item": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "kind",
+     "seq",
+     "at",
+     "status",
+     "execution_id",
+     "receipt"
+    ],
+    "properties": {
+     "kind": {
+      "const": "claim"
+     },
+     "seq": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "status": {
+      "enum": [
+       "claimed",
+       "dispatched",
+       "confirmed",
+       "refused",
+       "failed_safe",
+       "ambiguous"
+      ]
+     },
+     "code": {
+      "$ref": "zeoconnect:1.4:response#/properties/normalized_error/properties/code"
+     },
+     "execution_id": {
+      "$ref": "zeoconnect:1.4:common#/$defs/execution_id"
+     },
+     "receipt": {
+      "$ref": "zeoconnect:1.4:response#/$defs/receipt"
+     }
+    },
+    "allOf": [
+     {
+      "if": {
+       "properties": {
+        "status": {
+         "enum": [
+          "refused",
+          "failed_safe"
+         ]
+        }
+       }
+      },
+      "then": {
+       "required": [
+        "code"
+       ]
+      },
+      "else": {
+       "not": {
+        "required": [
+         "code"
+        ]
+       }
+      }
+     }
+    ]
+   },
+   "quota_item": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "kind",
+     "seq",
+     "at",
+     "operation_id",
+     "request_sha256",
+     "door",
+     "quota"
+    ],
+    "properties": {
+     "kind": {
+      "const": "quota_refusal"
+     },
+     "seq": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "operation_id": {
+      "$ref": "zeoconnect:1.4:request#/properties/operation_id"
+     },
+     "request_sha256": {
+      "$ref": "zeoconnect:1.4:common#/$defs/sha256"
+     },
+     "door": {
+      "$ref": "zeoconnect:1.4:response#/$defs/receipt/properties/door"
+     },
+     "quota": {
+      "enum": [
+       "writes_per_hour",
+       "bytes_per_day"
+      ]
+     }
+    }
+   }
+  }
+ }
+}

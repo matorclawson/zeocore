@@ -34,6 +34,8 @@ from pydantic import ValidationError
 
 from zeo_core.adapters.runtime_host.canonical import ProtocolError, digest, parse_json
 from zeo_core.integrations.hosted.client import (
+    ACCESS_GUIDANCE,
+    HostedAccessRefusedError,
     HostedArtifactDescriptor,
     HostedClientError,
     HostedConnectionClient,
@@ -44,6 +46,8 @@ from zeo_core.integrations.hosted.client import (
     HostedStoppedError,
     HostedUnavailableError,
     HostedUnreachableError,
+    HostedUpgradeRequiredError,
+    access_refusal_of,
     stop_of,
 )
 from zeo_core.integrations.hosted.pairing import (
@@ -164,7 +168,28 @@ def _guarded(body: Callable[[], Answer]) -> Answer:
         if answer is not None:
             return answer
         if isinstance(error, HostedStoppedError):
-            return EXIT_HELD, {"ok": False, "outcome": "stopped", "message": str(error)}
+            return EXIT_HELD, {
+                "ok": False,
+                "outcome": "stopped",
+                "control": error.control,
+                "scope": error.scope,
+                "message": str(error),
+            }
+        if isinstance(error, HostedAccessRefusedError):
+            # Contract 1.4.0 §9: nothing happened, and the same grant can't
+            # succeed; the message says what has to change.
+            return EXIT_HELD, {
+                "ok": False,
+                "outcome": error.reason,
+                "retry": "none",
+                "message": str(error),
+            }
+        if isinstance(error, HostedUpgradeRequiredError):
+            return EXIT_HELD, {
+                "ok": False,
+                "outcome": "upgrade_required",
+                "message": str(error),
+            }
         if isinstance(error, HostedUnavailableError):
             return EXIT_WAIT, {
                 "ok": False,
@@ -422,7 +447,18 @@ def _answer(response: HostedOperationResponse, key: str) -> Answer:
             "retry": "same_request",
             **answer,
         }
-    if stop_of(response) is not None:
+    refusal = access_refusal_of(response)
+    if refusal is not None:
+        # Refused before custody: the same grant can't succeed (1.4.0 §9).
+        return EXIT_HELD, {
+            "ok": False,
+            "retry": "none",
+            **answer,
+            "outcome": refusal,
+            "message": ACCESS_GUIDANCE[refusal],
+        }
+    if (stop := stop_of(response)) is not None:
+        answer["control"], answer["scope"] = stop.control, stop.scope
         retry = "same_request"  # a stop is refused before anything is recorded
     elif status is HostedOperationStatus.FAILED_SAFE:
         retry = "new_occurrence"  # recorded against the key; it replays

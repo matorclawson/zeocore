@@ -58,6 +58,20 @@ holds only that app's own device grant, in the macOS Keychain.
 | `invoke <operation_id> --connection C [--occurrence L] [--wait-approval SECONDS]` | the arguments object | Runs one operation and answers the Broker's response plus `request_key` and `retry`. |
 | `artifact get --out PATH` | an artifact descriptor | Downloads an output to a new file and checks its size and digest. |
 
+**Refusals from Broker contract 1.4.0.** Each comes before custody, so nothing
+happened, and the same grant can't succeed. The answer names it in `outcome`,
+with `retry: "none"` and the way back in `message`:
+
+| `outcome` | Means | The way back |
+|---|---|---|
+| `door_required` | a seat's grant | seats use `zeo`, ZEO-RT's front door |
+| `app_identity_unverified` | a product's grant from another macOS user | run the product as its own service user, `zs-<product>` |
+| `no_principal` | a grant adopted as no principal | the owner adopts the grant as the product's principal |
+
+A stop answers `outcome: "stopped"` with its `control` and `scope`, and a
+Broker that doesn't speak this zeocore's protocol answers
+`outcome: "upgrade_required"`.
+
 Every client command takes `--profile P`, or reads `ZEOCORE_PROFILE`, to choose
 the grant, so one machine can run several apps, each paired on its own. A
 profile is attribution, not a security boundary: all profiles of one macOS user

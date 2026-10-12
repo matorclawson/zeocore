@@ -145,6 +145,23 @@ These change what a caller sees. The session store API and the
 
 ## [Unreleased]
 
+### Added
+
+- **Broker contract 1.4.0** (zeoconnect #73, frozen at `d5c7d14a`):
+  - **the three access refusals:** `door_required`, `app_identity_unverified`
+    and `no_principal`, in both of their forms (an `:invoke` answered
+    `failed_safe` with the exact message, and 403 `{"code": ...}` elsewhere).
+    The client raises `HostedAccessRefusedError` or reports
+    `access_refusal_of(...)`, and the CLI answers each by name with the way
+    back;
+  - **clearer CLI answers:** a stop answers its `control` and `scope`, and a
+    426 answers `upgrade_required`;
+  - **the parity fixtures for ZEO-RT's door** (ZEOCORE-SOW-27 §3), in
+    `contracts/broker-1.4/`: digest vectors for one request per 1.4.0
+    operation, plus `on_behalf_of` variants, each validated against the
+    frozen schemas, with zeoconnect's own conformance cases vendored beside
+    them. `tools/broker-1.4-digest-vectors.py` rewrites them.
+
 ### Deprecated
 
 - **The ZEOconnect client commands for seats** (`zeocore login`, `logout`,
