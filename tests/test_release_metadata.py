@@ -78,6 +78,18 @@ def test_no_file_a_seat_edits_names_the_version() -> None:
     assert "version" not in yaml.safe_load((ROOT / "release.yaml").read_text())["pypi"]
 
 
+def test_pandoc_comes_only_from_the_pinned_checksummed_installer() -> None:
+    """A slow Ubuntu mirror timed out CI once: no workflow uses apt for it."""
+    for name in ("ci.yml", "publish.yml"):
+        text = (WORKFLOWS / name).read_text()
+        assert "tools/install-pandoc.sh" in text, name
+        assert "apt-get install -y pandoc" not in text, name
+    script = (ROOT / "tools" / "install-pandoc.sh").read_text()
+    assert re.search(r'^SHA256="[0-9a-f]{64}"$', script, re.MULTILINE)
+    assert "sha256sum --check --strict" in script
+    assert os.access(ROOT / "tools" / "install-pandoc.sh", os.X_OK)
+
+
 # --------------------------------------------------------------------------
 # The post-upload digest check
 # --------------------------------------------------------------------------

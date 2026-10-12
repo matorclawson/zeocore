@@ -63,7 +63,8 @@ jobs:
   verify:
     name: verify (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The gate takes about 3 minutes; the headroom absorbs a slow runner.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +80,8 @@ jobs:
           cache-dependency-glob: "pyproject.toml"
 
       - name: Install Pandoc for real authoring receipt tests
-        run: sudo apt-get update && sudo apt-get install -y pandoc
+        # Pinned and checksummed, from GitHub's CDN, not the Ubuntu mirror.
+        run: tools/install-pandoc.sh
 
       - name: make setup (uv sync --locked from uv.lock)
         run: make setup PYTHON_VERSION=${{ matrix.python-version }}
