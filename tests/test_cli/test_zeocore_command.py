@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -247,3 +249,50 @@ def test_stdin_is_read_only_one_byte_past_the_limit(
     assert asked == [MAX_BYTES + 1]
     assert exited.value.code == 2
     capsys.readouterr()
+
+
+# Modules only an extra installs. A plain `pip install zeocore` has none of
+# them, and 0.15.0's command crashed at start-up for want of two of them.
+_EXTRA_ONLY = ("requests", "jsonschema", "cryptography", "jwt")
+_PLAIN_INSTALL = f"""
+import importlib.abc, io, sys
+class Refuse(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in {_EXTRA_ONLY!r}:
+            raise ModuleNotFoundError(f"No module named {{name!r}}", name=name)
+        return None
+sys.meta_path.insert(0, Refuse())
+from zeo_core.cli.__main__ import main
+sys.stdin = io.TextIOWrapper(io.BytesIO(sys.argv[1].encode()))
+main(sys.argv[2:])
+"""
+
+
+@pytest.mark.parametrize(
+    "argv,stdin,status,outcome",
+    [
+        (["version"], "", 0, None),
+        (["digest"], '{"a": 1}', 0, None),
+        (["schema", "list"], "", 0, None),
+        (["release", "pypi", "plan"], "{}", 20, "extra_missing"),
+    ],
+)
+def test_the_command_runs_on_a_plain_install(
+    argv: list[str], stdin: str, status: int, outcome: str | None
+) -> None:
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and script
+        [sys.executable, "-c", _PLAIN_INSTALL, stdin, *argv],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == status, result.stderr
+    answer = json.loads(result.stdout.splitlines()[-1])
+    assert answer.get("outcome") == outcome
+    if outcome is None:
+        assert answer["ok"] is True
+
+
+def test_the_canonical_digest_is_a_base_dependency() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    assert "rfc8785==0.1.4" in project["dependencies"]

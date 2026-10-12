@@ -4,7 +4,7 @@ A curated map of ZeoCore's **public** surface: the canonical import path for
 each symbol, the signatures you actually call, and where the boundary sits
 between "supported API" and "internal detail you should not import".
 
-This page is hand-written and covers ZeoCore **0.15.0** (beta — see
+This page is hand-written and covers ZeoCore **0.15.1** (beta — see
 [Stability](#stability)). It is not generated from
 docstrings, and it is not exhaustive: every entry links to the source file,
 which is the authoritative signature. If a symbol is not listed here and not
@@ -85,7 +85,7 @@ wiring a *host application* does (`zeo_core.adapters`).
 
 ## Stability: what this page promises
 
-ZeoCore 0.15.0 is a **beta** library. The API is typed and tested
+ZeoCore 0.15.1 is a **beta** library. The API is typed and tested
 (mypy `--strict` across the tree), but the surface may still shift before
 1.0. Breaking changes are recorded in [CHANGELOG.md](../../CHANGELOG.md).
 

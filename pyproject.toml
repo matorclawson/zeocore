@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zeocore"
-version = "0.15.0"
+version = "0.15.1"
 description = "Typed capability-authoring framework for Python — contracts, @capability tools, and adapters"
 keywords = [
     "automation",
@@ -44,6 +44,9 @@ dependencies = [
     # Native ZEOconnect transport: normal installs are connection-ready, but
     # importing and local resolution remain zero-network.
     "httpx>=0.27",
+    # RFC 8785 canonical JSON: `zeocore digest` and every Broker request's
+    # digest need it, so the zeocore command can't run without it.
+    "rfc8785==0.1.4",
 ]
 
 [project.scripts]
