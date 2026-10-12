@@ -105,13 +105,24 @@ class EmailDraft(RequestModel):
     kind: Literal["newsletter", "automated"] = "newsletter"
     campaign_id: Identifier | None = None
     business_unit_id: int | None = Field(default=None, ge=0)
+    # HubSpot's from.replyTo is both the from address and, unless
+    # from.customReplyTo is set, the reply-to. reply_to sets customReplyTo, so
+    # replies can go elsewhere than the connected sending address. Unset, the
+    # payload is exactly what it was before this field existed.
+    reply_to: EmailAddress | None = None
 
     def to_api(self) -> dict[str, Any]:
+        sender: dict[str, Any] = {
+            "fromName": self.from_name,
+            "replyTo": self.from_email,
+        }
+        if self.reply_to is not None:
+            sender["customReplyTo"] = self.reply_to
         data: dict[str, Any] = {
             "name": self.name,
             "subject": self.subject,
             "content": self.content.to_api(),
-            "from": {"fromName": self.from_name, "replyTo": self.from_email},
+            "from": sender,
             "subscriptionDetails": {
                 "subscriptionId": self.subscription_id,
                 "officeLocationId": self.office_location_id,
