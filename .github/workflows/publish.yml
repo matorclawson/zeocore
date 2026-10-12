@@ -49,7 +49,7 @@ jobs:
     with:
       project: zeocore
       verify: |
-        sudo apt-get update && sudo apt-get install -y pandoc
+        tools/install-pandoc.sh
         make setup
         make verify
       build: make build
