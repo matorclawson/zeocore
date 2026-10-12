@@ -15,9 +15,15 @@ VERSION="3.1.3"
 SHA256="caa7e0410f9e2cb1da2eb8db13cc97b5548fe455985e2c944e3929d22f99bcdc"
 URL="https://github.com/jgm/pandoc/releases/download/${VERSION}/pandoc-${VERSION}-1-amd64.deb"
 
+if [ "$(dpkg --print-architecture)" != "amd64" ]; then
+  echo "install-pandoc.sh pins the amd64 .deb; this runner is $(dpkg --print-architecture)" >&2
+  exit 1
+fi
+
 deb="$(mktemp --suffix=.deb)"
 trap 'rm -f "$deb"' EXIT
 curl --fail --silent --show-error --location \
+  --proto '=https' --proto-redir '=https' --tlsv1.2 \
   --retry 5 --retry-delay 5 --retry-all-errors --max-time 120 \
   --output "$deb" "$URL"
 echo "${SHA256}  ${deb}" | sha256sum --check --strict -
