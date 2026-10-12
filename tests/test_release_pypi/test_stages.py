@@ -1560,7 +1560,7 @@ def test_a_hidden_bypass_list_is_unreadable_never_empty() -> None:
     detail = _ruleset_detail()
     del detail["bypass_actors"]
     runner = Runner(ok([{"id": 7, "target": "tag"}]), ok(detail))
-    with pytest.raises(TargetUnreadableError, match="needs the Admin role"):
+    with pytest.raises(TargetUnreadableError, match="only to a repository Admin"):
         GitHubCli(runner).tag_rulesets(REPO)
 
 
@@ -1568,8 +1568,8 @@ def test_admit_holds_when_the_bypass_list_is_hidden() -> None:
     class Hidden(FakeGitHub):
         def tag_rulesets(self, repo: str) -> tuple[TagRuleset, ...]:
             raise TargetUnreadableError(
-                "the ruleset's bypass list isn't visible to this identity; "
-                "it needs the Admin role on the repository"
+                "the approver can't read the ruleset's bypass list; "
+                "GitHub shows it only to a repository Admin"
             )
 
     outcome = admit(_manifest(), Hidden(), APP_ID)

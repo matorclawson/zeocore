@@ -347,7 +347,8 @@ These change what a caller sees. The session store API and the
 - **A hidden ruleset bypass list is unreadable, not empty.** GitHub returns a
   ruleset's `bypass_actors` only to a user with Admin on the repository.
   `zeocore release pypi admit` now holds as `target_unreadable`, saying the
-  approver needs the Admin role, instead of refusing as `tag_ruleset_missing`.
+  approver can't read the bypass list, instead of refusing as
+  `tag_ruleset_missing`.
 
 - **The YouTube custody relay no longer retries a failure no retry can cure.**
   Until now only a refusal ended a relayed upload: every other client error
