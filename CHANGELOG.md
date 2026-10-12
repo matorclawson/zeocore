@@ -154,6 +154,18 @@ These change what a caller sees. The session store API and the
 
 ### Added
 
+- **A named session file for a product's service user** (operator ruling,
+  2026-10-12; client-access proposal §9, option A). `ZEOCORE_SESSION_FILE`
+  selects `FileSecureSessionStore`. It is opt-in, never a fallback, and checks:
+  - a 0700 directory owned by the user, with no symbolic link in the path;
+  - no directory above it writable by another user unless it is sticky;
+  - a regular 0600 file owned by the user, checked on the open descriptor.
+
+  Writes are atomic, and the file is bound to its Broker origin. Without the
+  variable, a Keychain that can't be read still fails closed with exit 12.
+
+### Added
+
 - **Broker contract 1.4.0** (zeoconnect #73, merged at `c134661e`):
   - **the three access refusals:** `door_required`, `app_identity_unverified`
     and `no_principal`, in both of their forms (an `:invoke` answered
