@@ -6,19 +6,27 @@ script. Each call reads JSON on stdin and writes JSON lines on stdout, the
 result last.
 
 ```console
+$ zeocore help --json
 $ zeocore version
-{"cli_protocol": "1", "commands": ["artifact", "connections", "digest", "invoke", "login", "logout", "schema", "validate", "version", "whoami"], "ok": true, "zeoconnect_protocol": "1", "zeocore": "…"}
+{"cli_protocol": "1", "commands": ["artifact", "connections", "digest", "help", "invoke", "login", "logout", "release", "schema", "validate", "version", "whoami"], "ok": true, "schema": "zeocore.version/v1", "zeoconnect_protocol": "1", "zeocore": "…"}
 $ zeocore schema list
 $ zeocore schema hosted.operation-request
 $ echo '{"code": "RATE_LIMITED", "message": "slow down"}' | zeocore validate connections.normalized-error
 $ echo '{"b": 1, "a": [1, 2]}' | zeocore digest
-{"ok": true, "sha256": "sha256:…"}
+{"ok": true, "schema": "zeocore.digest/v1", "sha256": "sha256:…"}
 ```
+
+An agent starts with `zeocore help --json`, the machine catalogue
+(`zeocore.help/v1`): every command, its arguments, what it reads on stdin,
+the exit family and the schema its result names. A test holds the catalogue
+to each command's parser, so it can't drift from the code. Every answer is
+JSON already, so `zeocore help` without `--json` answers the same.
 
 ## Commands
 
 | Command | Reads stdin | Answers |
 |---|---|---|
+| `help [--json]` | no | the machine catalogue |
 | `version` | no | the release, `cli_protocol`, the ZEOconnect protocol, the commands |
 | `schema list` | no | the stable schema names |
 | `schema <name>` | no | that contract as JSON Schema 2020-12 |
@@ -126,8 +134,11 @@ Development origins also need `ZEOCONNECT_DEVELOPMENT=1`.
 
 - **stdout is JSON lines and nothing else.** Events (a pairing code, an approval
   link, waiting) carry an `event` key. The result is always the last line: it
-  carries `ok` and never `event`. A command with no events prints exactly one
-  line. Diagnostics go to stderr.
+  carries `ok` and `schema` (`zeocore.<command>/v1`; `zeocore.usage/v1` for
+  an unknown command; `zeocore.internal/v1` for an internal error) and never
+  `event`. `zeocore schema <name>` is the one exception: its answer is the
+  contract itself, named by its own `$schema` and `$id`. A command with no
+  events prints exactly one line. Diagnostics go to stderr.
 - **Input is strict JSON:** no duplicate keys, no `NaN` or infinities, at most
   1 MiB.
 - **Errors never echo input.** A validation error is its location and type only.
