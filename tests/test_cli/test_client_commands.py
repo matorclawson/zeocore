@@ -558,3 +558,31 @@ def test_an_old_protocol_says_upgrade(broker: Broker) -> None:
     status, answer = _invoke()
     assert (status, answer["outcome"]) == (20, "upgrade_required")
     assert "upgrade zeocore" in answer["message"]
+
+
+# -- the named session file (operator, 2026-10-12) ---------------------------------
+
+
+def test_the_session_file_is_used_only_when_named(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from zeo_core.integrations.hosted.file_store import FileSecureSessionStore
+
+    monkeypatch.delenv("ZEOCORE_SESSION_FILE", raising=False)
+    from zeo_core.integrations.hosted import pairing
+
+    monkeypatch.setattr(pairing.sys, "platform", "darwin")
+    unnamed = client.make_store(None)
+    assert not isinstance(unnamed, FileSecureSessionStore)
+    monkeypatch.setenv("ZEOCORE_SESSION_FILE", str(tmp_path / "grant.json"))
+    assert isinstance(client.make_store(None), FileSecureSessionStore)
+
+
+def test_a_session_file_with_a_profile_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from zeo_core.integrations.hosted.pairing import SecureStoreError
+
+    monkeypatch.setenv("ZEOCORE_SESSION_FILE", str(tmp_path / "grant.json"))
+    with pytest.raises(SecureStoreError, match="drop --profile"):
+        client.make_store("ducktyper")
