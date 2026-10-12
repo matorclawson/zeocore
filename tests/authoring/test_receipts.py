@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,11 @@ from zeo_core.integrations.core.artifacts import RequiredConversionTask
 from zeo_core.integrations.core.results import IntegrationResult
 from zeo_core.integrations.core.strict_batch import convert_batch_strict
 from zeo_core.integrations.jupytext.parity import compare_notebook_semantics
+
+# A git hook (pre-push runs make verify) sets GIT_DIR to the real repository.
+# Inherited, it turns `git init <tmp>` into a re-initialisation of that
+# repository as bare, which breaks its main checkout.
+_NO_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
 NOTEBOOK: dict[str, Any] = {
     "nbformat": 4,
@@ -174,7 +180,7 @@ def test_symlink_destination(tmp_path: Path) -> None:
 def test_real_public_pipeline(tmp_path: Path) -> None:
     # This child uses real fs services, not the parent suite's global FS mocks.
     subprocess.run(  # noqa: S603 -- fixed fixture command
-        ["/usr/bin/git", "init", "-q", str(tmp_path)], check=True
+        ["/usr/bin/git", "init", "-q", str(tmp_path)], check=True, env=_NO_GIT_ENV
     )  # noqa: S603 -- fixed test command
     source = tmp_path / "source.md"
     source.write_text("""---
@@ -267,7 +273,11 @@ results["collision"] = c.convert_file_with_receipt(
 Path("results.json").write_text(json.dumps(results))
 """
     completed = subprocess.run(  # noqa: S603 -- fixed fixture program
-        [sys.executable, "-c", program], cwd=tmp_path, capture_output=True, text=True
+        [sys.executable, "-c", program],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        env=_NO_GIT_ENV,
     )
     assert completed.returncode == 0, completed.stderr
     results = json.loads((tmp_path / "results.json").read_text())

@@ -1,11 +1,14 @@
 # zeocore/pyproject.toml
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs>=0.4"]
 build-backend = "hatchling.build"
 
 [project]
 name = "zeocore"
-version = "0.15.1"
+# Computed, never edited: the release workflow tags each merge to main with
+# the next version (release-on-merge.yml), and hatch-vcs reads it from that
+# tag. Between tags it is a dev version of the next patch.
+dynamic = ["version"]
 description = "Typed capability-authoring framework for Python — contracts, @capability tools, and adapters"
 keywords = [
     "automation",
@@ -214,7 +217,13 @@ runtime-host = [
 "Changelog" = "https://github.com/zeroemployeeorg/zeocore/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
-path = "src/zeo_core/__init__.py"
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+# A checkout with no tags (a shallow CI clone) still builds; a release build
+# always runs on a full clone with the release tag in place.
+fallback_version = "0.0.0"
+local_scheme = "no-local-version"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/zeo_core"]

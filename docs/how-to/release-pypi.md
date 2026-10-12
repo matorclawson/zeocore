@@ -1,5 +1,17 @@
 # Release to PyPI
 
+!!! note "Release on merge replaces the tag and approval stages"
+    Since 0.15.2, every merge to `main` is a release. `publish.yml` computes
+    the version, tags it and publishes it, with no approval
+    ([`changelog.d/README.md`](https://github.com/zeroemployeeorg/zeocore/blob/main/changelog.d/README.md)).
+    Another repository calls the same workflow,
+    `zeroemployeeorg/zeocore/.github/workflows/release-on-merge.yml@<sha>`,
+    and keeps its own top-level PyPI job, because trusted publishing can't run
+    inside a reusable workflow. The `plan`, `admit`, `apply` and `approve`
+    stages below describe the earlier tag-and-approve path. `reconcile` and
+    `verify` still check a published release, from a local manifest that
+    names its version and commit.
+
 `zeocore release pypi` is the PyPI adapter (ZEOCORE-SOW-26). It changes
 nothing about how a package publishes: the repository's `publish.yml` builds
 and publishes through trusted publishing when a `vX.Y.Z` tag is pushed,

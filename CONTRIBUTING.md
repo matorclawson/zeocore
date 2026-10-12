@@ -147,20 +147,21 @@ token is stored as a repo secret. There is no TestPyPI target: its
 environment was unprotected, so every publish now goes through the
 protected `pypi` environment.
 
-1. Bump `pyproject.toml`'s `[project] version`. It is the single source of
-   truth: installed `zeo_core.__version__` reads the distribution metadata
-   through `importlib.metadata`, so there is no second version literal to edit.
-2. Add a dated entry to `CHANGELOG.md`, update `RELEASE_NOTES.md` with the
-   exact heading `# zeocore X.Y.Z`, update docs/examples, and run `uv lock`.
-   Run `make verify`, `make build`, and `make release-check`. The latter
-   verifies metadata consistency and that the version is unused on both
-   indexes, using live positive controls. Index filenames cannot be reused.
-3. After the reviewed release changes land on main, the operator tags the
-   merge commit `vX.Y.Z` (tags on main are the operator's alone, RULING-471)
-   and approves the `pypi` deployment. This triggers real PyPI publication. The workflow
-   refuses a tag that disagrees with package metadata or release notes and
-   creates the GitHub release from `RELEASE_NOTES.md` after the PyPI smoke passes.
-4. The workflow's own `smoke-test` job installs the just-published package
+**Every merge to `main` is a release.** Nobody bumps a version, tags or
+approves; the review and the merge are the gate.
+
+1. In your PR, add one fragment to `changelog.d/` whose first line is
+   `bump: patch`, `bump: minor` or `bump: major`, followed by the release
+   notes text ([`changelog.d/README.md`](changelog.d/README.md)). With no
+   fragment, the merge is a patch release.
+2. When the PR merges, `publish.yml` (through the shared
+   `release-on-merge.yml`) computes the version: the highest `v` tag plus
+   your increment. It runs `make verify`, builds with that version
+   (`hatch-vcs` reads it from the tag), tags `vX.Y.Z` at the merge commit,
+   publishes to PyPI, and creates the GitHub Release from your fragment.
+   `pyproject.toml` has no version literal, and installed
+   `zeo_core.__version__` reads the distribution metadata.
+3. The workflow's own `smoke-test` job installs the just-published package
    into a clean venv and imports it -- treat that job's failure as the
    release having NOT actually succeeded, even if the publish step itself
    reported success (PyPI's own index can take a moment to propagate; the
