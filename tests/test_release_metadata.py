@@ -78,6 +78,30 @@ def test_no_file_a_seat_edits_names_the_version() -> None:
     assert "version" not in yaml.safe_load((ROOT / "release.yaml").read_text())["pypi"]
 
 
+def test_pandoc_comes_only_from_the_pinned_checksummed_installer() -> None:
+    """A slow Ubuntu mirror timed out CI once: no workflow uses apt for it."""
+    for name in ("ci.yml", "publish.yml"):
+        text = (WORKFLOWS / name).read_text()
+        assert "tools/install-pandoc.sh" in text, name
+        assert "apt-get install -y pandoc" not in text, name
+    script = (ROOT / "tools" / "install-pandoc.sh").read_text()
+    # Only live lines count: a commented-out check checks nothing.
+    live = [
+        line.strip()
+        for line in script.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    assert "set -euo pipefail" in live
+    assert any(re.fullmatch(r'SHA256="[0-9a-f]{64}"', line) for line in live)
+    check = next(
+        i for i, line in enumerate(live) if "sha256sum --check --strict" in line
+    )
+    install = next(i for i, line in enumerate(live) if line.startswith("sudo dpkg -i"))
+    assert check < install, "the checksum must be verified before dpkg installs it"
+    assert "--proto '=https' --proto-redir '=https' --tlsv1.2" in script
+    assert os.access(ROOT / "tools" / "install-pandoc.sh", os.X_OK)
+
+
 # --------------------------------------------------------------------------
 # The post-upload digest check
 # --------------------------------------------------------------------------
