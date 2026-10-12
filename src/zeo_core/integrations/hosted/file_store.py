@@ -154,7 +154,7 @@ class FileSecureSessionStore:
                 0o600,
             )
             try:
-                os.write(descriptor, material)
+                _write_all(descriptor, material)
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
@@ -180,3 +180,13 @@ class FileSecureSessionStore:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+
+def _write_all(descriptor: int, data: bytes) -> None:
+    """Write every byte: ``os.write`` may write fewer than it was given."""
+    view = memoryview(data)
+    while view:
+        written = os.write(descriptor, view)
+        if written <= 0:
+            raise OSError("the session file write made no progress")
+        view = view[written:]

@@ -165,3 +165,36 @@ def test_a_failed_write_leaves_no_temporary(home: Path) -> None:
     with pytest.raises(SecureStoreError, match="can't be written"):
         FileSecureSessionStore(home / "grant.json").save(_session())
     assert sorted(p.name for p in home.iterdir()) == ["grant.json"]
+
+
+def test_a_short_write_is_completed(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from zeo_core.integrations.hosted import file_store
+
+    real_write = os.write
+    calls: list[int] = []
+
+    def short(descriptor: int, data: bytes | memoryview) -> int:
+        chunk = bytes(data)[:7]  # never more than 7 bytes at a time
+        calls.append(len(chunk))
+        return real_write(descriptor, chunk)
+
+    monkeypatch.setattr(file_store.os, "write", short)
+    store = FileSecureSessionStore(home / "grant.json")
+    store.save(_session())
+    monkeypatch.setattr(file_store.os, "write", real_write)
+    loaded = store.load()
+    assert loaded is not None and loaded.device_id == "dev_newsroom_intake"
+    assert len(calls) > 1
+
+
+def test_a_write_that_makes_no_progress_is_refused(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from zeo_core.integrations.hosted import file_store
+
+    monkeypatch.setattr(file_store.os, "write", lambda descriptor, data: 0)
+    with pytest.raises(SecureStoreError, match="can't be written"):
+        FileSecureSessionStore(home / "grant.json").save(_session())
+    assert list(home.iterdir()) == []
