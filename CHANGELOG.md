@@ -145,6 +145,15 @@ These change what a caller sees. The session store API and the
 
 ## [Unreleased]
 
+### Deprecated
+
+- **The ZEOconnect client commands for seats** (`zeocore login`, `logout`,
+  `whoami`, `connections`, `invoke` and `artifact get`). A seat uses `zeo`,
+  ZEO-RT's front door, for every Broker operation (ZEOCORE-SOW-27). The
+  commands stay for products that run zeocore themselves. From Broker contract
+  1.4 the Broker refuses a seat's grant on every operation with
+  `door_required`, so the Broker enforces this, not zeocore.
+
 ### Added
 
 - **Delegated PyPI releases** (`zeocore release pypi apply | approve`), on the

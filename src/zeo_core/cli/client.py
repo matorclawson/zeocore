@@ -1,6 +1,11 @@
-"""The ZEOconnect Broker client as commands: one client, for every language.
+"""The ZEOconnect Broker client as commands, for products.
 
 ``zeocore login | logout | whoami | connections | invoke | artifact get``.
+These are for products that run zeocore themselves. They are not a seat
+interface: a seat reaches the Broker through ZEO-RT's front door with ``zeo``,
+and from Broker contract 1.4 the Broker refuses a seat's grant with
+``door_required`` (ZEOCORE-SOW-27).
+
 Apps never hold provider tokens: this machine holds only each app's own
 device grant (``--profile`` or ``ZEOCORE_PROFILE``), in the Keychain. With no
 usable Keychain the command fails closed with exit 12; there is no plaintext
