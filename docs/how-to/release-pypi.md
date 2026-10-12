@@ -58,7 +58,7 @@ $ echo '{"manifest": "release.yaml"}' | zeocore release pypi plan
 
 | Stage | Effect | Answers |
 |---|---|---|
-| `plan` | none | `planned`, with the tag it would create, once the commit is on the default branch, `pyproject.toml`, `release.yaml` and `CHANGELOG.md` name the version, PyPI hasn't got it, and the tag is absent or already at the commit |
+| `plan` | none | `planned`, with the tag it would create, once the commit is on the default branch, the target's workflow file is at that commit (`workflow_missing` otherwise: a `v*` tag can't be deleted under the ruleset, so it is never made with nothing to publish it), `pyproject.toml`, `release.yaml` and `CHANGELOG.md` name the version, PyPI hasn't got it, and the tag is absent or already at the commit |
 | `admit` | none | `admitted` only when the two identities, together, are the only way to release (below) |
 | `apply` | **one: creates the tag `vX.Y.Z`, as the App** | `tag_created`, or `already_applied` |
 | `approve` | **one: approves the waiting `pypi` deployment, as matorclawson, once** | `approved`, or `already_approved` |
@@ -97,8 +97,11 @@ release is tagged once and approved once, whatever the commit or directory.
   `apply_unreconciled` (exit 13), and is never retried.
 - `approve` approves only the one run of that exact tag and commit, waiting
   on `pypi` alone, after `plan` and `admit` pass again. Anything else is
-  `approval_unexpected`. A lost answer is `approve_unreconciled`, and is never
-  sent again.
+  `approval_unexpected`. A run that has stopped waiting is `run_not_waiting`,
+  held, never a success. A lost answer is `approve_unreconciled`, and is never
+  sent again. It is settled only by reading GitHub's own record of the run's
+  reviews: matorclawson's approval of `pypi` closes it, and a rejection closes
+  it as `approval_rejected`.
 
 The adapter never holds a PyPI credential and never dispatches a workflow.
 GitHub reads go through `gh`, and PyPI is read anonymously from

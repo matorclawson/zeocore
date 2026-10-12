@@ -18,6 +18,7 @@ from zeo_core.cli.release import make_command
 from zeo_core.release.pypi import (
     GitHubCli,
     ManifestError,
+    Outcome,
     PyPIHttp,
     PyPIManifest,
     TargetUnreadableError,
@@ -37,6 +38,7 @@ from zeo_core.release.pypi.reads import (
     PendingDeployment,
     Provenance,
     PyPIFile,
+    RunApproval,
     TagAnswerLostError,
     TagResult,
     TagRuleset,
@@ -93,6 +95,7 @@ def _files_at(version: str = VERSION) -> dict[str, bytes]:
         "pyproject.toml": pyproject.encode(),
         "release.yaml": yaml.safe_dump({"pypi": _committed(version)}).encode(),
         "CHANGELOG.md": f"# Changelog\n\n## [{version}] - 2026-10-11\n".encode(),
+        ".github/workflows/publish.yml": b"name: Publish\n",
     }
 
 
@@ -127,6 +130,7 @@ class FakeGitHub:
     pending: tuple[PendingDeployment, ...] = PENDING
     approval_result: ApprovalResult | None = "approved"  # None: the answer is lost
     approvals: list[tuple[int, int]] = field(default_factory=list)
+    reviews: tuple[RunApproval, ...] = ()
     broken: bool = False
 
     def _check(self) -> None:
@@ -166,6 +170,10 @@ class FakeGitHub:
         self, repo: str, run_id: int
     ) -> tuple[PendingDeployment, ...]:
         return self.pending
+
+    def run_approvals(self, repo: str, run_id: int) -> tuple[RunApproval, ...]:
+        self._check()
+        return self.reviews
 
     def approve_deployment(
         self, repo: str, run_id: int, environment_id: int, comment: str
@@ -274,7 +282,7 @@ def test_plan_sees_a_tag_already_at_the_commit_as_applied() -> None:
             FakePyPI(),
             "version_mismatch",
         ),
-        (FakeGitHub(files={}), FakePyPI(), "version_mismatch"),
+        (FakeGitHub(files={}), FakePyPI(), "workflow_missing"),
         (FakeGitHub(), _published(), "version_published"),
         (FakeGitHub(tag="b" * 40), FakePyPI(), "tag_mismatch"),
     ],
@@ -656,13 +664,96 @@ def test_a_lost_approval_is_ambiguous_and_never_resent(journal: SigningJournal) 
     assert github.approvals == [(99, 555)]
 
 
-def test_a_lost_approval_that_landed_is_settled(journal: SigningJournal) -> None:
+def _lost_then(
+    journal: SigningJournal, *reviews: RunApproval
+) -> tuple[FakeGitHub, Outcome]:
     github = _tagged(approval_result=None)
     approve(_manifest(), github, FakePyPI(), APP_ID, journal)
     github.workflow_runs = (WorkflowRun("in_progress", None, "v0.13.0", 99),)
-    outcome = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    github.reviews = reviews
+    return github, approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+
+
+def test_a_lost_approval_is_settled_only_by_the_approvers_recorded_review(
+    journal: SigningJournal,
+) -> None:
+    github, outcome = _lost_then(
+        journal, RunApproval("approved", "matorclawson", frozenset({"pypi"}))
+    )
     assert (outcome.status, outcome.reason) == ("done", "already_approved")
     assert github.approvals == [(99, 555)]
+
+
+@pytest.mark.parametrize(
+    "reviews",
+    [
+        (),
+        (RunApproval("approved", "someone-else", frozenset({"pypi"})),),
+        (RunApproval("approved", "matorclawson", frozenset({"testpypi"})),),
+    ],
+)
+def test_a_run_that_moved_on_without_our_approval_stays_ambiguous(
+    journal: SigningJournal, reviews: tuple[RunApproval, ...]
+) -> None:
+    _, outcome = _lost_then(journal, *reviews)
+    assert (outcome.status, outcome.reason) == ("ambiguous", "approve_unreconciled")
+
+
+def test_a_recorded_rejection_closes_the_intent(journal: SigningJournal) -> None:
+    _, outcome = _lost_then(
+        journal, RunApproval("rejected", "matorclawson", frozenset({"pypi"}))
+    )
+    assert (outcome.status, outcome.reason) == ("held", "approval_rejected")
+    assert not journal.is_open(f"approve:{REPO}:0.13.0")
+
+
+def test_unreadable_reviews_stay_ambiguous(journal: SigningJournal) -> None:
+    class Broken(FakeGitHub):
+        def run_approvals(self, repo: str, run_id: int) -> tuple[RunApproval, ...]:
+            raise TargetUnreadableError("down")
+
+    github = Broken(tag=COMMIT, workflow_runs=(WAITING,), approval_result=None)
+    approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    github.workflow_runs = (WorkflowRun("in_progress", None, "v0.13.0", 99),)
+    outcome = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    assert outcome.reason == "approve_unreconciled"
+
+
+def test_a_run_that_isnt_waiting_is_held_not_ok(journal: SigningJournal) -> None:
+    github = _tagged(workflow_runs=(WorkflowRun("in_progress", None, "v0.13.0", 99),))
+    outcome = approve(_manifest(), github, FakePyPI(), APP_ID, journal)
+    assert (outcome.status, outcome.reason) == ("held", "run_not_waiting")
+    assert outcome.facts == {"run_ids": [99]}
+    assert github.approvals == []
+
+
+def test_plan_refuses_a_commit_without_the_workflow() -> None:
+    files = {k: v for k, v in _files_at().items() if not k.startswith(".github/")}
+    outcome = plan(_manifest(), FakeGitHub(files=files), FakePyPI())
+    assert (outcome.status, outcome.reason) == ("refused", "workflow_missing")
+
+
+def test_github_reads_run_approvals() -> None:
+    answer = [
+        {
+            "state": "approved",
+            "user": {"login": "matorclawson"},
+            "environments": [{"name": "pypi"}],
+        }
+    ]
+    runner = Runner(
+        ok(answer),
+        ok([{"state": "approved", "user": {}}]),
+        ok([{"state": "approved", "user": {"login": "x"}, "environments": ["pypi"]}]),
+    )
+    gh = GitHubCli(runner)
+    assert gh.run_approvals(REPO, 99) == (
+        RunApproval("approved", "matorclawson", frozenset({"pypi"})),
+    )
+    assert runner.calls[0][2] == f"repos/{REPO}/actions/runs/99/approvals"
+    for _ in range(2):
+        with pytest.raises(TargetUnreadableError):
+            gh.run_approvals(REPO, 99)
 
 
 @pytest.mark.parametrize("result", ["rejected", "not_sent"])

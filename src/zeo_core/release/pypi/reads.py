@@ -94,6 +94,15 @@ class PendingDeployment:
     can_approve: bool
 
 
+@dataclass(frozen=True)
+class RunApproval:
+    """One review recorded on a run: who, which way, for which environments."""
+
+    state: str  # approved or rejected
+    login: str
+    environments: frozenset[str]
+
+
 #: How an approval ended, when its answer came back.
 ApprovalResult = Literal["approved", "not_sent", "rejected"]
 
@@ -154,6 +163,10 @@ class GitHub(Protocol):
         self, repo: str, run_id: int, environment_id: int, comment: str
     ) -> ApprovalResult:
         """The approve stage's one effect. Raises ``ApprovalAnswerLostError``."""
+        ...
+
+    def run_approvals(self, repo: str, run_id: int) -> tuple[RunApproval, ...]:
+        """The reviews GitHub recorded on a run's deployments."""
         ...
 
     def runs(
@@ -338,6 +351,24 @@ class GitHubCli(GhCli):
                 )
             )
         return tuple(pending)
+
+    def run_approvals(self, repo: str, run_id: int) -> tuple[RunApproval, ...]:
+        listed = self._any(f"repos/{repo}/actions/runs/{run_id}/approvals")
+        found = []
+        for item in _listed(listed, "run approvals"):
+            user = item.get("user") if isinstance(item, dict) else None
+            login = user.get("login") if isinstance(user, dict) else None
+            state = item.get("state") if isinstance(item, dict) else None
+            if not isinstance(login, str) or not isinstance(state, str):
+                raise TargetUnreadableError("a run approval is unreadable")
+            names = set()
+            for env in _listed(item.get("environments"), "approval environments"):
+                name = env.get("name") if isinstance(env, dict) else None
+                if not isinstance(name, str):
+                    raise TargetUnreadableError("an approval environment is unreadable")
+                names.add(name)
+            found.append(RunApproval(state, login, frozenset(names)))
+        return tuple(found)
 
     def approve_deployment(
         self, repo: str, run_id: int, environment_id: int, comment: str
