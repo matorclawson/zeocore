@@ -169,7 +169,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
     Entry(
         "release",
         "the shared signing step and the PyPI adapter; needs the github extra",
-        "zeocore release sign|verify|pack|receive|send|serve < request.json | "
+        "zeocore release sign|verify|pack|receive|send|serve|tree-digest "
+        "< request.json | "
         "zeocore release pypi plan|admit|apply|approve|reconcile|verify < request.json",
         stdin="the step's request, as a JSON object; a wrong field set is refused with "
         "the exact fields it needs",

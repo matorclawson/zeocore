@@ -37,6 +37,87 @@ signing:
 
 A current binding's identifier is always `ac.zeo.<product>.<name>`.
 
+## Bundles
+
+`release_manifest: 2` adds `bundles` beside `executables`: a macOS `.app`,
+signed whole and inside-out (ZEOCORE-SOW-32). A bundle is for the internal
+audience only. Version 1 manifests are unchanged.
+
+```yaml
+signing:
+  release_manifest: 2
+  product: zeoapp
+  bundles:
+    - name: zeoapp
+      path: app/build/Zeo.app
+      bundle_identifier: org.zeroemployee.zeo.operator   # Info.plist's CFBundleIdentifier
+      identifier: org.zeroemployee.zeo.operator          # equals it, for the outer bundle only
+      audience: internal
+      platform: darwin
+      policy: current
+      entitlements: none
+      unsigned_tree_sha256: "…"     # zeocore release tree-digest, at build time
+      main_executable:              # Info.plist's CFBundleExecutable; or: none
+        path: Contents/MacOS/ZEOPlayground
+        unsigned_sha256: "…"
+      nested:                       # every piece of code, by its path inside the .app
+        - path: Contents/Frameworks/libZEOConsoleRenderer.dylib
+          kind: macho
+          unsigned_sha256: "…"      # the file's sha256
+          identifier: ac.zeo.zeoapp.console-renderer
+          entitlements: none
+        - path: Contents/Resources/SwiftTerm_SwiftTerm.bundle
+          kind: bundle              # a codeless resource bundle: still signed
+          unsigned_sha256: "…"      # a nested bundle's subtree tree digest
+          identifier: ac.zeo.zeoapp.swiftterm-resources
+          entitlements: none
+          main_executable: none
+```
+
+- **The outer bundle keeps its own identifier.** `identifier` equals
+  `bundle_identifier`, the one reviewed exception to
+  `ac.zeo.<product>.<name>`. Nested code keeps the rule, and its name, which
+  names its receipt, is the identifier's last part.
+- **The tree digest.** `zeocore release tree-digest < {"path": "app/build/Zeo.app"}`
+  prints `unsigned_tree_sha256`: the sha256 of one line per entry, sorted by
+  path, of the path, its type (`file`, `dir`, `symlink`), its mode (`755` for
+  a directory or a file with any execute bit, `644` otherwise, `-` for a
+  link) and the file's sha256 or the link's target. The pack and the step
+  compute it with the same code.
+- **Links** are allowed inside a bundle only when they are relative and
+  resolve inside it, through any other link. Anything else refuses the bundle
+  as `bundle_unsafe`.
+- **Every piece of code is listed.** Before anything is signed, the step finds
+  every Mach-O file by its magic number, every other file with an execute bit,
+  and every nested `.app`, `.framework`, `.bundle`, `.xpc`, `.appex`,
+  `.plugin`, `.kext`, `.dext` or `.systemextension`. One that isn't listed is
+  `nested_unlisted`. Each item's `kind` is `macho` or `bundle`, and an item
+  that isn't that kind is `nested_missing`, so an executable script can't be
+  listed and refuses the bundle.
+- **A bundle's main executable is its own.** `main_executable` is declared and
+  hashed, for the outer bundle and for each nested bundle, and is never a
+  nested item: listing it is refused. Its path is the file Info.plist's
+  `CFBundleExecutable` names, relative to its bundle: `Contents/MacOS/<name>`,
+  or a framework's binary's real path, such as `Versions/A/<name>`. Info.plist
+  with a `CFBundleExecutable` needs a matching declaration, of a Mach-O file;
+  without one, the declaration is `none`. Anything else is
+  `main_executable_invalid`. It is signed by its bundle's own codesign call
+  and verified after it, under the bundle's identifier.
+- **A codeless resource bundle** (`kind: bundle`, `main_executable: none`) is
+  listed and signed like any nested bundle, with `--identifier`. Its own
+  `CFBundleIdentifier` is kept and isn't checked; only the outer bundle's
+  `bundle_identifier` is checked against its Info.plist.
+- **Signing** copies the bundle to `work_dir/signed/<name>/`, keeping links,
+  signs the nested items deepest first, then the outer bundle. It never uses
+  `--deep`, hardened runtime or a timestamp. Each nested item gets a receipt,
+  and the bundle a receipt naming the signed tree's digest and the sha256 of
+  every nested receipt. A bundle is one unit: a clean failure closes every
+  part of it, so the next run signs a fresh copy; a lost answer is
+  reconciled by reading the whole bundle back.
+- **Admission** counts the bundle once and each nested item once against the
+  16-item limit (a main executable doesn't count), and every identifier, nested ones included, must be declared
+  for the product.
+
 ## Running it
 
 ```console
@@ -130,6 +211,19 @@ A valid Apple signature alone is not enough. For every executable:
   non-match; a syntax or tool error holds as unreadable;
 - the signed entitlements equal the manifest's file: none dropped, none added.
 
+For a bundle, each nested item is checked like that, then the outer bundle,
+and then `codesign --verify --strict --deep` on the whole: `--deep` verifies
+every nested signature and the sealed resources, and is used only to verify.
+The signed tree's digest must match the bundle's receipt, each nested item's
+digest its own receipt, and the bundle's receipt must name each nested
+receipt's sha256. The tree is walked again, so code added after signing is
+refused.
+
+The bundle's verify receipt also carries `spctl`, the `status` and `output` of
+`spctl --assess --type execute -vv`. It is information only: an internal
+bundle isn't notarised, so Gatekeeper rejecting it is expected, and its answer
+never makes a pass or a failure.
+
 The link between the signed file and the unsigned original is the receipt
 chain. Stripping both signatures does not give equal bytes, so a byte-level
 link isn't claimed.
@@ -145,7 +239,7 @@ held or refused.
 | `signing_keychain_locked` | 11 | "unlock the login keychain". Reported only when the keychain's settings say so, never guessed from a codesign error |
 | `signing_attempt_unreconciled` | 13 | an attempt's answer was lost. Nothing is signed again until the candidate is reconciled |
 | `signing_identity_missing`, `signing_failed_unknown`, `journal_unreadable`, `signing_host_*`, `notarisation_unbuilt`, `legacy_policy_unpinned`, `verify_unreadable`, `signing_in_progress` | 20 | held |
-| `not_signed`, `identity_mismatch`, `wrong_audience`, `entitlements_mismatch`, `companion_unsigned`, `input_mismatch`, `signed_digest_mismatch`, `receipt_mismatch`, `receipt_invalid`, `entitlements_invalid`, `platform_signature_unadopted`, `legacy_policy_verify_only` | 20 | refused |
+| `not_signed`, `identity_mismatch`, `wrong_audience`, `entitlements_mismatch`, `companion_unsigned`, `input_mismatch`, `signed_digest_mismatch`, `receipt_mismatch`, `receipt_invalid`, `entitlements_invalid`, `platform_signature_unadopted`, `legacy_policy_verify_only`, `bundle_unsafe`, `nested_unlisted`, `nested_missing`, `main_executable_listed`, `main_executable_invalid`, `bundle_identifier_mismatch` | 20 | refused |
 
 ## Custody
 

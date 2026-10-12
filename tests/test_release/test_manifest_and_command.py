@@ -56,7 +56,7 @@ def _binding(**changes: object) -> dict[str, object]:
         {"target": "x"},
         {
             "signing": {
-                "release_manifest": 2,
+                "release_manifest": 3,
                 "product": "pomar",
                 "executables": [_binding()],
             }

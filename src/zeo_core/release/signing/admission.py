@@ -188,22 +188,34 @@ def admit(
         return Refusal(
             "refused", "caller_unadmitted", "this node may not ask for this product"
         )
-    if len(manifest.executables) > limits.max_executables:
+    # A bundle counts once for itself and once for each nested item (SOW-32 §4).
+    signed = [
+        *((item.identifier, item.audience) for item in manifest.executables),
+        *(
+            (identifier, bundle.audience)
+            for bundle in manifest.bundles
+            for identifier in (
+                bundle.identifier,
+                *(item.identifier for item in bundle.nested),
+            )
+        ),
+    ]
+    if len(signed) > limits.max_executables:
         return Refusal(
             "refused", "request_invalid", "too many executables in one request"
         )
-    for item in manifest.executables:
-        if item.audience != "internal":
+    for identifier, audience in signed:
+        if audience != "internal":
             return Refusal(
                 "refused",
                 "audience_not_unattended",
                 "only internal releases are signed unattended",
             )
-        if item.identifier not in grant.identifiers:
+        if identifier not in grant.identifiers:
             return Refusal(
                 "refused",
                 "identifier_undeclared",
-                f"{item.identifier} is not declared for {request.product}",
+                f"{identifier} is not declared for {request.product}",
             )
     # The repo is the allowlist's, never the request's.
     if request.repo != grant.repo:
