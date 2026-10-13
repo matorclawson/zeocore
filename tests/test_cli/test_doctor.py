@@ -45,7 +45,9 @@ def machine(monkeypatch: pytest.MonkeyPatch) -> InMemorySecureSessionStore:
     monkeypatch.setattr(client, "make_store", lambda profile, **_: store)
     monkeypatch.setattr(client, "make_transport", lambda store: Transport())
     monkeypatch.setattr(client, "now", lambda: NOW)
-    monkeypatch.setattr(doctor, "_extras", lambda: _original_extras(lambda name: None))
+    monkeypatch.setattr(
+        doctor, "_extras", lambda task=None: _original_extras(lambda name: None, task)
+    )
     for name in (
         client.PROFILE_ENV,
         SESSION_FILE_ENV,
@@ -158,18 +160,61 @@ def test_a_bad_origin_fails_and_names_the_two_ways_out(
     assert "evil.example" not in str(answer)
 
 
-def test_a_missing_extra_names_the_install(
-    machine: InMemorySecureSessionStore,
+def _no_requests(
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     def load(name: str) -> None:
         raise ModuleNotFoundError("no requests", name="requests")
 
-    monkeypatch.setattr(doctor, "_extras", lambda: _original_extras(load))
+    monkeypatch.setattr(
+        doctor, "_extras", lambda task=None: _original_extras(load, task)
+    )
+
+
+def test_a_missing_extra_is_optional_unless_the_job_is_release(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _no_requests(monkeypatch)
     status, answer = _doctor(capsys=capsys)
-    assert (status, answer["failing"]) == (20, ["extra:github"])
-    assert _by_name(answer)["extra:github"]["next"] == "pip install 'zeocore[github]'"
+    assert (status, answer["ok"], answer["outcome"], answer["failing"]) == (
+        0,
+        True,
+        "ready",
+        [],
+    )
+    assert "for" not in answer
+    check = _by_name(answer)["extra:github"]
+    assert (check["ok"], check["optional"], check["needed_for"]) == (
+        True,
+        True,
+        ["release"],
+    )
+    assert check["next"] == "pip install 'zeocore[github]'"
+    assert "optional" in check["message"]
+
+
+def test_a_missing_extra_fails_under_for_release_and_names_the_install(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _no_requests(monkeypatch)
+    status, answer = _doctor("--for", "release", capsys=capsys)
+    assert (status, answer["outcome"], answer["failing"]) == (
+        20,
+        "not_ready",
+        ["extra:github"],
+    )
+    assert answer["for"] == "release"
+    check = _by_name(answer)["extra:github"]
+    assert (check["ok"], check["optional"], check["needed_for"]) == (
+        False,
+        False,
+        ["release"],
+    )
+    assert check["next"] == "pip install 'zeocore[github]'"
 
 
 def test_an_import_error_inside_zeocore_is_not_an_extra_problem() -> None:
@@ -406,7 +451,9 @@ def test_only_the_extras_own_packages_are_called_a_missing_extra(
     def load(name: str) -> None:
         raise ModuleNotFoundError("no httpx", name="httpx")
 
-    monkeypatch.setattr(doctor, "_extras", lambda: _original_extras(load))
+    monkeypatch.setattr(
+        doctor, "_extras", lambda task=None: _original_extras(load, task)
+    )
     _, answer = _doctor(capsys=capsys)
     check = _by_name(answer)["extra:github"]
     assert check["next"] == "uv tool install --reinstall zeocore"
@@ -424,9 +471,11 @@ def test_a_real_import_failure_names_the_extra_when_its_package_is_absent(
         "EXTRAS",
         (("release", "fake_release_module", "github", ("requests",)),),
     )
-    check = _original_extras()[0]
+    check = _original_extras(task="release")[0]
     assert check["ok"] is False
     assert check["next"] == "pip install 'zeocore[github]'"
+    optional = _original_extras()[0]
+    assert (optional["ok"], optional["optional"]) == (True, True)
 
 
 def test_the_real_store_and_dispatcher_echo_no_path_or_profile_sentinel(
@@ -542,7 +591,9 @@ def test_a_plain_import_error_is_an_internal_error_with_no_detail(
     def load(name: str) -> None:
         raise ImportError("cannot import name secret-detail")
 
-    monkeypatch.setattr(doctor, "_extras", lambda: _original_extras(load))
+    monkeypatch.setattr(
+        doctor, "_extras", lambda task=None: _original_extras(load, task)
+    )
     with pytest.raises(SystemExit) as stopped:
         main(["doctor"])
     assert stopped.value.code == 1
@@ -550,3 +601,92 @@ def test_a_plain_import_error_is_an_internal_error_with_no_detail(
     last = json.loads(out.splitlines()[-1])
     assert (last["ok"], last["outcome"]) == (False, "internal")
     assert "secret-detail" not in out
+
+
+def test_a_present_extra_passes_in_both_modes(
+    machine: InMemorySecureSessionStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for args in ((), ("--for", "release")):
+        status, answer = _doctor(*args, capsys=capsys)
+        assert (status, answer["failing"]) == (0, [])
+        assert answer.get("for") == (args[1] if args else None)
+        assert "next" not in _by_name(answer)["extra:github"]
+
+
+def test_a_broken_install_fails_in_both_modes(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def load(name: str) -> None:
+        raise ModuleNotFoundError("no httpx", name="httpx")
+
+    monkeypatch.setattr(
+        doctor, "_extras", lambda task=None: _original_extras(load, task)
+    )
+    for args in ((), ("--for", "release")):
+        status, answer = _doctor(*args, capsys=capsys)
+        assert (status, answer["failing"]) == (20, ["extra:github"])
+        assert _by_name(answer)["extra:github"]["next"] == (
+            "uv tool install --reinstall zeocore"
+        )
+
+
+def test_for_with_an_unknown_job_is_refused_without_quoting_it(
+    machine: InMemorySecureSessionStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status, answer = doctor.doctor(["--for", "SENTINEL-JOB"], b"")
+    assert (status, answer["outcome"]) == (2, "invalid_request")
+    assert "SENTINEL-JOB" not in str(answer)
+    assert answer["message"].endswith("zeocore doctor for everything else")
+    assert capsys.readouterr().out == ""  # no check printed first
+
+
+def test_for_with_no_value_is_refused(
+    machine: InMemorySecureSessionStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status, answer = doctor.doctor(["--for"], b"")
+    assert (status, answer["outcome"]) == (2, "invalid_request")
+    assert capsys.readouterr().out == ""
+
+
+def test_a_bad_for_answers_at_once_with_a_stdin_that_never_closes() -> None:
+    """The command line is judged without reading stdin: nothing waits."""
+    process = subprocess.Popen(
+        [sys.executable, "-m", "zeo_core.cli", "doctor", "--for", "nope"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        out, _ = process.communicate(timeout=30)
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        process.kill()
+    assert process.returncode == 2
+    assert json.loads(out.splitlines()[-1])["outcome"] == "invalid_request"
+    assert b"nope" not in out
+
+
+def test_the_catalogue_names_for_with_its_one_choice() -> None:
+    entry = next(entry for entry in ENTRIES if entry.name == "doctor")
+    argument = next(arg for arg in entry.arguments if arg.name == "--for")
+    assert argument.choices == ("release",)
+    assert "[--for release]" in entry.usage
+    assert doctor.TASKS == ("release",)
+
+
+def test_the_dispatcher_carries_for_through_to_the_answer(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _no_requests(monkeypatch)
+    status, answer = run(["doctor", "--for", "release"], lambda: b"")
+    assert (status, answer["for"], answer["schema"]) == (
+        20,
+        "release",
+        "zeocore.doctor/v1",
+    )
+    capsys.readouterr()

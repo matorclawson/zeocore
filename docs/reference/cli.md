@@ -28,7 +28,7 @@ JSON already, so `zeocore help` without `--json` answers the same.
 |---|---|---|
 | `help [--json]` | no | the machine catalogue |
 | `version` | no | the release, `cli_protocol`, the ZEOconnect protocol, the commands |
-| `doctor [--profile P]` | no | is this machine ready: Python, session store, pairing, `ZEOCONNECT_URL`, extras; see below |
+| `doctor [--profile P] [--for release]` | no | is this machine ready: Python, session store, pairing, `ZEOCONNECT_URL`, extras; see below |
 | `schema list` | no | the stable schema names |
 | `schema <name>` | no | that contract as JSON Schema 2020-12 |
 | `validate <name>` | yes | `{"ok": true, "value": …}`, the normalized value, or `{"ok": false, "errors": [{"loc": […], "type": …}]}` |
@@ -55,11 +55,18 @@ fixes it, and `who` when someone other than the caller must act.
 | `zeoconnect_url` | `ZEOCONNECT_URL` is unset or an allowed Broker origin | unset it, or set `ZEOCONNECT_DEVELOPMENT=1` for a development Broker |
 | `session_store` | the Keychain (asked for at most 5 s), or the file `ZEOCORE_SESSION_FILE` names, is readable | how to make the store usable, for that refusal |
 | `pairing` | this profile holds a grant that hasn't expired | `zeocore login`, by `who`: a person, who approves it in ZEOconnect |
-| `extra:github` | `zeocore release` can load | `pip install 'zeocore[github]'` |
+| `extra:github` | `zeocore release` can load; if it can't, the check is **optional** (`ok`, `optional: true`, `needed_for: ["release"]`, with `next`) unless the job is `release` | `pip install 'zeocore[github]'` |
+
+**Which checks matter depends on the job.** An extra that only one command needs is
+reported as optional: it does not make the machine "not ready", so an agent that never
+releases can get a clean pass. `zeocore doctor --for release` names the job: the missing
+`github` extra then fails (`ok: false`, exit 20), and the result carries `"for": "release"`.
+`--for` takes `release` today; any other value is refused with exit 2, without quoting it.
+A package a command needs that is *not* in its extra (a broken install) fails in both modes.
 
 Exit 0 when every check passes, 20 when any fails (for `doctor`, 20 means *not
-ready*), 2 for a `--profile` that can't be used, found before any check prints. Checks
-print as they finish. A
+ready*), 2 for a `--profile` that can't be used or a `--for` it doesn't know, found before
+any check prints. Checks print as they finish. A
 failing `zeoconnect_url` or `session_store` also fails `pairing`, which then says
 it was not checked: with a bad origin `zeocore login` would fail too, so no
 person is named.

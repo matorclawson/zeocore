@@ -30,7 +30,7 @@ The last command answers `{"ok": true, "schema": "zeocore.validate/v1", "value":
 | Get a contract as JSON Schema 2020-12 | `zeocore schema <name>` |
 | Fingerprint a request (RFC 8785 sha256) | `zeocore digest < value.json` |
 | Run a ZEOconnect operation | `zeocore invoke <operation_id> --connection C [--wait-approval SECONDS] < arguments.json` |
-| Check this machine is ready (Python, session store, pairing, Broker URL, extras), each failure with its fix | `zeocore doctor` |
+| Check this machine is ready (Python, session store, pairing, Broker URL, extras), each failure with its fix; which checks matter depends on the job: before releasing use `zeocore doctor --for release` (it makes the `github` extra required), otherwise that extra is optional | `zeocore doctor` |
 | Check pairing and connections | `zeocore whoami`, then `zeocore connections` (pair first with `zeocore login`) |
 
 **Exit codes**, the same for every command, also listed in `help --json`:

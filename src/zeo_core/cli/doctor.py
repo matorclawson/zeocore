@@ -7,6 +7,11 @@ never prints a token, a path or a value from the environment. A check that
 fails names the exact next command, and ``who`` when someone other than the
 caller must act.
 
+Which checks matter depends on the job. An extra that only one command needs
+(the ``github`` extra, for ``release``) is reported as optional, ``ok`` with
+its install command, unless the job is named: ``zeocore doctor --for release``
+fails on it. So an agent that never releases can get a clean pass.
+
 Each check is an event line (``{"event": "check", ...}``); the result is last
 and carries the same checks, so one line is enough for a caller that doesn't
 stream. Exit 0 when every check passes, 20 when any fails (for doctor, 20 means
@@ -21,7 +26,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
-from typing import Any, Final
+from typing import Any, Final, NoReturn
 
 from zeo_core.connections.adapters.subprocess_runner import RealSubprocessRunner
 from zeo_core.integrations.hosted.file_store import SESSION_FILE_ENV
@@ -41,7 +46,7 @@ from .protocol import (
     ArgumentsError,
     Emit,
     emit,
-    invalid,
+    own_action,
 )
 
 #: The Python the package supports; a test holds it to ``requires-python``.
@@ -49,6 +54,8 @@ PYTHON_FLOOR: Final = (3, 14)
 #: The commands that need an extra: the command, the module it loads, the extra
 #: and the third-party packages that extra installs.
 EXTRAS: Final = (("release", "zeo_core.cli.release", "github", ("requests",)),)
+#: The jobs ``--for`` names: each is a command whose extra then becomes required.
+TASKS: Final = tuple(command for command, *_ in EXTRAS)
 #: How long the Keychain may take. A locked login Keychain can wait on a dialog.
 KEYCHAIN_TIMEOUT: Final = 5.0
 ORIGIN_FIX: Final = (
@@ -66,10 +73,13 @@ def _check(
     *,
     next_command: str | None = None,
     who: str | None = None,
+    keep_next: bool = False,
     **detail: Any,  # noqa: ANN401 -- small JSON facts: never a secret
 ) -> Check:
     check: Check = {"check": name, "ok": ok, "message": message, **detail}
-    if not ok and next_command is not None:
+    # A passing check carries no next step, except an optional one: the way to
+    # get the optional thing is its next command.
+    if (not ok or keep_next) and next_command is not None:
         check["next"] = next_command
     if not ok and who is not None:
         check["who"] = who
@@ -253,8 +263,15 @@ def _origin() -> Check:
     )
 
 
-def _extras(load: Callable[[str], object] = importlib.import_module) -> list[Check]:
-    """One check per command that needs an extra, by loading what it loads."""
+def _extras(
+    load: Callable[[str], object] = importlib.import_module,
+    task: str | None = None,
+) -> list[Check]:
+    """One check per command that needs an extra, by loading what it loads.
+
+    A missing extra fails only when ``task`` is the command that needs it;
+    otherwise it is optional: ``ok``, with the command that installs it.
+    """
     checks: list[Check] = []
     for command, module, extra, packages in EXTRAS:
         try:
@@ -264,13 +281,20 @@ def _extras(load: Callable[[str], object] = importlib.import_module) -> list[Che
             if name.startswith("zeo_core"):
                 raise
             if name.split(".")[0] in packages:
+                needed = task == command
                 checks.append(
                     _check(
                         f"extra:{extra}",
-                        False,
-                        f"zeocore {command} needs the {extra} extra",
+                        not needed,
+                        f"zeocore {command} needs the {extra} extra"
+                        if needed
+                        else f"zeocore {command} needs the {extra} extra: "
+                        f"optional here, only {command} uses it",
                         next_command=f"pip install 'zeocore[{extra}]'",
+                        keep_next=True,
                         command=command,
+                        optional=not needed,
+                        needed_for=[command],
                     )
                 )
             else:
@@ -295,9 +319,26 @@ def _extras(load: Callable[[str], object] = importlib.import_module) -> list[Che
     return checks
 
 
+class _DoctorArguments(Arguments):
+    """Arguments whose refusal of a ``--for`` value never quotes the value."""
+
+    def error(self, message: str) -> NoReturn:
+        if "invalid choice" in message:
+            raise ArgumentsError(
+                own_action(
+                    "--for takes one job, "
+                    + ", ".join(TASKS)
+                    + "; run zeocore doctor --for release before releasing, or "
+                    "zeocore doctor for everything else"
+                )
+            )
+        super().error(message)
+
+
 def doctor(args: Sequence[str], _stdin: bytes, *, out: Emit = emit) -> Answer:
-    parser = Arguments("zeocore doctor")
+    parser = _DoctorArguments("zeocore doctor")
     parser.add_argument("--profile")
+    parser.add_argument("--for", dest="task", choices=TASKS)
     checks: list[Check] = []
 
     def report(*found: Check) -> None:
@@ -306,8 +347,9 @@ def doctor(args: Sequence[str], _stdin: bytes, *, out: Emit = emit) -> Answer:
             out({"event": "check", **check})
 
     try:
-        selected = parser.parse_args(list(args)).profile
-        profile = selected or os.environ.get(client.PROFILE_ENV) or None
+        parsed = parser.parse_args(list(args))
+        task: str | None = parsed.task
+        profile = parsed.profile or os.environ.get(client.PROFILE_ENV) or None
         _validate_profile(profile)
         report(_python())
         origin = _origin()
@@ -315,13 +357,19 @@ def doctor(args: Sequence[str], _stdin: bytes, *, out: Emit = emit) -> Answer:
         session_check, session, store_ok = _session(profile)
         report(session_check)
         report(_pairing(session, store_ok=store_ok, origin_ok=origin["ok"]))
-        report(*_extras())
+        report(*_extras(task=task))
     except ArgumentsError as error:
-        return invalid(str(error))
+        return error.answer()
     failing = [check["check"] for check in checks if not check["ok"]]
-    return (EXIT_HELD if failing else EXIT_DONE), {
-        "ok": not failing,
-        "outcome": "not_ready" if failing else "ready",
-        "failing": failing,
-        "checks": checks,
-    }
+    answer: Answer = (
+        (EXIT_HELD if failing else EXIT_DONE),
+        {
+            "ok": not failing,
+            "outcome": "not_ready" if failing else "ready",
+            "failing": failing,
+            "checks": checks,
+        },
+    )
+    if task is not None:
+        answer[1]["for"] = task
+    return answer

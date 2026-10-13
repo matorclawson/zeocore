@@ -111,9 +111,18 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "is this machine ready? one local, read-only check per line (Python, "
         "session store, pairing, ZEOCONNECT_URL, extras); a failing check "
         "names its next command, and who must act when it isn't you; exit 0 "
-        "when ready, 20 when not ready",
-        "zeocore doctor [--profile P]",
-        arguments=(_PROFILE,),
+        "when ready, 20 when not ready; an extra only one command needs is "
+        "optional (ok, with its install command) unless --for names that job",
+        "zeocore doctor [--profile P] [--for release]",
+        arguments=(
+            _PROFILE,
+            Argument(
+                "--for",
+                "the job to check the machine for: release makes a missing "
+                "github extra fail; without it that extra is optional",
+                choices=("release",),
+            ),
+        ),
     ),
     Entry(
         "schema",
