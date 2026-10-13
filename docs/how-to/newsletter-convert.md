@@ -36,13 +36,25 @@ decoded.sender_verified, decoded.authentication
 It uses the standard library `email` package only. It extracts no attachment and
 follows no link. A message with over 256 KiB of headers, over 1000 headers, over 64
 parts or nested deeper than 8 levels is refused, and so is anything the email package
-cannot read.
+cannot read. The header lines and the `Content-Type` headers are counted **before** the
+message is parsed, and the parser is fed 64 KiB at a time with the deadline
+(`timeout_s`, 30 s) checked between pieces.
+
+**Time is bounded in-process, not absolutely.** The email package cannot be interrupted
+inside one 64 KiB piece, and BeautifulSoup cannot be interrupted while it parses. For
+mail from a source you do not trust, call these functions under your own watchdog (a
+process or thread timeout). A child process with a resource limit is a planned
+follow-up.
 
 **The sender is a claim.** `From` can say anything. `sender_verified` is `True` only
 when Gmail's own mail server reported `dmarc=pass` for the same domain as the
 `From` address. It reads **only the topmost** `Authentication-Results` header, and only
 when its authserv-id is `mx.google.com`: Gmail adds its own header at the top, so any
-header below it was written by the sender or a hop on the way, and is ignored.
+header below it was written by the sender or a hop on the way, and is ignored. The
+value is tokenised as RFC 8601 says: a quoted string is one token and a comment is
+dropped, so a `;` or `dmarc=pass` inside either can never start a result. A method
+that appears more than once is `ambiguous`, and so is not verified; `dmarc_header_from`
+is set only for a single `dmarc` result with exactly one `header.from`.
 `list_unsubscribe` is kept as text for the record and is never an action.
 
 ## Convert HTML to Markdown
@@ -69,6 +81,9 @@ What it does, in order:
    `hidden_mso`, `hidden_zero_size`, `hidden_offscreen`, `hidden_clip`,
    `hidden_color_match`, `hidden_style_class`, `hidden_attribute`). Rules inside
    `@media` are not applied, because they may hide content only on a small screen.
+   A `style` attribute or rule longer than 4096 characters is **not parsed** (padding
+   must not cost time) and is counted in `stripped["style_oversize"]`. Every pass
+   checks the deadline per element.
 4. Removes tracking pixels, and images whose source is not http(s) (`file:`, `data:`,
    `cid:`).
 5. Flattens layout tables (pandoc would print a table it cannot draw as `[TABLE]`).
@@ -119,11 +134,15 @@ Anything else is a typed refusal that names the construct, never a silent rewrit
   allowed nodes. Pandoc's writer would add `figure`, `section`, `span`, `div`, `class`,
   `id` and footnotes; none of that can reach the output.
 - A Python check then parses the HTML and refuses any tag, attribute, `javascript:` or
-  `data:` link, bare-IP host, user name in an address, mailto with parameters, one-pixel
-  image or unbalanced tag.
+  `data:` link, IP host (also with a trailing dot, percent-encoded, or written as a
+  decimal, hex or octal number), non-ASCII host, user name in an address, mailto with
+  parameters, no address or more than one, one-pixel image, link with no visible text
+  (an image link's text is its alt text), self-closed or unfinished tag, and any C0,
+  C1 or bidirectional control character, written out or as a character reference.
 - Markdown cannot carry an image's size once attributes are off, so you pass
-  `image_sizes` by exact source; an image with no entry is refused. An ordered list is
-  always numbered from 1.
+  `image_sizes` by exact source; an image with no entry is refused. The reader keeps no
+  list start number, so an ordered list that does not start at 1 is refused
+  (`ordered_list_start`): start it at 1.
 - GFM extras (footnotes, tables, task lists, emoji, bare addresses, math) are not
   features of this reader: they come out as plain text, or are refused by name.
 
@@ -131,7 +150,11 @@ Anything else is a typed refusal that names the construct, never a silent rewrit
 version and the sha256 of the binary that ran, the sha256 of the filter, the exact
 flags, and the subset's version; `renderer_digest` is the sha256 of that tuple. The
 binary and the filter are **copied into a private directory and hashed and run as
-copies**, so the tuple names the bytes that ran. Pass `expected_renderer_digest` to
+copies**, so the tuple names the bytes that ran. The `pandoc` on `PATH` is only read
+and hashed, never executed: it is copied, the copy is hashed and must match, and only
+the copy is asked for its version and run (the convert step runs the same verified
+copy). The copy is made once per process and is checked before every run; a copy that
+was modified is refused. Pass `expected_renderer_digest` to
 refuse a different renderer before anything runs. The output is deterministic for a
 given tuple. A new pandoc, filter or flag is a new tuple, so a new artifact that
 voids earlier marks: expect the digest to change when pandoc is upgraded.
@@ -158,6 +181,13 @@ working directory, and they do not rely on the sandbox alone.
   and render an input that names an unreadable local file (as `file://`, an absolute
   path and a relative path) and checks that nothing from it, and no `data:`, reaches
   the output.
+
+## The child process
+
+Pandoc runs in its own process group, with bounded reads: its output may not pass 8 MB
+(`output_too_large`) and its error text is capped at 1 MiB, which is read and never
+returned. A timeout or an overrun kills the whole group, so nothing pandoc started
+outlives the call.
 
 ## Refusals
 

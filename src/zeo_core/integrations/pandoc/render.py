@@ -26,6 +26,7 @@ any of them is a new tuple, so a new artifact.
 from __future__ import annotations
 
 import hashlib
+import html as html_module
 import ipaddress
 import json
 import re
@@ -36,9 +37,9 @@ from html.parser import HTMLParser
 from importlib import resources
 from pathlib import Path
 from typing import Final
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
-from zeo_core.integrations.pandoc._runner import find_pandoc, private_copy, run_pandoc
+from zeo_core.integrations.pandoc._runner import find_pandoc, run_pandoc
 from zeo_core.integrations.pandoc.refusals import refusal
 
 DEFAULT_MAX_BYTES: Final = 1_000_000
@@ -74,8 +75,19 @@ _ATTRS: Final = {
 }
 _SIZE_MIN: Final = 2
 _SIZE_MAX: Final = 10_000
-_CONTROL: Final = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+#: C0 controls (but not tab, line feed or carriage return), DEL, the C1 controls, and
+#: the bidirectional marks, embeddings, overrides and isolates: none may reach a reader
+#: or a link, because each can make text read differently from what it is.
+_CONTROL: Final = re.compile(
+    "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]"
+)
 _DECIMAL_HOST: Final = re.compile(r"^(0x[0-9a-f]+|\d+)(\.(0x[0-9a-f]+|\d+))*$", re.I)
+#: Characters that read as nothing: a link whose text is only these has no text.
+_BLANK: Final = re.compile(
+    "[\\s\u00a0\u200b-\u200d\u2060\ufeff\u00ad\u034f\u115f\u1160\u3164]*"
+)
+_ORDERED_ITEM: Final = re.compile(r"^ {0,3}(\d{1,9})[.)](?:[ \t]|$)")
+_MAILBOX: Final = re.compile(r"^[^@,;\s]+@[^@,;\s]+$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,12 +108,38 @@ class RenderedHtml:
 
 
 def _is_ip_host(host: str) -> bool:
-    bare = host.strip("[]")
+    bare = host.strip("[]").rstrip(".")
     try:
         ipaddress.ip_address(bare)
     except ValueError:
         return bool(_DECIMAL_HOST.match(bare))
     return True
+
+
+def _check_host(host: str, ip_code: str) -> None:
+    """A host must be plain ASCII, never percent-encoded, and never an IP address."""
+    if not host.isascii():
+        raise refusal("link_invalid")
+    decoded = host
+    for _ in range(3):  # a host can be encoded more than once
+        again = unquote(decoded)
+        if again == decoded:
+            break
+        decoded = again
+    if decoded != host or "%" in host:
+        raise refusal(ip_code if _is_ip_host(decoded) else "link_invalid")
+    if _is_ip_host(host):
+        raise refusal(ip_code)
+
+
+def _check_mailto(url: str) -> None:
+    """One plain address: no parameters, no empty address, no second recipient."""
+    rest = url.partition(":")[2]
+    if "?" in rest or "#" in rest:
+        raise refusal("link_mailto_query")
+    address = unquote(rest)
+    if _CONTROL.search(address) or not _MAILBOX.fullmatch(address):
+        raise refusal("link_mailto_invalid")
 
 
 def _check_url(url: str, *, image: bool) -> None:
@@ -111,21 +149,23 @@ def _check_url(url: str, *, image: bool) -> None:
     )
     if not url or re.search(r"\s", url) or _CONTROL.search(url):
         raise refusal("link_invalid")
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        userinfo = parts.username is not None or parts.password is not None
+    except ValueError as error:
+        raise refusal("link_invalid") from error
     scheme = parts.scheme.lower()
     if scheme == "mailto" and not image:
-        if "?" in url:
-            raise refusal("link_mailto_query")
+        _check_mailto(url)
         return
     if scheme != "https":
         raise refusal(scheme_code)
-    host = parts.hostname or ""
     if not host:
         raise refusal("link_invalid")
-    if parts.username is not None or parts.password is not None:
+    if userinfo:
         raise refusal("link_userinfo")
-    if _is_ip_host(host):
-        raise refusal(ip_code)
+    _check_host(host, ip_code)
 
 
 def _check_image(attrs: dict[str, str]) -> None:
@@ -153,8 +193,19 @@ class _SubsetChecker(HTMLParser):
     """Refuses any tag, attribute, link or image outside the email subset."""
 
     def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
+        # Entities are NOT converted: a real ``<`` in the text is always written
+        # ``&lt;``, so a bare ``<`` here is a tag that never finished.
+        super().__init__(convert_charrefs=False)
         self._stack: list[str] = []
+        self._anchors: list[list[str]] = []  # the visible text of each open <a>
+
+    def _text(self, text: str, *, literal: bool = False) -> None:
+        if _CONTROL.search(text):
+            raise refusal("control_character")
+        if "<" in text and not literal:
+            raise refusal("html_unbalanced")
+        for buffer in self._anchors:
+            buffer.append(text)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag not in ALLOWED_TAGS:
@@ -166,23 +217,41 @@ class _SubsetChecker(HTMLParser):
             values[name] = value or ""
         if tag == "a":
             _check_url(values.get("href", ""), image=False)
+            self._anchors.append([])
         elif tag == "img":
             _check_image(values)
+            self._text(values["alt"])  # an image link's text is its alt text
         if tag not in _VOID:
             self._stack.append(tag)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
-        if tag not in _VOID:
-            self.handle_endtag(tag)
+        if tag not in _VOID:  # ``<a/>`` is an open tag in HTML, never a closed one
+            raise refusal("html_unbalanced")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in _VOID or not self._stack or self._stack.pop() != tag:
             raise refusal("html_unbalanced")
+        if tag == "a":
+            if _BLANK.fullmatch("".join(self._anchors.pop())):
+                raise refusal("link_text_missing")
 
     def handle_data(self, data: str) -> None:
-        if _CONTROL.search(data):
+        self._text(data)
+
+    def handle_entityref(self, name: str) -> None:
+        self._text(html_module.unescape(f"&{name};"), literal=True)
+
+    def handle_charref(self, name: str) -> None:
+        # The number itself is judged: HTML maps ``&#x85;`` to an ellipsis and drops
+        # ``&#1;``, but another reader may take the control character.
+        try:
+            code = int(name[1:], 16) if name[:1] in "xX" else int(name)
+        except ValueError as error:
+            raise refusal("html_unbalanced") from error
+        if code <= 0x10FFFF and _CONTROL.search(chr(code)):
             raise refusal("control_character")
+        self._text(html_module.unescape(f"&#{name};"), literal=True)
 
     def handle_comment(self, data: str) -> None:
         raise refusal("html_comment")
@@ -198,7 +267,7 @@ class _SubsetChecker(HTMLParser):
 
     def finish(self) -> None:
         self.close()
-        if self._stack:
+        if self._stack or self._anchors or self.rawdata.strip():
             raise refusal("html_unbalanced")
 
 
@@ -207,6 +276,9 @@ def check_email_subset(html_text: str) -> None:
     checker = _SubsetChecker()
     checker.feed(html_text)
     checker.finish()
+    # Whatever the parser dropped at the end, a ``<`` is only ever a whole tag.
+    if "<" in re.sub(r"<[^<>]*>", "", html_text):
+        raise refusal("html_unbalanced")
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +305,29 @@ def _sizes_argument(image_sizes: Mapping[str, tuple[int, int]] | None) -> str | 
     return "\n".join(lines)
 
 
+def _check_ordered_lists(markdown: str) -> None:
+    """
+    Refuse an ordered list that does not start at 1.
+
+    ``markdown_strict`` keeps no start number, so ``3.`` would be silently renumbered
+    from 1. A line starts a list when it follows a blank line (or the start), or
+    continues a list already open; its number must then be 1.
+    """
+    blank, open_list = True, False
+    for line in markdown.split("\n"):
+        if not line.strip():
+            blank = True
+            continue
+        found = _ORDERED_ITEM.match(line)
+        if found is not None and (blank or open_list):
+            if not open_list and int(found.group(1)) != 1:
+                raise refusal("ordered_list_start")
+            open_list = True
+        elif blank and not line.startswith((" ", "\t")):
+            open_list = False  # a paragraph after a blank line ends the list
+        blank = False
+
+
 def _check_markdown(markdown: str, max_bytes: int) -> bytes:
     if not isinstance(markdown, str) or not markdown.strip():
         raise refusal("markdown_empty")
@@ -241,6 +336,7 @@ def _check_markdown(markdown: str, max_bytes: int) -> bytes:
     data = markdown.encode("utf-8", "replace")
     if len(data) > max_bytes:
         raise refusal("markdown_too_large")
+    _check_ordered_lists(markdown)
     return data
 
 
@@ -309,8 +405,7 @@ def render_email_html(
     """
     data = _check_markdown(markdown, max_bytes)
     sizes = _sizes_argument(image_sizes)
-    found = find_pandoc()
-    binary = private_copy(found)
+    binary = find_pandoc()
     with tempfile.TemporaryDirectory(prefix="zeocore-filter-") as work:
         filter_path, filter_sha256 = _private_filter(Path(work))
         renderer = _tuple(binary.version, binary.sha256, filter_sha256)

@@ -23,6 +23,11 @@ from zeo_core.integrations.pandoc._noise import Noise
 #: How far up to look for a background colour.
 _ANCESTORS: Final = 20
 
+#: The longest style attribute or style rule body that is examined. A longer one is
+#: not parsed at all (an attacker's padding must not cost time) and is counted.
+STYLE_MAX_CHARS: Final = 4096
+_SELECTOR_MAX_CHARS: Final = 256
+
 _NAMED: Final = {
     "white": "#ffffff",
     "black": "#000000",
@@ -38,7 +43,8 @@ def squash(style: str) -> str:
     return re.sub(r"\s+", "", style.lower())
 
 
-def _declarations(style: str) -> dict[str, str]:
+def declarations(style: str) -> dict[str, str]:
+    """The ``name: value`` pairs of a style, lower-cased, without ``!important``."""
     out: dict[str, str] = {}
     for part in squash(style).split(";"):
         name, sep, value = part.partition(":")
@@ -60,7 +66,9 @@ def _norm_color(value: str) -> str:
 
 
 def _background(style: str, attr: Any) -> str:  # noqa: ANN401
-    decl = _declarations(style)
+    if len(style) > STYLE_MAX_CHARS:
+        return ""
+    decl = declarations(style)
     value = decl.get("background-color") or decl.get("background", "")
     if not value and attr:
         value = squash(str(attr))
@@ -81,6 +89,8 @@ def _bg_of_ancestors(tag: Any) -> str:  # noqa: ANN401
 
 
 def _style_kind(style: str, noise: Noise) -> str | None:
+    if len(style) > STYLE_MAX_CHARS:
+        return None
     squashed = squash(style)
     for kind, pattern in noise.hidden_patterns:
         if pattern.search(squashed):
@@ -89,7 +99,7 @@ def _style_kind(style: str, noise: Noise) -> str | None:
 
 
 def _same_colour(tag: Any, style: str) -> bool:  # noqa: ANN401
-    colour = _norm_color(_declarations(style).get("color", ""))
+    colour = _norm_color(declarations(style).get("color", ""))
     return bool(colour) and colour == _bg_of_ancestors(tag)
 
 
@@ -124,7 +134,7 @@ def _record(
     classes: dict[str, str],
     ids: dict[str, str],
 ) -> None:
-    if selector.startswith("@"):
+    if selector.startswith("@") or len(selector) > _SELECTOR_MAX_CHARS:
         return
     kind = _style_kind(body, noise)
     if kind is None:
@@ -144,7 +154,7 @@ def hidden_kind(
     if tag.has_attr("hidden"):
         return "attribute"
     style = str(tag.get("style", ""))
-    if style:
+    if style and len(style) <= STYLE_MAX_CHARS:
         kind = _style_kind(style, noise)
         if kind is not None:
             return kind

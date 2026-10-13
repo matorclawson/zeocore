@@ -68,10 +68,16 @@ COUNT_KEYS: Final = (
     "unsafe_links",
     "unsafe_images",
     "tables_flattened",
+    "style_oversize",
 )
-_PIXEL_STYLE: Final = re.compile(
-    r"width:\s*[01]px.*height:\s*[01]px|height:\s*[01]px.*width:\s*[01]px"
-)
+_PIXEL_SIZES: Final = frozenset({"0", "0px", "1", "1px"})
+
+#: A footer line is short; a longer text node is a paragraph, and only its first
+#: characters are searched, so a hostile node cannot make a pattern slow.
+_FOOTER_SCAN_CHARS: Final = 2000
+
+#: How many redirector wrappers one address may be unwrapped through.
+MAX_UNWRAP: Final = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,11 +124,14 @@ def host_matches(host: str, suffixes: tuple[str, ...]) -> bool:
 # --- the bounds --------------------------------------------------------------
 
 
-def check_bounds(text: str, soup: Any) -> None:  # noqa: ANN401
+def check_bounds(text: str, soup: Any, deadline: Deadline) -> None:  # noqa: ANN401
     """Refuse a document with too many elements or too deep a nesting."""
-    count, deepest = 0, 0
+    count, deepest, steps = 0, 0, 0
     stack: list[tuple[Any, int]] = [(soup, 0)]
     while stack:
+        steps += 1
+        if steps % 256 == 0:
+            deadline.check()
         node, depth = stack.pop()
         deepest = max(deepest, depth)
         for child in getattr(node, "children", ()):
@@ -142,30 +151,48 @@ def precheck(text: str) -> None:
 # --- passes ------------------------------------------------------------------
 
 
-def drop_tags(soup: Any, counts: dict[str, int], noise: Noise) -> None:  # noqa: ANN401
+def drop_tags(
+    soup: Any,  # noqa: ANN401
+    counts: dict[str, int],
+    noise: Noise,
+    deadline: Deadline,
+) -> None:
     """Remove scripts, styles, frames, forms and form controls, and the head."""
     for tag in soup.find_all([*_DROPPED, *noise.form_tags]):
+        deadline.check()
         if gone(tag):
             continue
         counts[_DROPPED.get(tag.name, "forms")] += 1
         tag.decompose()
     for tag in soup.find_all(list(_SILENT)):  # the head: its title is already taken
+        deadline.check()
         if not gone(tag):
             tag.decompose()
 
 
-def drop_comments(soup: Any, bs4: Any, counts: dict[str, int]) -> None:  # noqa: ANN401
+def drop_comments(
+    soup: Any,  # noqa: ANN401
+    bs4: Any,  # noqa: ANN401
+    counts: dict[str, int],
+    deadline: Deadline,
+) -> None:
     """Remove HTML comments."""
     for node in soup.find_all(string=lambda s: isinstance(s, bs4.Comment)):
+        deadline.check()
         counts["comments"] += 1
         node.extract()
 
 
-def css_rules(soup: Any, noise: Noise) -> tuple[dict[str, str], dict[str, str]]:  # noqa: ANN401
+def css_rules(
+    soup: Any,  # noqa: ANN401
+    noise: Noise,
+    deadline: Deadline,
+) -> tuple[dict[str, str], dict[str, str]]:
     """The hiding ``.class`` and ``#id`` rules from every ``<style>`` block."""
     classes: dict[str, str] = {}
     ids: dict[str, str] = {}
     for block in soup.find_all("style"):
+        deadline.check()
         found_classes, found_ids = _hidden.style_rules(block.get_text(), noise)
         classes.update(found_classes)
         ids.update(found_ids)
@@ -181,11 +208,12 @@ def drop_hidden(
 ) -> None:
     """Remove elements a reader cannot see, counting each kind."""
     classes, ids = rules
-    for index, tag in enumerate(soup.find_all(True)):
-        if index % 500 == 0:
-            deadline.check()
+    for tag in soup.find_all(True):
+        deadline.check()
         if gone(tag):
             continue
+        if len(str(tag.get("style", ""))) > _hidden.STYLE_MAX_CHARS:
+            counts["style_oversize"] += 1  # not parsed: see STYLE_MAX_CHARS
         kind = _hidden.hidden_kind(tag, noise, classes, ids)
         if kind is not None:
             counts["hidden"] += 1
@@ -202,15 +230,26 @@ def _is_pixel(img: Any, noise: Noise) -> bool:  # noqa: ANN401
     width, height = _size_of(img.get("width")), _size_of(img.get("height"))
     if width is not None and height is not None and width <= 1 and height <= 1:
         return True
-    if _PIXEL_STYLE.search(_hidden.squash(str(img.get("style", "")))):
-        return True
+    style = str(img.get("style", ""))
+    if len(style) <= _hidden.STYLE_MAX_CHARS:  # a longer style is not parsed
+        declared = _hidden.declarations(style)
+        if declared.get("width") in _PIXEL_SIZES and declared.get("height") in (
+            _PIXEL_SIZES
+        ):
+            return True
     host = urlsplit(str(img.get("src", "")).strip()).hostname or ""
     return bool(host) and host_matches(host, noise.pixel_hosts)
 
 
-def drop_images(soup: Any, noise: Noise, counts: dict[str, int]) -> None:  # noqa: ANN401
+def drop_images(
+    soup: Any,  # noqa: ANN401
+    noise: Noise,
+    counts: dict[str, int],
+    deadline: Deadline,
+) -> None:
     """Remove tracking pixels, and images whose source is not http(s)."""
     for img in soup.find_all("img"):
+        deadline.check()
         if gone(img):
             continue
         src = str(img.get("src", "")).strip()
@@ -222,7 +261,11 @@ def drop_images(soup: Any, noise: Noise, counts: dict[str, int]) -> None:  # noq
             img.decompose()
 
 
-def flatten_tables(soup: Any, counts: dict[str, int]) -> None:  # noqa: ANN401
+def flatten_tables(
+    soup: Any,  # noqa: ANN401
+    counts: dict[str, int],
+    deadline: Deadline,
+) -> None:
     """
     Turn table markup into plain blocks.
 
@@ -231,9 +274,11 @@ def flatten_tables(soup: Any, counts: dict[str, int]) -> None:  # noqa: ANN401
     every cell's text in reading order; a real data table loses its columns.
     """
     for table in soup.find_all("table"):
+        deadline.check()
         if not gone(table):
             counts["tables_flattened"] += 1
     for tag in soup.find_all(list(_TABLE_TAGS)):
+        deadline.check()
         if not gone(tag):
             tag.name = "div"
 
@@ -248,6 +293,13 @@ def _footer_target(node: Any) -> Any:  # noqa: ANN401
     return node.parent
 
 
+def _scanned(nodes: Any, deadline: Deadline) -> Any:  # noqa: ANN401
+    for index, node in enumerate(nodes):
+        if index % 100 == 0:
+            deadline.check()
+        yield node
+
+
 def drop_footers(
     soup: Any,  # noqa: ANN401
     noise: Noise,
@@ -257,8 +309,8 @@ def drop_footers(
     """Remove the unsubscribe, 'view in browser' and preference lines."""
     hits = [
         node
-        for node in soup.find_all(string=True)
-        if any(p.search(str(node)) for p in noise.footer_patterns)
+        for node in _scanned(soup.find_all(string=True), deadline)
+        if any(p.search(str(node)[:_FOOTER_SCAN_CHARS]) for p in noise.footer_patterns)
     ]
     for index, node in enumerate(hits):
         if index % 100 == 0:
@@ -286,12 +338,17 @@ def _unwrap_redirect(parts: Any, noise: Noise) -> str | None:  # noqa: ANN401
     return None
 
 
-def clean_url(url: str, noise: Noise) -> tuple[str, bool]:
-    """The address without tracking parameters or a known redirector; and if changed."""
+def clean_url(url: str, noise: Noise, _depth: int = 0) -> tuple[str, bool]:
+    """
+    The address without tracking parameters or a known redirector; and if changed.
+
+    A redirector is unwrapped at most ``MAX_UNWRAP`` times, so an address that wraps
+    itself again and again cannot recurse without end; past that it is only stripped.
+    """
     parts = urlsplit(url)
-    target = _unwrap_redirect(parts, noise)
+    target = _unwrap_redirect(parts, noise) if _depth < MAX_UNWRAP else None
     if target is not None:
-        return clean_url(target, noise)[0], True
+        return clean_url(target, noise, _depth + 1)[0], True
     kept = [
         (k, v)
         for k, v in parse_qsl(parts.query, keep_blank_values=True)
@@ -317,6 +374,7 @@ def clean_links(
     soup: Any,  # noqa: ANN401
     noise: Noise,
     counts: dict[str, int],
+    deadline: Deadline,
 ) -> tuple[list[ConvertedLink], int]:
     """
     Clean every link, and list them; and how many go through an opaque tracker.
@@ -326,6 +384,7 @@ def clean_links(
     links: list[ConvertedLink] = []
     opaque_count = 0
     for anchor in soup.find_all("a"):
+        deadline.check()
         original = str(anchor.get("href", "")).strip()
         if not original:
             continue

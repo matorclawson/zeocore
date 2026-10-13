@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 
@@ -191,22 +192,19 @@ def test_a_timeout_is_a_typed_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
     def slow(*args: object, **kwargs: object) -> object:
         raise subprocess.TimeoutExpired(cmd="pandoc", timeout=0.01)
 
-    monkeypatch.setattr(_runner.subprocess, "run", slow)
+    monkeypatch.setattr(_runner, "_run_child", slow)
     with pytest.raises(NewsletterRefusalError) as caught:
         _convert("<p>x</p>", timeout_s=0.01)
     assert caught.value.code == "pandoc_timeout"
 
 
 def test_a_pandoc_failure_is_a_typed_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
-    binary = _runner.find_pandoc()
-    real = subprocess.run
+    _runner.find_pandoc()
 
     def failing(args: list[str], *a: Any, **kw: Any) -> Any:  # noqa: ANN401
-        if args and args[0] == binary.path and "--version" not in args:
-            return subprocess.CompletedProcess(args, 64, b"", b"SECRET-SENTINEL text")
-        return real(args, *a, **kw)
+        return subprocess.CompletedProcess(args, 64, b"", b"SECRET-SENTINEL text")
 
-    monkeypatch.setattr(_runner.subprocess, "run", failing)
+    monkeypatch.setattr(_runner, "_run_child", failing)
     with pytest.raises(NewsletterRefusalError) as caught:
         _convert("<p>x</p>")
     assert caught.value.code == "pandoc_failed"
@@ -219,7 +217,7 @@ def test_missing_and_old_pandoc_are_refused(monkeypatch: pytest.MonkeyPatch) -> 
         _convert("<p>x</p>")
     assert missing.value.code == "pandoc_missing"
     monkeypatch.undo()
-    monkeypatch.setattr(_runner, "_CACHE", {})
+    monkeypatch.setattr(_runner, "_PRIVATE", {})
     monkeypatch.setattr(_runner, "_read_version", lambda path: "2.14.2")
     with pytest.raises(NewsletterRefusalError) as old:
         _convert("<p>x</p>")
@@ -306,14 +304,13 @@ class _Captured:
 @pytest.fixture
 def captured(monkeypatch: pytest.MonkeyPatch) -> _Captured:
     seen = _Captured()
-    real = subprocess.run
+    real = _runner._run_child
 
     def spy(argv: list[str], *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        if "--version" not in argv:
-            seen.argvs.append(list(argv))
-        return real(argv, *args, **kwargs)  # noqa: S603
+        seen.argvs.append(list(argv))
+        return real(argv, *args, **kwargs)
 
-    monkeypatch.setattr(_runner.subprocess, "run", spy)
+    monkeypatch.setattr(_runner, "_run_child", spy)
     return seen
 
 
@@ -545,3 +542,96 @@ def test_a_sibling_file_cannot_replace_the_data_file(tmp_path: Path) -> None:
     finally:
         os.chdir(cwd)
     assert item.links[0].url == "https://example.com/"
+
+
+# --- the cleaner is bounded (council M1, M3, L4, L5, L6) ----------------------
+
+
+def test_a_huge_style_attribute_is_not_parsed_and_costs_nothing() -> None:
+    style = "width:0px;" * 200_000  # once a quadratic regex; now never parsed
+    html = f'<p>kept</p><img src="https://example.org/a.png" alt="a" style="{style}">'
+    start = time.monotonic()
+    item = _convert(html, max_bytes=5_000_000)
+    assert time.monotonic() - start < 10
+    assert item.stripped["style_oversize"] == 1
+    assert "kept" in item.markdown
+
+
+def test_a_pixel_declared_in_a_normal_style_is_still_dropped() -> None:
+    item = _convert(
+        '<p>x</p><img src="https://example.org/p.png" alt="" '
+        'style="WIDTH: 1px !important; height:1px">'
+    )
+    assert item.stripped["pixels"] == 1
+
+
+def test_a_hidden_style_over_the_bound_is_counted_not_parsed() -> None:
+    long_style = "display:none;" + "a:b;" * 2_000
+    item = _convert(f'<p style="{long_style}">text</p>')
+    assert item.stripped["style_oversize"] == 1
+    assert item.stripped.get("hidden", 0) == 0
+
+
+def test_every_pass_checks_the_deadline() -> None:
+    page = "<html><body>" + '<img src="https://example.org/a.png" alt="a">' * 40_000
+    with pytest.raises(NewsletterRefusalError) as caught:
+        _convert(page + "</body></html>", timeout_s=0.001)
+    assert caught.value.code == "convert_timeout"
+
+
+def test_a_long_text_node_is_not_a_footer_and_is_not_searched_past_its_start() -> None:
+    padding = "word " * 600  # 3000 characters before the word
+    item = _convert(f"<p>{padding} unsubscribe</p><p>kept paragraph</p>")
+    assert "kept paragraph" in item.markdown
+    assert item.stripped.get("footers", 0) == 0
+    short = _convert("<p>Unsubscribe here</p><p>kept paragraph</p>")
+    assert short.stripped["footers"] == 1
+
+
+def test_a_redirector_wrapped_many_times_is_unwrapped_only_so_far() -> None:
+    url = "https://example.org/end"
+    for _ in range(12):
+        url = "https://www.google.com/url?q=" + quote(url, safe="")
+    item = _convert(f'<a href="{url}">x</a>')
+    link = item.links[0]
+    assert link.tracked is True
+    assert link.url.startswith("https://www.google.com/url")  # it stopped unwrapping
+
+
+def test_the_converter_runs_the_verified_copy_and_names_it() -> None:
+    item = _convert("<p>x</p>")
+    source = os.path.realpath(shutil.which("pandoc") or "")
+    assert item.converter["pandoc_binary_sha256"] == _runner._sha256_of(source)
+    assert item.pandoc_version == _runner.find_pandoc().version
+
+
+def test_an_oversized_conversion_output_is_a_typed_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_runner, "MAX_OUTPUT_BYTES", 5)
+    with pytest.raises(NewsletterRefusalError) as caught:
+        _convert("<p>a paragraph that is longer than five bytes</p>")
+    assert caught.value.code == "output_too_large"
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        "<u>under</u>",
+        "<sub>low</sub><sup>high</sup>",
+        "<figure><img src='https://example.org/a.png' alt='a'>"
+        "<figcaption>cap</figcaption></figure>",
+        "<details><summary>s</summary>body</details>",
+        '<div class="x" id="y">div</div>',
+        '<span style="color:red" id="z">span</span>',
+        "<pre>code\n  block</pre>",
+        '<a href="https://example.org/">'
+        '<img src="https://example.org/a.png" alt="a" width="600" height="300"></a>',
+        "<table><tr><td>cell</td></tr></table>",
+        "<marquee>moving</marquee><blink>blink</blink>",
+    ],
+)
+def test_hostile_tags_never_survive_as_markup(fragment: str) -> None:
+    item = _convert(f"<html><body><p>start</p>{fragment}<p>end</p></body></html>")
+    assert not re.search(r"<[A-Za-z/!]", item.markdown), item.markdown
+    assert "start" in item.markdown and "end" in item.markdown

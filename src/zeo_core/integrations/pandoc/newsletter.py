@@ -16,6 +16,9 @@ A fetched newsletter is data, never instructions. Nothing here follows, runs or 
 on what a message says: its text comes out as Markdown inside a typed object, and
 every failure is a typed refusal whose message is fixed (see ``refusals``). The
 hidden-text filter is best effort; the guarantee is that the result is inert data.
+Time is bounded in-process (one deadline, checked per element and between pieces of
+the message), but BeautifulSoup and the email parser cannot be interrupted inside one
+step: call these under your own watchdog for mail you do not trust.
 The reviewed list of tracker hosts and footer patterns is package data
 (``data/newsletter_noise.json``), never read from the caller's directory.
 """
@@ -141,16 +144,16 @@ def _clean(
         _cleaning.precheck(text)
         soup = bs4.BeautifulSoup(text, "html.parser")
         deadline.check()
-        _cleaning.check_bounds(text, soup)
+        _cleaning.check_bounds(text, soup, deadline)
         title = _cleaning.title_of(soup)
-        rules = _cleaning.css_rules(soup, noise)
-        _cleaning.drop_comments(soup, bs4, counts)
-        _cleaning.drop_tags(soup, counts, noise)
+        rules = _cleaning.css_rules(soup, noise, deadline)
+        _cleaning.drop_comments(soup, bs4, counts, deadline)
+        _cleaning.drop_tags(soup, counts, noise, deadline)
         _cleaning.drop_hidden(soup, noise, counts, rules, deadline)
-        _cleaning.drop_images(soup, noise, counts)
-        _cleaning.flatten_tables(soup, counts)
+        _cleaning.drop_images(soup, noise, counts, deadline)
+        _cleaning.flatten_tables(soup, counts, deadline)
         _cleaning.drop_footers(soup, noise, counts, deadline)
-        links, opaque = _cleaning.clean_links(soup, noise, counts)
+        links, opaque = _cleaning.clean_links(soup, noise, counts, deadline)
         deadline.check()
     except RecursionError as error:
         raise refusal("html_too_deep") from error

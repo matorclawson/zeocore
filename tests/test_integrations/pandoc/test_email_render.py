@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -180,18 +181,65 @@ def test_an_expected_digest_is_checked_before_anything_runs() -> None:
     assert _code("## Hi\n", expected_renderer_digest="0" * 64) == "renderer_mismatch"
 
 
-def test_the_private_copy_is_what_ran_and_a_changed_binary_is_refused(
+def test_only_the_verified_private_copy_is_ever_run() -> None:
+    source = os.path.realpath(shutil.which("pandoc") or "")
+    copy = _runner.find_pandoc()
+    assert copy.path != source
+    assert copy.sha256 == _runner._sha256_of(source)
+    assert (os.stat(copy.path).st_mode & 0o077) == 0  # only this user
+    assert (os.stat(Path(copy.path).parent).st_mode & 0o077) == 0
+    assert render_email_html("## Hi\n").renderer["pandoc_binary_sha256"] == copy.sha256
+
+
+def test_the_file_on_path_is_hashed_and_copied_before_anything_is_executed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original = _runner.find_pandoc()
-    copy = _runner.private_copy(original)
-    assert copy.path != original.path
-    assert copy.sha256 == original.sha256
-    assert (os.stat(copy.path).st_mode & 0o077) == 0  # only this user
-    monkeypatch.setattr(_runner, "_sha256_of", lambda path: "0" * 64)
+    source = os.path.realpath(shutil.which("pandoc") or "")
     monkeypatch.setattr(_runner, "_PRIVATE", {})
-    with pytest.raises(NewsletterRefusalError):
-        _runner.private_copy(original)  # the copy no longer matches the original
+    events: list[tuple[str, str]] = []
+    real_hash, real_run = _runner._sha256_of, _runner.subprocess.run
+
+    def hashed(path: str) -> str:
+        events.append(("hash", path))
+        return real_hash(path)
+
+    def ran(argv: list[str], *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        events.append(("run", argv[0]))
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(_runner, "_sha256_of", hashed)
+    monkeypatch.setattr(_runner.subprocess, "run", ran)
+    copy = _runner.find_pandoc()
+    assert events[0] == ("hash", source)  # a read of the file on PATH
+    assert events[1] == ("hash", copy.path)  # the copy, hashed before it runs
+    assert events[2] == ("run", copy.path)  # only the verified copy is executed
+    assert all(kind == "hash" or path == copy.path for kind, path in events)
+
+
+def test_a_file_that_changes_while_it_is_copied_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_runner, "_PRIVATE", {})
+    digests = iter(["a" * 64, "b" * 64])
+    monkeypatch.setattr(_runner, "_sha256_of", lambda path: next(digests))
+    with pytest.raises(NewsletterRefusalError) as caught:
+        _runner.find_pandoc()
+    assert caught.value.code == "pandoc_failed"
+
+
+def test_a_modified_copy_is_refused_before_it_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_runner, "_PRIVATE", {})  # a fresh copy; the real one is kept
+    copy = _runner.find_pandoc()
+    with open(copy.path, "ab") as handle:  # noqa: PTH123
+        handle.write(b"\0")
+    with pytest.raises(NewsletterRefusalError) as again:
+        _runner.find_pandoc()
+    assert again.value.code == "pandoc_failed"
+    with pytest.raises(NewsletterRefusalError) as ran:
+        _runner.run_pandoc(copy, ["--from=markdown"], b"x", timeout_s=5)
+    assert ran.value.code == "pandoc_failed"
 
 
 # --- the subset: every refused construct, by name -----------------------------
@@ -288,10 +336,14 @@ def test_a_footnote_reference_becomes_a_link_that_is_refused() -> None:
     assert _code("Footnote[^1]\n\n[^1]: the note\n") == "link_scheme"
 
 
-def test_an_ordered_list_is_always_numbered_from_one() -> None:
-    """markdown_strict keeps no start number, so ``3.`` is the first item."""
-    html = render_email_html("3. starts at three\n4. next\n").html
-    assert "<ol>" in html and "start=" not in html
+def test_an_ordered_list_that_does_not_start_at_one_is_refused() -> None:
+    """``markdown_strict`` keeps no start number, so ``3.`` would be silently ``1.``."""
+    assert _code("3. starts at three\n4. next\n") == "ordered_list_start"
+    assert _code("Intro\n\n2) starts at two\n3) next\n") == "ordered_list_start"
+    assert _code("1. one\n\npara\n\n5. a new list at five\n") == "ordered_list_start"
+    html = render_email_html("1. one\n2. two\n\n3. three after a blank\n").html
+    assert "<ol>" in html and "start=" not in html  # one list: it is not a new start
+    assert "<ol>" not in render_email_html("a paragraph\n3. not a list start\n").html
 
 
 def test_the_filter_itself_refuses_a_list_that_does_not_start_at_one() -> None:
@@ -413,12 +465,170 @@ def test_malformed_image_sizes_are_refused(sizes: dict[str, tuple[int, int]]) ->
 
 
 def test_a_timeout_is_a_typed_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
-    _runner.private_copy(
-        _runner.find_pandoc()
-    )  # warm the copy so only the run is patched
+    _runner.find_pandoc()  # warm the copy so only the run is patched
 
     def slow(*args: object, **kwargs: object) -> object:
         raise subprocess.TimeoutExpired(cmd="pandoc", timeout=0.01)
 
-    monkeypatch.setattr(_runner.subprocess, "run", slow)
+    monkeypatch.setattr(_runner, "_run_child", slow)
     assert _code("## Hi\n", timeout_s=0.01) == "pandoc_timeout"
+
+
+# --- the subset check, hardened (council L3) ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("html", "code"),
+    [
+        ("<p>t</p><script", "html_unbalanced"),
+        ("<p>t</p><!-- never closed", "html_comment"),
+        ("<p>a < b</p>", "html_unbalanced"),
+        ('<p><a href="https://e.com/"/>t</a></p>', "html_unbalanced"),
+        ('<p><a href="https://e.com/"> </a></p>', "link_text_missing"),
+        ('<p><a href="https://e.com/">​⁠</a></p>', "link_text_missing"),
+        ('<p><a href="mailto:">x</a></p>', "link_mailto_invalid"),
+        ('<p><a href="mailto:a@e.org,b@e.org">x</a></p>', "link_mailto_invalid"),
+        ('<p><a href="mailto:a@e.org%2Cb@e.org">x</a></p>', "link_mailto_invalid"),
+        ('<p><a href="mailto:a@e.org#frag">x</a></p>', "link_mailto_query"),
+        ('<p><a href="https://127.0.0.1./a">x</a></p>', "link_ip_host"),
+        ('<p><a href="https://%31%32%37.0.0.1/a">x</a></p>', "link_ip_host"),
+        ('<p><a href="https://0177.0.0.1/a">x</a></p>', "link_ip_host"),
+        ('<p><a href="https://2130706433./a">x</a></p>', "link_ip_host"),
+        ('<p><a href="https://exa%6Dple.com/a">x</a></p>', "link_invalid"),
+        ('<p><a href="https://１２７.0.0.1/a">x</a></p>', "link_invalid"),
+        ('<p><a href="https://[::1">x</a></p>', "link_invalid"),
+        ('<p><a href="https://e.com/‮">x</a></p>', "link_invalid"),
+        ("<p>a\x85b</p>", "control_character"),
+        ("<p>a‮b</p>", "control_character"),
+        ("<p>a⁦b</p>", "control_character"),
+        ("<p>a&#8238;b</p>", "control_character"),
+        ("<p>a&#x85;b</p>", "control_character"),
+        ("<p>a&#x202e;b</p>", "control_character"),
+        ("<u>x</u>", "tag_not_allowed"),
+        ("<sub>x</sub>", "tag_not_allowed"),
+        ("<figure>x</figure>", "tag_not_allowed"),
+        ("<details>x</details>", "tag_not_allowed"),
+        ("<pre>x</pre>", "tag_not_allowed"),
+        ('<div class="x">x</div>', "tag_not_allowed"),
+        ('<span id="y">x</span>', "tag_not_allowed"),
+    ],
+)
+def test_the_hardened_html_check_refuses_by_name(html: str, code: str) -> None:
+    with pytest.raises(NewsletterRefusalError) as caught:
+        check_email_subset(html)
+    assert caught.value.code == code
+
+
+def test_the_hardened_html_check_still_accepts_what_the_subset_allows() -> None:
+    check_email_subset("<p>1 &lt; 2 &amp; 3 &gt; 2, &quot;q&quot;, &#233;</p>")
+    check_email_subset('<p><a href="mailto:reader@example.org">write</a></p>')
+    check_email_subset(  # an image link: its text is the image's alt text
+        '<p><a href="https://e.com/"><img src="https://e.com/i.png" alt="Cover" '
+        'width="600" height="300" /></a></p>'
+    )
+    check_email_subset("<p>one<br />two</p><hr />")
+
+
+# --- the markdown input (council L3, L6) --------------------------------------
+
+
+@pytest.mark.parametrize("char", ["\x85", "‮", "⁧", "‏", "\x9f"])
+def test_c1_and_bidirectional_controls_in_the_markdown_are_refused(char: str) -> None:
+    assert _code(f"## Hi\n\ntext {char} more\n") == "markdown_invalid"
+
+
+# --- the child process: bounded, in its own group (council L2) ----------------
+
+
+def _child(code: str, stdin: bytes = b"", **kwargs: Any) -> Any:  # noqa: ANN401
+    options: dict[str, Any] = {
+        "timeout_s": 10,
+        "cwd": os.getcwd(),
+        "env": {"PATH": os.environ["PATH"]},
+        "out_cap": 10_000_000,
+        "err_cap": 10_000_000,
+    }
+    options.update(kwargs)
+    return _runner._run_child([sys.executable, "-c", code], stdin, **options)
+
+
+def test_a_large_stdin_and_stdout_do_not_deadlock() -> None:
+    data = b"x" * 3_000_000
+    done = _child("import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())", data)
+    assert done.returncode == 0
+    assert done.stdout == data
+
+
+def test_a_child_that_never_reads_its_input_is_not_a_hang() -> None:
+    assert _child("pass", b"y" * 3_000_000).returncode == 0
+
+
+def test_output_past_its_bound_stops_the_child() -> None:
+    with pytest.raises(_runner._OutputOverrun) as out:
+        _child("import sys;sys.stdout.write('x'*5_000_000)", out_cap=100_000)
+    assert out.value.stdout is True
+    with pytest.raises(_runner._OutputOverrun) as err:
+        _child("import sys;sys.stderr.write('x'*5_000_000)", err_cap=100_000)
+    assert err.value.stdout is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_a_timeout_kills_everything_the_child_started(tmp_path: Path) -> None:
+    pid_file = tmp_path / "grandchild.pid"
+    code = (
+        "import subprocess,sys,time;"
+        "p=subprocess.Popen(['sleep','60']);"
+        f"open({str(pid_file)!r},'w').write(str(p.pid));"
+        "time.sleep(60)"
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        _child(code, timeout_s=1.5)
+    grandchild = int(pid_file.read_text())
+    for _ in range(60):
+        try:
+            os.kill(grandchild, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    os.kill(grandchild, 9)  # do not leave it behind if the test is about to fail
+    pytest.fail("the grandchild outlived the timeout")
+
+
+def test_an_oversized_output_is_a_typed_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_runner, "MAX_OUTPUT_BYTES", 10)
+    assert _code("## A heading that is longer than ten bytes\n") == "output_too_large"
+
+
+def test_a_missing_filter_is_a_typed_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Gone:
+        def joinpath(self, *parts: str) -> _Gone:
+            return self
+
+        def read_bytes(self) -> bytes:
+            raise FileNotFoundError("gone")
+
+    monkeypatch.setattr(render.resources, "files", lambda package: _Gone())
+    assert _code("## Hi\n") == "filter_missing"
+
+
+def test_the_reader_we_avoid_leaks_raw_html_which_is_why_it_is_avoided() -> None:
+    """A negative control: the gfm reader's ``-raw_html`` is not honoured everywhere."""
+    binary = _runner.find_pandoc()
+    attack = "<script>alert(1)</script>\n"
+    ours = render_email_html(attack).html
+    assert "<script" not in ours
+    assert "&lt;script&gt;" in ours  # the markup is text in our render
+    leaked = subprocess.run(  # noqa: S603
+        [binary.path, "--sandbox", "--from=gfm-raw_html", "--to=html5"],
+        input=attack.encode(),
+        capture_output=True,
+        check=False,
+    ).stdout
+    if b"<script" not in leaked:
+        pytest.skip(
+            f"pandoc {binary.version}: the gfm reader honours -raw_html here, "
+            "so there is no leak to contrast with"
+        )
+    assert b"<script" in leaked

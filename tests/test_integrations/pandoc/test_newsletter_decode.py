@@ -257,7 +257,7 @@ def test_any_email_module_exception_is_a_typed_refusal(
     def broken(*args: object, **kwargs: object) -> object:
         raise error
 
-    monkeypatch.setattr(_mime.email, "message_from_bytes", broken)
+    monkeypatch.setattr(_mime.email.parser, "BytesFeedParser", broken)
     with pytest.raises(NewsletterRefusalError) as caught:
         decode_raw_message(b"From: n@example.org\r\n\r\nbody")
     assert caught.value.code == "message_too_complex"
@@ -278,3 +278,116 @@ def test_list_unsubscribe_is_data_not_an_action() -> None:
     decoded = decode_raw_message(bytes(_alternative()))
     assert isinstance(decoded.list_unsubscribe, str)
     assert "unsub" in decoded.list_unsubscribe  # kept as text for the record only
+
+
+# --- Authentication-Results is tokenised, never split on text (council M2) ----
+
+
+def _gmail(results: str) -> str:
+    return f"Authentication-Results: mx.google.com; {results}\r\n"
+
+
+@pytest.mark.parametrize(
+    ("results", "sender", "expected_dmarc"),
+    [
+        # a quoted local part carrying a forged result, before the real failure
+        (
+            'spf=pass smtp.mailfrom="x;dmarc=pass header.from=bank.com"@evil.com; '
+            "dmarc=fail header.from=bank.com",
+            "n@bank.com",
+            "fail",
+        ),
+        # a comment that looks like a result
+        (
+            "dmarc=fail (dmarc=pass header.from=bank.com) header.from=evil.com",
+            "n@bank.com",
+            "fail",
+        ),
+        # the same method twice is ambiguous, whatever the two say
+        (
+            "dmarc=pass header.from=bank.com; dmarc=pass header.from=bank.com",
+            "n@bank.com",
+            "ambiguous",
+        ),
+        (
+            "dmarc=pass header.from=bank.com; dmarc=fail header.from=bank.com",
+            "n@bank.com",
+            "ambiguous",
+        ),
+        # two header.from values name two domains: none is trusted
+        (
+            "dmarc=pass header.from=bank.com header.from=evil.com",
+            "n@bank.com",
+            "pass",
+        ),
+    ],
+)
+def test_a_forged_or_ambiguous_dmarc_result_is_never_a_verified_sender(
+    results: str, sender: str, expected_dmarc: str
+) -> None:
+    decoded = decode_raw_message(_raw(_gmail(results), sender))
+    assert decoded.authentication.get("dmarc") == expected_dmarc
+    assert decoded.sender_verified is False
+
+
+def test_a_comment_is_not_a_result_and_a_clean_single_pass_still_verifies() -> None:
+    commented = decode_raw_message(
+        _raw(_gmail("spf=pass (dmarc=pass header.from=example.org)"), "n@example.org")
+    )
+    assert "dmarc" not in commented.authentication
+    assert commented.sender_verified is False
+    clean = decode_raw_message(
+        _raw(_gmail('dmarc=pass header.from="example.org"'), "n@example.org")
+    )
+    assert clean.sender_verified is True
+
+
+@pytest.mark.parametrize(
+    "results",
+    ['dmarc=pass header.from="example.org', "dmarc=pass (never closed header.from=x"],
+)
+def test_an_unterminated_quote_or_comment_trusts_nothing(results: str) -> None:
+    decoded = decode_raw_message(_raw(_gmail(results), "n@example.org"))
+    assert decoded.authentication == {}
+    assert decoded.sender_verified is False
+
+
+def test_the_tokeniser_keeps_quoted_text_as_one_token() -> None:
+    tokens = _mime._auth_tokens('a="x;y=z" (c;d) b')
+    assert tokens == [
+        ("atom", "a"),
+        ("=", "="),
+        ("quoted", "x;y=z"),
+        ("atom", "b"),
+    ]
+
+
+# --- the decode is bounded in time before the email package runs (council M3) -
+
+
+def test_the_message_is_fed_in_pieces_under_a_deadline() -> None:
+    body = b"x" * 3_000_000
+    raw = b"From: n@example.org\r\nContent-Type: text/plain\r\n\r\n" + body
+    with pytest.raises(NewsletterRefusalError) as caught:
+        decode_raw_message(raw, timeout_s=0.000001)
+    assert caught.value.code == "convert_timeout"
+    assert decode_raw_message(raw).text is not None
+
+
+def test_header_lines_and_parts_are_counted_before_any_parsing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def never(*args: object, **kwargs: object) -> object:
+        raise AssertionError("the email parser must not run")
+
+    monkeypatch.setattr(_mime.email.parser, "BytesFeedParser", never)
+    folded = b"From: n@example.org\r\nX-Fold: a\r\n" + b" b\r\n" * (
+        4 * _mime.MAX_HEADERS + 1
+    )
+    with pytest.raises(NewsletterRefusalError) as lines:
+        decode_raw_message(folded + b"\r\nbody")
+    assert lines.value.code == "message_too_complex"
+    parts = b"Content-Type: text/plain\r\n\r\nx\r\n" * (2 * MAX_MIME_PARTS + 1)
+    with pytest.raises(NewsletterRefusalError) as many:
+        decode_raw_message(b"From: n@example.org\r\n\r\n" + parts)
+    assert many.value.code == "message_too_complex"

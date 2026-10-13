@@ -117,6 +117,10 @@ REFUSALS: Final[dict[str, str]] = {
     "link_mailto_query": (
         "a mailto link holds parameters; use a plain address and render again"
     ),
+    "link_mailto_invalid": (
+        "a mailto link has no address, or more than one; "
+        "use one plain address and render again"
+    ),
     "link_invalid": "a link address is unusable; fix it and render again",
     "image_scheme": "an image is not https; use an https source and render again",
     "image_ip_host": (
