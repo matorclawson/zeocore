@@ -768,7 +768,7 @@ def test_a_silent_pipe_is_refused_after_a_bounded_wait(
     monkeypatch.setattr("sys.stdin", Silent("", tty=False))
     monkeypatch.setattr("select.select", nothing_ready)
     assert main(["complete"]) == 2
-    assert waited == [30.0]
+    assert len(waited) == 1 and 29.0 < waited[0] <= 30.0
     assert capsys.readouterr().err.startswith("REDIRECT_URL: nothing arrived on stdin;")
 
 
@@ -807,3 +807,110 @@ def test_an_address_that_is_not_a_url_is_a_refusal_without_the_code(
     monkeypatch.setattr("sys.stdin", _Stdin(f"http://[code={SENTINEL}\n", tty=False))
     assert main(["complete"]) == 2
     assert _refusal(capsys).startswith("REDIRECT_URL: that is not a redirect URL;")
+
+
+class _Descriptor(_Stdin):
+    """A stdin that has a real file descriptor: the read end of a pipe."""
+
+    def __init__(self, descriptor: int) -> None:
+        super().__init__("", tty=False)
+        self._descriptor = descriptor
+
+    def fileno(self) -> int:
+        return self._descriptor
+
+
+def _pipe(monkeypatch: pytest.MonkeyPatch, sent: bytes) -> tuple[int, int]:
+    read, write = os.pipe()
+    os.write(write, sent)
+    monkeypatch.setattr("sys.stdin", _Descriptor(read))
+    return read, write
+
+
+def test_a_good_line_from_a_real_pipe_reaches_the_enrollment(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url = f"{REDIRECT}?code={SENTINEL}&state=x"
+    monkeypatch.setattr(
+        "zeo_core.integrations.revolut.local.__main__.LocalRevolutEnrollment",
+        _Recorder,
+    )
+    read, write = _pipe(monkeypatch, f"{url}\r\nignored\n".encode())
+    try:
+        assert main(["complete"]) == 0
+    finally:
+        os.close(read)
+        os.close(write)
+    assert _Recorder.last is not None and _Recorder.last.url == url
+    assert capsys.readouterr().out == "Enrolled.\n"
+
+
+def test_a_partial_line_on_an_open_pipe_is_refused_by_one_deadline(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "zeo_core.integrations.revolut.local.__main__.STDIN_WAIT_SECONDS", 0.3
+    )
+    read, write = _pipe(monkeypatch, f"{REDIRECT}?code={SENTINEL}".encode())
+    try:  # the writer keeps the pipe open and never ends the line
+        assert main(["complete"]) == 2
+    finally:
+        os.close(read)
+        os.close(write)
+    error = _refusal(capsys)
+    assert error.startswith("REDIRECT_URL: the first line on stdin did not finish")
+    assert error.strip().endswith("as one line on stdin")
+
+
+def test_bytes_that_are_not_utf8_on_a_real_pipe_are_a_refusal_not_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    read, write = _pipe(monkeypatch, b"https://x.test/\xff\xfe\n")
+    try:
+        assert main(["complete"]) == 2
+    finally:
+        os.close(read)
+        os.close(write)
+    assert _refusal(capsys).startswith("REDIRECT_URL: no redirect URL could be read;")
+
+
+def test_a_stream_with_lone_surrogates_is_a_refusal_not_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Under a C locale Python reads invalid bytes as lone surrogates."""
+    monkeypatch.setattr("sys.stdin", _Stdin("https://x.test/\udcff\n", tty=False))
+    assert main(["complete"]) == 2
+    assert _refusal(capsys).startswith("REDIRECT_URL: no redirect URL could be read;")
+
+
+def test_a_closed_stdin_is_a_refusal_not_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("sys.stdin", None)
+    assert main(["complete"]) == 2
+    error = _refusal(capsys)
+    assert error.startswith("REDIRECT_URL: there is no stdin;")
+    assert error.strip().endswith("as one line on stdin")
+
+
+@pytest.mark.parametrize(
+    "client_id",
+    [f"{REDIRECT}?code={SENTINEL}", f"a?code={SENTINEL}", f"code={SENTINEL}"],
+    ids=["address", "query", "pair"],
+)
+def test_authorize_refuses_a_client_id_that_looks_like_an_address_without_echoing_it(
+    client_id: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "zeo_core.integrations.revolut.local.session.default_directory",
+        lambda environment: tmp_path / "cli" / environment.value,
+    )
+    assert main(["setup", "--redirect-uri", REDIRECT]) == 0
+    capsys.readouterr()
+    assert main(["authorize", "--client-id", client_id]) == 2
+    error = _refusal(capsys)
+    assert error.startswith("CLIENT_ID: that is not a client id;")
+    assert error.strip().endswith("then run authorize again")

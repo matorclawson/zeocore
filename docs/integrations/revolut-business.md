@@ -65,17 +65,20 @@ python -m zeo_core.integrations.revolut.local complete
 #    shell without writing it into a command line or a variable:
 pbpaste | python -m zeo_core.integrations.revolut.local complete
 #    or read it silently:  read -rs URL; printf '%s\n' "$URL" | ... complete
-#    A pipe that sends nothing for 30 seconds is refused; `< /dev/null` is
-#    refused at once.
+#    A pipe that sends nothing, or stops before the line ends, for 30 seconds in
+#    all is refused; `< /dev/null` is refused at once.
 
 python -m zeo_core.integrations.revolut.local status     # never prints a secret
 python -m zeo_core.integrations.revolut.local accounts   # first live check
 ```
 
 **Exit codes.** `0` done. `2` the input was not accepted and nothing was sent: a
-usage error, or `REDIRECT_URL` (no usable first line on stdin, a first line over
-8192 bytes, a silent pipe, an address that is not a URL, or a URL given as an
-argument). `1` every other refusal of this module (`NOT_SET_UP`,
+usage error, `CLIENT_ID` (an `authorize --client-id` that looks like an address,
+so it is refused without echoing it), or `REDIRECT_URL` (no usable first line on
+stdin, a first line over 8192 bytes or that is not UTF-8, a pipe that is silent or
+stops mid-line, no stdin at all, an address that `urlsplit` rejects, or a URL given
+as an argument). Text that is a well-formed address but not Revolut's redirect, and
+plain words, are not `REDIRECT_URL`: they end as `CONSENT_MISMATCH`, exit `1`. `1` every other refusal of this module (`NOT_SET_UP`,
 `CONSENT_MISMATCH`, `EXCHANGE_*`, store errors); these older refusals keep `1`.
 Every `REDIRECT_URL` message ends with what to do, and none quotes the address.
 

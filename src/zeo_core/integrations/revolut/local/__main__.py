@@ -4,9 +4,10 @@
 the redirect URI with a one-time code, and only that person can copy the address.
 On a terminal it prompts with hidden input. Without one it reads the first line
 from stdin, so a caller can pipe the URL; later lines are ignored, and a pipe that
-sends nothing for ``STDIN_WAIT_SECONDS`` is refused (``< /dev/null`` refuses at
-once). The URL is never an argument, because the code would then show in process
-listings and shell history, and it is never echoed, not even in a usage error.
+sends nothing, or stops before the line ends, for ``STDIN_WAIT_SECONDS`` in all is
+refused (``< /dev/null`` refuses at once). The URL is never an argument, because
+the code would then show in process listings and shell history, and it is never
+echoed, not even in a usage error.
 
 A refusal to read the URL prints ``REDIRECT_URL: ...`` and exits 2, like any input
 that was not accepted. The older refusals of this module exit 1.
@@ -19,6 +20,7 @@ import getpass
 import os
 import select
 import sys
+import time
 from typing import NoReturn
 from urllib.parse import urlsplit
 
@@ -45,8 +47,18 @@ _OWN_ERRORS = frozenset(
 )
 
 
-class _NoRedirectUrlError(Exception):
+class _InputRefusedError(Exception):
+    """Input that was not accepted; nothing was sent. Exits 2."""
+
+    code = "INPUT"
+
+
+class _NoRedirectUrlError(_InputRefusedError):
     code = "REDIRECT_URL"
+
+
+class _ClientIdError(_InputRefusedError):
+    code = "CLIENT_ID"
 
 
 class _Parser(argparse.ArgumentParser):
@@ -56,39 +68,67 @@ class _Parser(argparse.ArgumentParser):
         super().error(message if message in _OWN_ERRORS else _INVALID_ARGUMENTS)
 
 
-def _wait_for_stdin() -> None:
-    """Refuse a pipe that stays silent; a stream with no descriptor is not waited on."""
-    try:
-        descriptor = sys.stdin.fileno()
-    except AttributeError, OSError, ValueError:
-        return
-    ready, _, _ = select.select([descriptor], [], [], STDIN_WAIT_SECONDS)
-    if not ready:
-        raise _NoRedirectUrlError(f"nothing arrived on stdin; {_ONE_LINE}")
+def _from_descriptor(descriptor: int) -> bytes:
+    """The first line from a descriptor, under ONE deadline for the whole line.
+
+    A pipe that stays silent, or sends a partial line and stays open, is refused when
+    ``STDIN_WAIT_SECONDS`` have passed since the read began.
+    """
+    deadline = time.monotonic() + STDIN_WAIT_SECONDS
+    limit = MAX_URL_BYTES + 2  # room for a CRLF
+    buffer = bytearray()
+    while b"\n" not in buffer and len(buffer) < limit:
+        remaining = deadline - time.monotonic()
+        ready = select.select([descriptor], [], [], max(remaining, 0.0))[0]
+        if not ready:
+            if buffer:
+                raise _NoRedirectUrlError(
+                    f"the first line on stdin did not finish in time; {_ONE_LINE}"
+                )
+            raise _NoRedirectUrlError(f"nothing arrived on stdin; {_ONE_LINE}")
+        chunk = os.read(descriptor, limit - len(buffer))
+        if not chunk:  # end of input
+            break
+        buffer += chunk
+    line, newline, _ = bytes(buffer).partition(b"\n")
+    if not newline and len(buffer) > MAX_URL_BYTES:
+        raise _NoRedirectUrlError(f"the first line on stdin is too long; {_ONE_LINE}")
+    return line.removesuffix(b"\r")
 
 
-def _first_line() -> str:
-    """The first line of stdin, which must fit in ``MAX_URL_BYTES`` before any strip."""
-    _wait_for_stdin()
+def _from_stream() -> bytes:
+    """The first line of a stream with no descriptor (a test double or embedding)."""
     raw = sys.stdin.readline(MAX_URL_BYTES + 2)  # room for a CRLF
     ended = raw.endswith("\n")
     if not ended and len(raw) > MAX_URL_BYTES:
         raise _NoRedirectUrlError(f"the first line on stdin is too long; {_ONE_LINE}")
-    body = raw.rstrip("\r\n") if ended else raw
-    if len(body.encode("utf-8")) > MAX_URL_BYTES:
+    return (raw.rstrip("\r\n") if ended else raw).encode("utf-8")
+
+
+def _first_line() -> str:
+    """The first line of stdin, which must fit in ``MAX_URL_BYTES`` before any strip."""
+    try:
+        descriptor = sys.stdin.fileno()
+    except AttributeError, OSError, ValueError:
+        body = _from_stream()
+    else:
+        body = _from_descriptor(descriptor)
+    if len(body) > MAX_URL_BYTES:
         raise _NoRedirectUrlError(f"the first line on stdin is too long; {_ONE_LINE}")
-    return body.strip()
+    return body.decode("utf-8").strip()  # not UTF-8: a UnicodeError, refused above
 
 
 def _redirect_url() -> str:
     """The redirect URL: hidden prompt on a terminal, else the first line of stdin."""
+    if sys.stdin is None:  # file descriptor 0 is closed
+        raise _NoRedirectUrlError(f"there is no stdin; {_ONE_LINE}")
     try:
         if sys.stdin.isatty():
             # Hidden, so the one-time code does not land in shell history.
             line = getpass.getpass("URL Revolut redirected to: ")
         else:
             line = _first_line()
-    except EOFError, KeyboardInterrupt, UnicodeDecodeError:
+    except EOFError, KeyboardInterrupt, UnicodeError:
         raise _NoRedirectUrlError(
             f"no redirect URL could be read; {_ONE_LINE}"
         ) from None
@@ -140,6 +180,11 @@ def _step(
     elif arguments.step == "authorize":
         if not arguments.client_id:
             parser.error("--client-id or REVOLUT_CLIENT_ID is required")
+        if any(mark in arguments.client_id for mark in ("://", "?", "=")):
+            raise _ClientIdError(
+                "that is not a client id; it looks like an address. Copy the client "
+                "id from Revolut Business settings, then run authorize again"
+            )
         print(enrollment.authorize(client_id=arguments.client_id))
     elif arguments.step == "complete":
         enrollment.complete(_redirect_url())
@@ -163,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     enrollment = LocalRevolutEnrollment(RevolutEnvironment(arguments.environment))
     try:
         _step(parser, arguments, enrollment)
-    except _NoRedirectUrlError as error:
+    except _InputRefusedError as error:
         print(f"{error.code}: {error}", file=sys.stderr)
         return 2
     except (LocalEnrollmentError, LocalStoreError) as error:
