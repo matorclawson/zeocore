@@ -1,0 +1,42 @@
+#!/bin/sh
+# zeocore pre-push: the one gate, `make verify`, runs before anything leaves this machine.
+#
+# This file is committed, so a fresh clone has the gate. `make setup` (or `make hooks`)
+# points git at this directory with `git config core.hooksPath .githooks`.
+# A failing gate is fixed and run again; there is nothing to set to get past it.
+
+# Git runs a hook with its own environment variables set (the repository location, the
+# index file and others). Anything below that runs git, such as the tests creating
+# temporary repositories, must find its repository from the current directory, or it
+# would act on this one. Drop them all first.
+for name in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+  unset "$name"
+done
+
+# Git sends one line per ref on stdin: "<local ref> <local sha> <remote ref> <remote sha>".
+# A push that only deletes refs has a local sha of all zeros and nothing to gate. A hand
+# run with nothing on stdin is gated.
+seen=0
+deleting_only=1
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  seen=1
+  case "$local_sha" in
+    *[!0]*) deleting_only=0 ;;
+  esac
+done
+if [ "$seen" = 1 ] && [ "$deleting_only" = 1 ]; then
+  exit 0
+fi
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) && cd "$root" || exit 1
+
+if ! command -v make >/dev/null 2>&1; then
+  echo "pre-push: make is not installed, so the gate cannot run and nothing was pushed; install make, then push again." >&2
+  exit 1
+fi
+
+echo "pre-push: running the gate (make verify) before anything is pushed."
+if ! make verify; then
+  echo "pre-push: make verify failed, so nothing was pushed; fix what it printed, run make verify until it passes, then push again." >&2
+  exit 1
+fi

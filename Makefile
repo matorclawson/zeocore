@@ -140,8 +140,22 @@ sync: ## Install exactly what uv.lock pins (every gate extra, dev, lint, docs); 
 setup: ## Create the development environment from uv.lock (what CI and releases test)
 	@echo "${BLUE}Creating complete development environment...${RESET}"
 	$(MAKE) --no-print-directory sync
+	$(MAKE) --no-print-directory hooks
 	@echo ""
 	@echo "${GREEN}Setup complete. Activate: source .venv/bin/activate${RESET}"
+
+.PHONY: hooks
+hooks: ## Point git at the committed hooks in .githooks, so a push runs make verify first
+	@if ! git rev-parse --git-dir >/dev/null 2>&1; then \
+	   echo "Not a git checkout, so no git hook was installed."; \
+	 elif [ -z "$$(git config --get core.hooksPath)" ]; then \
+	   git config core.hooksPath .githooks && \
+	   echo "${GREEN}Git hooks installed: core.hooksPath = .githooks (a push runs make verify first)${RESET}"; \
+	 elif [ "$$(git config --get core.hooksPath)" = ".githooks" ]; then \
+	   echo "Git hooks already installed: core.hooksPath = .githooks"; \
+	 else \
+	   echo "${YELLOW}core.hooksPath is already set to $$(git config --get core.hooksPath), so the committed hooks are not installed; to install them, run: git config core.hooksPath .githooks${RESET}"; \
+	 fi
 
 .PHONY: check-env
 check-env: ## Check that the virtual environment is active and working

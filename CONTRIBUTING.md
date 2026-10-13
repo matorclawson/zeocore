@@ -23,6 +23,14 @@ editable mode with all optional integrations, and installs the `dev` and
 source .venv/bin/activate
 ```
 
+`make setup` also points git at the hooks committed in `.githooks` (it runs
+`git config core.hooksPath .githooks`; `make hooks` does just that step). The
+`pre-push` hook runs `make verify` before anything leaves your machine, so a
+fresh clone has the gate without anyone installing a hook by hand. It cannot be
+turned off with a flag or a variable: a failing gate is fixed, then you push
+again. If you already set `core.hooksPath` to something else, `make setup` keeps
+it and prints the one command that installs these.
+
 Run `make help` at any point to see every available target.
 
 ## Before you open a PR: the gate

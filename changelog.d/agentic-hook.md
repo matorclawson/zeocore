@@ -1,0 +1,2 @@
+bump: patch
+**The pre-push gate is committed.** `.githooks/pre-push` runs `make verify` before a push and stops it, with a message ending in what to do, when the gate fails. `make setup` (or `make hooks`) points git at it with `core.hooksPath`, so a fresh clone has the gate. The hook drops the environment git hands a hook, has no way past it, and does nothing for a push that only deletes refs. A committed `.githooks/pre-commit` keeps a machine's own pre-commit hook running once `core.hooksPath` is set.
