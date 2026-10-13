@@ -46,5 +46,6 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 
 - **Never push to `main`, and never tag.** Work on a branch, and open a PR. Tags are made only by the release workflow.
 - **Never put a token, key or `.env` value** in a file, commit, log, PR or message. Read secrets from the environment, and never print them.
+- **Revolut's `complete` step is a human checkpoint.** The redirect URL holds a one-time code, so it is read from a hidden terminal prompt or one line on stdin, never from an argument. If an agent has no terminal, ask the person to run it or to give you the URL on stdin.
 - **Never call a live provider** (HubSpot, Revolut, Google and so on) without a connection or token you were explicitly given. Tests use fakes.
 - **Never weaken a refusal to make a call succeed:** a review binding, a digest check, an idempotency key or a schema.

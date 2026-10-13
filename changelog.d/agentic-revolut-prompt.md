@@ -1,0 +1,2 @@
+bump: patch
+**Revolut local enrollment reads the redirect URL without a blind prompt.** `python -m zeo_core.integrations.revolut.local complete` still prompts with hidden input on a terminal. Without one it reads exactly one line from stdin, and refuses with the next action if there is none. The one-time code never appears as an argument, in output or in an error. The step is declared as a human checkpoint in the module, the Revolut guide and AGENTS.md.

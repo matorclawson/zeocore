@@ -54,9 +54,14 @@ python -m zeo_core.integrations.revolut.local setup --redirect-uri https://examp
 python -m zeo_core.integrations.revolut.local authorize --client-id <client id>
 
 # 3. Revolut redirects your browser to the redirect URI with a one-time code.
-#    The page need not exist: copy the address bar and paste it here. Input is
-#    hidden so the code does not land in your shell history.
+#    The page need not exist: copy the address bar and paste it here. This is
+#    the one human step: only you can copy that address. In a terminal the
+#    input is hidden so the code does not land in your shell history.
 python -m zeo_core.integrations.revolut.local complete
+#    Without a terminal it reads exactly one line from stdin instead, so a
+#    program can pipe the URL. Never pass the URL as an argument: the code
+#    would show in process listings and shell history.
+printf '%s\n' "$REDIRECT_URL" | python -m zeo_core.integrations.revolut.local complete
 
 python -m zeo_core.integrations.revolut.local status     # never prints a secret
 python -m zeo_core.integrations.revolut.local accounts   # first live check

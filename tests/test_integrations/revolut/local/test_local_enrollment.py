@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import stat
@@ -539,7 +540,7 @@ def test_cli_walks_the_steps_without_printing_a_secret(
     assert "client-certificate.pem" in capsys.readouterr().out
     assert main(["--environment", "sandbox", "authorize", "--client-id", "cid"]) == 0
     assert "sandbox-business.revolut.com" in capsys.readouterr().out
-    monkeypatch.setattr("getpass.getpass", lambda prompt: f"{REDIRECT}?code=c&state=x")
+    _terminal(monkeypatch, f"{REDIRECT}?code=c&state=x")
     assert main(["complete"]) == 1
     assert "CONSENT_MISMATCH" in capsys.readouterr().err
     assert main(["status"]) == 0
@@ -551,3 +552,80 @@ def test_cli_walks_the_steps_without_printing_a_secret(
         monkeypatch.delenv("REVOLUT_CLIENT_ID", raising=False)
         with pytest.raises(SystemExit):
             main(missing)
+
+
+class _Stdin(io.StringIO):
+    def __init__(self, text: str, tty: bool) -> None:
+        super().__init__(text)
+        self._tty = tty
+
+    def isatty(self) -> bool:
+        return self._tty
+
+
+def _terminal(monkeypatch: pytest.MonkeyPatch, typed: str) -> None:
+    """A terminal: stdin is a TTY and the hidden prompt returns ``typed``."""
+    monkeypatch.setattr("sys.stdin", _Stdin("", tty=True))
+    monkeypatch.setattr("getpass.getpass", lambda prompt: typed)
+
+
+def _enrolled_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "zeo_core.integrations.revolut.local.session.default_directory",
+        lambda environment: tmp_path / "cli" / environment.value,
+    )
+    assert main(["setup", "--redirect-uri", REDIRECT]) == 0
+    assert main(["authorize", "--client-id", "cid"]) == 0
+
+
+def test_complete_reads_one_line_from_stdin_without_a_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _enrolled_cli(tmp_path, monkeypatch)
+    capsys.readouterr()
+    url = f"{REDIRECT}?code=secret-code&state=x"
+    monkeypatch.setattr("sys.stdin", _Stdin(url + "\n", tty=False))
+
+    def no_prompt(prompt: str) -> str:
+        raise AssertionError("a pipe must never prompt")
+
+    monkeypatch.setattr("getpass.getpass", no_prompt)
+    assert main(["complete"]) == 1
+    seen = capsys.readouterr()
+    assert "CONSENT_MISMATCH" in seen.err
+    assert "secret-code" not in seen.out + seen.err
+    assert REDIRECT not in seen.out + seen.err
+
+
+def test_complete_on_a_terminal_prompts_and_never_reads_stdin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _enrolled_cli(tmp_path, monkeypatch)
+    capsys.readouterr()
+    _terminal(monkeypatch, f"{REDIRECT}?code=secret-code&state=x")
+    assert main(["complete"]) == 1
+    seen = capsys.readouterr()
+    assert "CONSENT_MISMATCH" in seen.err
+    assert "secret-code" not in seen.out + seen.err
+
+
+@pytest.mark.parametrize("text", ["", "\n", "   \n", "x" * 9000 + "\n"])
+def test_complete_refuses_with_a_next_action_when_stdin_has_no_usable_url(
+    text: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _enrolled_cli(tmp_path, monkeypatch)
+    capsys.readouterr()
+    monkeypatch.setattr("sys.stdin", _Stdin(text, tty=False))
+    assert main(["complete"]) == 1
+    error = capsys.readouterr().err
+    assert error.startswith("REDIRECT_URL: no redirect URL on stdin;")
+    assert error.strip().endswith("as one line on stdin")
+    assert "xxxx" not in error
+
+
+def test_the_redirect_url_is_never_an_argument() -> None:
+    with pytest.raises(SystemExit):
+        main(["complete", f"{REDIRECT}?code=c&state=x"])
