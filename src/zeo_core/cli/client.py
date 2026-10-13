@@ -440,7 +440,8 @@ def _unknown(key: str) -> dict[str, Any]:
     return {
         "ok": False,
         "outcome": "ambiguous",
-        "message": "ZEOconnect did not answer; the same request replays its outcome",
+        "message": "ZEOconnect did not answer; ask the same request again, which "
+        "replays its outcome",
         "retry": "same_request",
         "request_key": key,
     }

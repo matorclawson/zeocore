@@ -33,8 +33,11 @@ Rules every command keeps (``cli_protocol`` 1):
   waiting, so try the same request later; 12 not paired; 13 ambiguous,
   never retried by the command; 20 held or refused (including a value that
   doesn't match its schema). 1 is an internal error in zeocore itself, with
-  ``{"ok": false, "outcome": "internal"}`` and no detail; for an operation,
-  treat it like 13: its state is unknown.
+  ``{"ok": false, "outcome": "internal"}`` and a fixed message, with no detail
+  of the input; for an operation, treat it like 13: its state is unknown.
+  ``ZEOCORE_DEBUG=1`` prints the exception's type and where it happened to
+  stderr, never its text or the input.
+- A failing answer's ``message`` ends with the next action, after a ``;``.
 """
 
 from __future__ import annotations
@@ -66,8 +69,10 @@ from .protocol import (
     EXIT_WAIT,
     Answer,
     Command,
+    debug_internal,
     emit,
     invalid,
+    with_next_action,
 )
 from .schemas import SCHEMAS, adapter, render_schema
 
@@ -236,6 +241,7 @@ def run(argv: Sequence[str], stdin: Callable[[], bytes]) -> Answer:
         return status, {**answer, "schema": USAGE_SCHEMA}
     name, args = argv[0], argv[1:]
     status, answer = COMMANDS[name](args, stdin() if name in _READS_STDIN else b"")
+    answer = with_next_action(status, answer)
     if _is_contract_document(name, args, status):
         # A successful `zeocore schema <name>` answers with the contract
         # itself, which names itself by $schema and $id; a key would alter it.
@@ -257,14 +263,19 @@ def main(argv: Sequence[str] | None = None) -> None:
             # One byte past the limit is enough to refuse an oversized input.
             lambda: sys.stdin.buffer.read(MAX_BYTES + 1),
         )
-    except Exception:
+    except Exception as error:
         # Never a traceback in place of the answer. The detail could quote
-        # input, so it goes nowhere.
+        # input, so stdout gets a fixed message, and stderr gets the
+        # exception type and frames only, and only with ZEOCORE_DEBUG=1.
+        debug_internal(error)
         status, answer = (
             EXIT_INTERNAL,
             {
                 "ok": False,
                 "outcome": "internal",
+                "message": "zeocore failed internally; rerun the same command "
+                "with ZEOCORE_DEBUG=1 to print diagnostics on stderr, then report "
+                "the command, the zeocore version and that output",
                 "schema": INTERNAL_SCHEMA,
             },
         )
