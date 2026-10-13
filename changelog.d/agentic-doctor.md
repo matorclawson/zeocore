@@ -1,0 +1,2 @@
+bump: minor
+**`zeocore doctor`: is this machine ready?** One local, read-only pass over what an agent otherwise finds out by failing: the Python floor, the session store, the pairing, `ZEOCONNECT_URL` and the extras `zeocore release` needs. Each check is a JSON line; a failing one names the exact next command, and who must act when it isn't the caller. Exit 0 when every check passes, 20 when any fails. It makes no network call and never prints a token, a path or an environment value (ZEOCORE-SOW-31 rule 6).
