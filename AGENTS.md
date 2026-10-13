@@ -10,9 +10,9 @@
 zeocore help --json          # every command, argument, stdin, exit code and result schema
 ```
 
-Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the last line is the result, carrying `ok` and `schema` (`zeocore.<command>/v1`). Input is strict JSON on stdin, at most 1 MiB, and errors never echo it. Nothing prompts.
+Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the last line is the result, carrying `ok` and `schema` (`zeocore.<command>/v1`). The one exception is a successful `zeocore schema <name>`: its answer is the contract document itself, named by its own `$schema` and `$id`. Input is strict JSON on stdin, at most 1 MiB, and errors never echo it. Nothing prompts.
 
-## The five commands that matter
+## The commands that matter
 
 | Do | Command |
 |---|---|
@@ -20,6 +20,7 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 | Get a contract as JSON Schema 2020-12 | `zeocore schema <name>` |
 | Fingerprint a request (RFC 8785 sha256) | `zeocore digest < value.json` |
 | Run a ZEOconnect operation and wait for its outcome | `zeocore invoke <operation_id> --connection C --wait SECONDS < arguments.json` |
+| Check this machine is ready (Python, session store, pairing, Broker URL, extras), each failure with its fix | `zeocore doctor` |
 | Check pairing and connections | `zeocore whoami`, then `zeocore connections` (pair first with `zeocore login`) |
 
 **Exit codes**, the same for every command, also listed in `help --json`:
@@ -29,7 +30,7 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 - 11 still in flight, so ask the same again;
 - 12 not paired: run `zeocore login`;
 - 13 ambiguous, never retried automatically;
-- 20 refused or held;
+- 20 refused or held (for `doctor`: not ready, some check failed);
 - 1 internal, which for an effect counts as ambiguous.
 
 `invoke` is idempotent. The same connection, operation, arguments and `--occurrence` replay the stored outcome, and a new `--occurrence` is a deliberate new act.
@@ -46,5 +47,6 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 
 - **Never push to `main`, and never tag.** Work on a branch, and open a PR. Tags are made only by the release workflow.
 - **Never put a token, key or `.env` value** in a file, commit, log, PR or message. Read secrets from the environment, and never print them.
+- **Revolut's `complete` step is a human checkpoint.** The redirect URL holds a one-time code, so it is read from a hidden terminal prompt or the first line of stdin, never from an argument. If you have no terminal, ask the person to run `complete` themselves, in a terminal or by piping the URL from their own shell. Never ask them to hand you the URL: it would put a one-time code in your transcript.
 - **Never call a live provider** (HubSpot, Revolut, Google and so on) without a connection or token you were explicitly given. Tests use fakes.
 - **Never weaken a refusal to make a call succeed:** a review binding, a digest check, an idempotency key or a schema.

@@ -15,6 +15,10 @@ pack again is safe: a settled request gets the same answer and is never
 signed twice. ``serve`` runs that service from ``{"listen", "state_dir"}``
 until interrupted (ZEOCORE-SOW-24).
 
+``tree-digest`` prints a bundle's canonical tree digest from ``{"path"}``, the
+``unsigned_tree_sha256`` a build's receipt and its ``release.yaml`` record
+(ZEOCORE-SOW-32 §1.2), from the same code the signing step uses.
+
 ``pypi plan | admit | apply | approve | reconcile | verify`` are the PyPI
 adapter's stages for each reviewed target (ZEOCORE-SOW-26), from
 ``{"manifest": "<release.yaml>"}``. ``apply`` creates the release tag as the
@@ -73,6 +77,8 @@ from zeo_core.release.signing.service import (
     serve,
     tailnet_address,
 )
+from zeo_core.release.signing.tree import TreeError, listing
+from zeo_core.release.signing.tree import digest as tree_digest
 
 from .protocol import (
     EXIT_AMBIGUOUS,
@@ -116,6 +122,7 @@ _FIELDS: Final = {
     "verify": {"manifest", "work_dir"},
     "pack": {"manifest", "out", "repo", "commit", "manifest_path"},
     "receive": {"manifest", "response", "work_dir"},
+    "tree-digest": {"path"},
 }
 
 
@@ -176,6 +183,26 @@ def _sign(
             "message": "another signing run holds this work directory",
         }
     return _answer(outcome)
+
+
+def _tree(request: dict[str, str]) -> Answer:
+    try:
+        entries = listing(Path(request["path"]))
+    except TreeError as error:
+        return EXIT_HELD, {
+            "ok": False,
+            "outcome": "bundle_unsafe",
+            "status": "refused",
+            "message": str(error),
+        }
+    except OSError:
+        return invalid("the bundle can't be read")
+    return EXIT_DONE, {
+        "ok": True,
+        "outcome": "digested",
+        "unsigned_tree_sha256": tree_digest(entries),
+        "entries": len(entries),
+    }
 
 
 def _send(request: dict[str, str], post: Post) -> Answer:
@@ -454,6 +481,8 @@ def _signing(
         return _send(request, post)
     if verb == "serve":
         return _serve(request, environ, serve_with)
+    if verb == "tree-digest":
+        return _tree(request)
     try:
         loaded = load(Path(request["manifest"]))
     except ManifestError as error:
