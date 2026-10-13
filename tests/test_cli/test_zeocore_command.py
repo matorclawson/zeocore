@@ -37,6 +37,7 @@ def test_version_names_the_release_and_both_protocols() -> None:
     assert _call("version") == (
         0,
         {
+            "schema": "zeocore.version/v1",
             "ok": True,
             "zeocore": __version__,
             "cli_protocol": "1",
@@ -58,7 +59,10 @@ def test_an_unusable_command_exits_2(argv: tuple[str, ...]) -> None:
 
 
 def test_schema_list_is_every_stable_name() -> None:
-    assert _call("schema", "list") == (0, {"ok": True, "schemas": sorted(SCHEMAS)})
+    assert _call("schema", "list") == (
+        0,
+        {"schema": "zeocore.schema/v1", "ok": True, "schemas": sorted(SCHEMAS)},
+    )
 
 
 @pytest.mark.parametrize("name", sorted(SCHEMAS))
@@ -159,7 +163,10 @@ def test_digest_is_the_rfc_8785_canonical_sha256() -> None:
     canonical = b'{"a":[1,2],"b":"\xc3\xa9"}'
     expected = "sha256:" + hashlib.sha256(canonical).hexdigest()
     for raw in (b'{"b": "\\u00e9", "a": [1, 2]}', b'{"a":[1,2],"b":"\xc3\xa9"}'):
-        assert _call("digest", stdin=raw) == (0, {"ok": True, "sha256": expected})
+        assert _call("digest", stdin=raw) == (
+            0,
+            {"schema": "zeocore.digest/v1", "ok": True, "sha256": expected},
+        )
 
 
 def test_the_exit_family_is_the_youtube_publish_family() -> None:
@@ -225,7 +232,11 @@ def test_an_internal_error_still_answers_one_line(
         main(["version"])
     assert exited.value.code == 1
     out = capsys.readouterr().out
-    assert json.loads(out) == {"ok": False, "outcome": "internal"}
+    assert json.loads(out) == {
+        "ok": False,
+        "outcome": "internal",
+        "schema": "zeocore.internal/v1",
+    }
     assert "secret-canary" not in out
 
 
