@@ -51,6 +51,13 @@ class DraftModelOperationClient:
         request = TextCompletionRequest.model_validate(request.model_dump())
         if request.model not in self._catalogue.model_ids:
             raise HostedClientError("model_not_allowed")
+        limit = next(
+            item.max_output_tokens
+            for item in self._catalogue.models
+            if item.model == request.model
+        )
+        if request.max_output_tokens > limit:
+            raise HostedClientError("bad_request")
         arguments: dict[str, JsonValue] = {
             "model": request.model,
             "messages": [
@@ -61,6 +68,8 @@ class DraftModelOperationClient:
         }
         if request.system is not None:
             arguments["system"] = request.system
+        if request.temperature is not None:
+            arguments["temperature"] = request.temperature
         return HostedOperationRequest(
             connection_id=self._connection_id,
             connector_revision=self._catalogue.connector_revision,

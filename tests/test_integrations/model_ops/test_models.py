@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from zeo_core.integrations.hosted.client import HostedClientError, HostedExpectedBinding
 from zeo_core.integrations.model_ops import (
+    CataloguedModel,
     DraftModelOperationClient,
     ModelCatalogue,
     ModelMessage,
@@ -18,7 +19,11 @@ class ModelOperationTests(unittest.TestCase):
     def catalogue(self, provider: Provider = "anthropic") -> ModelCatalogue:
         return ModelCatalogue(
             provider=provider,
-            model_ids=("synthetic-snapshot-20261013",),
+            models=(
+                CataloguedModel(
+                    model="synthetic-snapshot-20261013", max_output_tokens=128
+                ),
+            ),
             connector_revision="synthetic-connector-v1",
             proposed_contract_sha256="a" * 64,
         )
@@ -41,7 +46,7 @@ class ModelOperationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             TextCompletionRequest(
                 model="synthetic-snapshot-20261013",
-                messages=(ModelMessage(role="user", text="界" * 32_768),),
+                messages=(ModelMessage(role="user", text="界" * 90_000),),
                 max_output_tokens=64,
             )
 
@@ -56,7 +61,7 @@ class ModelOperationTests(unittest.TestCase):
             )
 
     def test_integer_output_cap_is_required_and_strict(self) -> None:
-        for cap in (True, 0, -1, 32_769, "10"):
+        for cap in (True, 0, -1, "10"):
             with self.subTest(cap=cap), self.assertRaises(ValidationError):
                 TextCompletionRequest.model_validate(
                     {**self.request().model_dump(), "max_output_tokens": cap}
@@ -66,7 +71,12 @@ class ModelOperationTests(unittest.TestCase):
         for ids in (("a", "a"), ("latest",), ("model-latest",), ("default",)):
             with self.subTest(ids=ids), self.assertRaises(ValidationError):
                 ModelCatalogue.model_validate(
-                    {**self.catalogue().model_dump(), "model_ids": ids}
+                    {
+                        **self.catalogue().model_dump(),
+                        "models": [
+                            {"model": model, "max_output_tokens": 128} for model in ids
+                        ],
+                    }
                 )
 
     def test_exact_provider_operations_and_expected_binding(self) -> None:
@@ -126,3 +136,54 @@ class ModelOperationTests(unittest.TestCase):
         with self.assertRaises(ValidationError) as failure:
             TextCompletionRequest.model_validate(value)
         self.assertNotIn("Fictional test input", str(failure.exception))
+
+    def test_temperature_is_bounded_finite_and_not_a_boolean(self) -> None:
+        for value in (-0.1, 1.1, float("nan"), float("inf"), True, "0.5"):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                TextCompletionRequest.model_validate(
+                    {**self.request().model_dump(), "temperature": value}
+                )
+
+    def test_system_and_temperature_survive_preparation(self) -> None:
+        client = DraftModelOperationClient(
+            catalogue=self.catalogue(),
+            connection_id="synthetic-connection",
+            expected_binding=HostedExpectedBinding(
+                external_identity="synthetic-project", connection_revision="1"
+            ),
+        )
+        request = TextCompletionRequest.model_validate(
+            {
+                **self.request().model_dump(),
+                "system": "Fictional system",
+                "temperature": 0.5,
+            }
+        )
+        prepared = client.prepare(request, idempotency_key="same-act")
+        self.assertEqual(prepared.arguments["temperature"], 0.5)
+        self.assertEqual(prepared.arguments["system"], "Fictional system")
+        self.assertEqual(
+            set(prepared.arguments),
+            {"model", "messages", "max_output_tokens", "system", "temperature"},
+        )
+
+    def test_catalogue_output_ceiling_is_model_specific(self) -> None:
+        client = DraftModelOperationClient(
+            catalogue=self.catalogue(),
+            connection_id="synthetic-connection",
+            expected_binding=HostedExpectedBinding(
+                external_identity="synthetic-project", connection_revision="1"
+            ),
+        )
+        request = self.request().model_copy(update={"max_output_tokens": 129})
+        with self.assertRaisesRegex(HostedClientError, "^bad_request$"):
+            client.prepare(request, idempotency_key="same-act")
+
+    def test_json_escaping_and_structure_count_towards_byte_limit(self) -> None:
+        # Raw text fits256KiB, but escaped JSON string bytes do not.
+        with self.assertRaises(ValidationError):
+            TextCompletionRequest(
+                model="synthetic-snapshot-20261013",
+                messages=(ModelMessage(role="user", text="\x01" * 50_000),),
+                max_output_tokens=64,
+            )

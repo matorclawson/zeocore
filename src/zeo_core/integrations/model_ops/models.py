@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Provider = Literal["anthropic", "openai", "google"]
+REQUEST_SCHEMA_DRAFT_SHA256 = (
+    "4b45e5913e3ad7eee937f34f31e5fbb187890bca094e8cabe6e3325ad68d629a"
+)
+MAX_REQUEST_BYTES = 256 * 1024
 
 
 class ModelMessage(BaseModel):
@@ -15,7 +20,7 @@ class ModelMessage(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     role: Literal["user", "assistant"]
-    text: str = Field(min_length=1, max_length=32_768, repr=False)
+    text: str = Field(min_length=1, max_length=MAX_REQUEST_BYTES, repr=False)
 
     @model_validator(mode="after")
     def _nonempty_text(self) -> ModelMessage:
@@ -31,41 +36,60 @@ class TextCompletionRequest(BaseModel):
 
     model: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
     messages: tuple[ModelMessage, ...] = Field(min_length=1, max_length=64, repr=False)
-    max_output_tokens: int = Field(strict=True, gt=0, le=32_768)
-    system: str | None = Field(default=None, max_length=32_768, repr=False)
+    max_output_tokens: int = Field(strict=True, gt=0)
+    system: str | None = Field(default=None, max_length=MAX_REQUEST_BYTES, repr=False)
+
+    temperature: float | None = Field(
+        default=None, strict=True, ge=0, le=1, allow_inf_nan=False
+    )
 
     @model_validator(mode="after")
     def _bounded_utf8(self) -> TextCompletionRequest:
         try:
-            count = sum(len(item.text.encode("utf-8")) for item in self.messages)
-            count += len((self.system or "").encode("utf-8"))
-        except UnicodeEncodeError:
-            raise ValueError("text must encode as UTF-8") from None
-        if count > 65_536:
-            raise ValueError("aggregate model input exceeds candidate byte limit")
+            encoded = json.dumps(
+                self.model_dump(exclude_none=True),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except UnicodeEncodeError, ValueError:
+            raise ValueError("request must encode as finite UTF-8 JSON") from None
+        if len(encoded) > MAX_REQUEST_BYTES:
+            raise ValueError("serialized model request exceeds candidate byte limit")
+        return self
+
+
+class CataloguedModel(BaseModel):
+    """One owner-selected model and its required output-token ceiling."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+
+    model: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+    max_output_tokens: int = Field(strict=True, gt=0)
+
+    @model_validator(mode="after")
+    def _known_aliases_refused(self) -> CataloguedModel:
+        if self.model in {"latest", "default"} or self.model.endswith("-latest"):
+            raise ValueError("model aliases are not exact catalogue IDs")
         return self
 
 
 class ModelCatalogue(BaseModel):
-    """Trusted explicit model IDs; this inventory is not a spending grant."""
+    """Trusted exact models and ceilings; not a spending or invocation grant."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     provider: Provider
-    model_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
+    models: tuple[CataloguedModel, ...] = Field(min_length=1, max_length=100)
     connector_revision: str = Field(min_length=1, max_length=200)
     proposed_contract_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @property
+    def model_ids(self) -> tuple[str, ...]:
+        return tuple(item.model for item in self.models)
 
     @model_validator(mode="after")
     def _distinct_exact_ids(self) -> ModelCatalogue:
         if len(self.model_ids) != len(set(self.model_ids)):
             raise ValueError("model catalogue contains duplicate IDs")
-        for model in self.model_ids:
-            if model in {"latest", "default"} or model.endswith("-latest"):
-                raise ValueError("model aliases are not exact catalogue IDs")
-            TextCompletionRequest(
-                model=model,
-                messages=(ModelMessage(role="user", text="catalogue check"),),
-                max_output_tokens=1,
-            )
         return self
