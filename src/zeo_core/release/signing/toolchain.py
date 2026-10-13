@@ -52,6 +52,18 @@ class Inspection:
     entitlements: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class Assessment:
+    """What Gatekeeper said about a bundle, kept as information only."""
+
+    status: int | None  # None when spctl could not be run
+    output: str
+
+
+#: How much of spctl's answer is kept.
+ASSESSMENT_LIMIT: Final = 4096
+
+
 class Toolchain(Protocol):
     def host(self) -> str: ...
 
@@ -77,6 +89,22 @@ class Toolchain(Protocol):
 
         False only for a real non-match. A tool or syntax error raises
         ``ToolError``, so it is held rather than read as "not signed".
+        """
+        ...
+
+    def sealed(self, path: Path) -> bool:
+        """``codesign --verify --strict --deep`` on a whole bundle.
+
+        Verification only: ``--deep`` is never used to sign (SOW-32 §3). False
+        only for a bundle that doesn't verify; a tool error raises
+        ``ToolError``.
+        """
+        ...
+
+    def assess(self, path: Path) -> Assessment:
+        """``spctl --assess --type execute -vv``: information, never a verdict.
+
+        An internal bundle isn't notarised, so a rejection is expected.
         """
         ...
 
@@ -107,6 +135,7 @@ def run_tool(argv: Sequence[str]) -> Completed:
 
 _CODESIGN: Final = "/usr/bin/codesign"
 _SECURITY: Final = "/usr/bin/security"
+_SPCTL: Final = "/usr/sbin/spctl"
 _LOGIN_KEYCHAIN: Final = Path.home() / "Library" / "Keychains" / "login.keychain-db"
 # Reading an unlocked keychain's settings needs no interaction. Only a locked
 # one answers with errSecInteractionNotAllowed, so this text establishes a
@@ -115,6 +144,8 @@ _LOCKED_TEXT: Final = b"User interaction is not allowed"
 # codesign's exit status when the code is valid but fails the -R requirement.
 # Any other non-zero status is a tool or syntax error, never a non-match.
 _UNSATISFIED: Final = 3
+# codesign's exit status when --verify finds the code invalid or altered.
+_INVALID: Final = 1
 _MISSING_TEXT: Final = (b"no identity found", b"could not be found in the keychain")
 
 
@@ -213,6 +244,24 @@ class DarwinToolchain:
         if done.returncode == _UNSATISFIED:
             return False
         raise ToolError("codesign could not test the requirement")
+
+    def sealed(self, path: Path) -> bool:
+        done = self._read([_CODESIGN, "--verify", "--strict", "--deep", str(path)])
+        if done.returncode == 0:
+            return True
+        if done.returncode in (_INVALID, _UNSATISFIED):
+            return False
+        raise ToolError("codesign could not verify the bundle")
+
+    def assess(self, path: Path) -> Assessment:
+        try:
+            done = self._read(
+                [_SPCTL, "--assess", "--type", "execute", "-vv", str(path)]
+            )
+        except ToolError:
+            return Assessment(None, "spctl could not be run")
+        text = (done.stdout + done.stderr).decode("utf-8", "replace").strip()
+        return Assessment(done.returncode, text[:ASSESSMENT_LIMIT])
 
     def inspect(self, path: Path) -> Inspection:
         details = self._read([_CODESIGN, "-d", "-vv", str(path)])

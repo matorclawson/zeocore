@@ -6,6 +6,9 @@ Commands (``zeocore help`` is the machine catalogue of all of them):
   family and its result schema (``zeo_core.cli.catalogue``).
 - ``zeocore version``: the release, this command's protocol and the
   ZEOconnect protocol it speaks.
+- ``zeocore doctor``: is this machine ready? One local, read-only check per line
+  (Python, session store, pairing, ``ZEOCONNECT_URL``, extras); each failing
+  check names the next command (``zeo_core.cli.doctor``).
 - ``zeocore schema list``: the stable schema names.
 - ``zeocore schema <name>``: that contract as JSON Schema 2020-12.
 - ``zeocore validate <name>``: validate stdin against ``<name>``. Answers
@@ -15,16 +18,16 @@ Commands (``zeocore help`` is the machine catalogue of all of them):
 - ``zeocore digest``: the sha256 of stdin's RFC 8785 canonical bytes.
 - ``zeocore login | logout | whoami | connections | invoke | artifact get``:
   the ZEOconnect Broker client (``zeo_core.cli.client``).
-- ``zeocore release sign | verify | pack | receive | send | serve``: the
+- ``zeocore release sign | verify | pack | receive | send | serve | tree-digest``: the
   shared signing step
   (``zeo_core.cli.release``). It needs the ``github`` extra and loads only
   when it is used; every other command runs on a plain install.
 
 Rules every command keeps (``cli_protocol`` 1):
 
-- stdout is JSON lines and nothing else. Events (a pairing code, an approval
-  link, waiting) carry an ``event`` key; the result is always the last line,
-  carries ``ok`` and ``schema`` (``zeocore.<command>/v1``) and never
+- stdout is JSON lines and nothing else. Events (a pairing code, a doctor
+  check, an approval link, waiting) carry an ``event`` key; the result is always
+  the last line, carries ``ok`` and ``schema`` (``zeocore.<command>/v1``) and never
   ``event``. A command with no events prints one line. Diagnostics go to
   stderr.
 - Input JSON is strict: no duplicate keys, no NaN, at most 1 MiB.
@@ -55,7 +58,7 @@ from zeo_core.adapters.runtime_host.canonical import (
     parse_json,
 )
 
-from . import client
+from . import client, doctor
 from .catalogue import catalogue
 from .protocol import (
     CLI_PROTOCOL,
@@ -220,6 +223,7 @@ COMMANDS: Final[dict[str, Command]] = {
     "artifact": client.artifact,
     "connections": client.connections,
     "digest": _digest,
+    "doctor": doctor.doctor,
     "help": _help,
     "invoke": client.invoke,
     "login": client.login,
