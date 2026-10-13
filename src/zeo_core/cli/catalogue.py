@@ -38,7 +38,12 @@ EXIT_CODES: Final = (
         "ambiguous",
         "the outcome is unknown; never retried automatically",
     ),
-    (EXIT_HELD, "held", "refused or held, including a value that fails its schema"),
+    (
+        EXIT_HELD,
+        "held",
+        "refused or held, including a value that fails its schema; for "
+        "doctor, not ready: some check failed",
+    ),
     (
         EXIT_INTERNAL,
         "internal",
@@ -105,7 +110,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "doctor",
         "is this machine ready? one local, read-only check per line (Python, "
         "session store, pairing, ZEOCONNECT_URL, extras); a failing check "
-        "names its next command, and who must act when it isn't you",
+        "names its next command, and who must act when it isn't you; exit 0 "
+        "when ready, 20 when not ready",
         "zeocore doctor [--profile P]",
         arguments=(_PROFILE,),
     ),

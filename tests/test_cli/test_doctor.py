@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import inspect
 import json
+import subprocess
 import sys
 import tomllib
 from datetime import timedelta
@@ -22,6 +23,7 @@ from tests.test_integrations.hosted.test_pairing import (
 from zeo_core.cli import client, doctor
 from zeo_core.cli.__main__ import run
 from zeo_core.cli.catalogue import ENTRIES
+from zeo_core.connections.adapters.subprocess_runner import RealSubprocessRunner
 from zeo_core.integrations.hosted import InMemorySecureSessionStore, SecureStoreError
 from zeo_core.integrations.hosted.file_store import SESSION_FILE_ENV
 
@@ -40,11 +42,16 @@ def machine(monkeypatch: pytest.MonkeyPatch) -> InMemorySecureSessionStore:
     """A ready machine: a paired store, a good origin, the github extra present."""
     store = InMemorySecureSessionStore()
     store.save(session(NOW))
-    monkeypatch.setattr(client, "make_store", lambda profile: store)
+    monkeypatch.setattr(client, "make_store", lambda profile, **_: store)
     monkeypatch.setattr(client, "make_transport", lambda store: Transport())
     monkeypatch.setattr(client, "now", lambda: NOW)
     monkeypatch.setattr(doctor, "_extras", lambda: _original_extras(lambda name: None))
-    for name in (client.PROFILE_ENV, SESSION_FILE_ENV, "ZEOCONNECT_DEVELOPMENT"):
+    for name in (
+        client.PROFILE_ENV,
+        SESSION_FILE_ENV,
+        "ZEOCONNECT_URL",
+        "ZEOCONNECT_DEVELOPMENT",
+    ):
         monkeypatch.delenv(name, raising=False)
     return store
 
@@ -74,11 +81,12 @@ def test_a_ready_machine_passes_every_check(
     assert answer["failing"] == []
     assert list(_by_name(answer)) == [
         "python",
+        "zeoconnect_url",
         "session_store",
         "pairing",
-        "zeoconnect_url",
         "extra:github",
     ]
+    assert _by_name(answer)["zeoconnect_url"]["origin"] == "production"
     assert all("next" not in check for check in answer["checks"])
 
 
@@ -116,7 +124,7 @@ def test_an_unusable_session_store_fails_the_store_and_the_pairing(
     capsys: pytest.CaptureFixture[str],
     machine: InMemorySecureSessionStore,
 ) -> None:
-    def broken(profile: str | None) -> InMemorySecureSessionStore:
+    def broken(profile: str | None, **_: object) -> InMemorySecureSessionStore:
         raise SecureStoreError("secure session storage is unavailable")
 
     monkeypatch.setattr(client, "make_store", broken)
@@ -143,7 +151,7 @@ def test_a_bad_origin_fails_and_names_the_two_ways_out(
     monkeypatch.setattr(client, "make_transport", refused)
     monkeypatch.setattr(client, "origin", lambda: "https://evil.example/secret")
     status, answer = _doctor(capsys=capsys)
-    assert (status, answer["failing"]) == (20, ["zeoconnect_url"])
+    assert (status, answer["failing"]) == (20, ["zeoconnect_url", "pairing"])
     check = _by_name(answer)["zeoconnect_url"]
     assert check["origin"] == "custom"
     assert "ZEOCONNECT_DEVELOPMENT=1" in check["next"]
@@ -216,7 +224,7 @@ def test_the_profile_is_chosen_by_the_flag_then_the_environment(
 ) -> None:
     seen: list[str | None] = []
 
-    def make_store(profile: str | None) -> InMemorySecureSessionStore:
+    def make_store(profile: str | None, **_: object) -> InMemorySecureSessionStore:
         seen.append(profile)
         return machine
 
@@ -230,7 +238,7 @@ def test_the_profile_is_chosen_by_the_flag_then_the_environment(
 def test_a_bad_profile_or_flag_is_invalid_input_not_a_diagnosis(
     machine: InMemorySecureSessionStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def refuse(profile: str | None) -> InMemorySecureSessionStore:
+    def refuse(profile: str | None, **_: object) -> InMemorySecureSessionStore:
         raise SecureStoreError("session profile name is invalid")
 
     monkeypatch.setattr(client, "make_store", refuse)
@@ -276,3 +284,165 @@ def test_the_catalogue_arguments_match_the_parser() -> None:
     }
     assert {a.name for a in entry.arguments} == declared
     assert entry.stdin is None
+
+
+def test_a_bad_origin_checks_first_and_pairing_names_the_url_not_a_person(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def refused(store: object) -> Transport:
+        raise ValueError("origin")
+
+    monkeypatch.setattr(client, "make_transport", refused)
+    machine.delete()
+    seen: list[dict[str, Any]] = []
+    status, answer = doctor.doctor([], b"", out=seen.append)
+    assert status == 20
+    assert [line["check"] for line in seen][:2] == ["python", "zeoconnect_url"]
+    pairing = _by_name(answer)["pairing"]
+    assert "not checked" in pairing["message"]
+    assert "ZEOCONNECT_URL" in pairing["next"]
+    # Login would fail on the same origin, so no person is named yet.
+    assert "who" not in pairing
+    assert capsys.readouterr().out == ""
+
+
+def test_a_keychain_that_does_not_answer_fails_the_store_and_says_so(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runners: list[object] = []
+
+    def slow(
+        profile: str | None, *, runner: object = None
+    ) -> InMemorySecureSessionStore:
+        runners.append(runner)
+        raise subprocess.TimeoutExpired(["security", "private-argv"], 5)
+
+    monkeypatch.setattr(client, "make_store", slow)
+    status, answer = _doctor(capsys=capsys)
+    assert (status, answer["failing"]) == (20, ["session_store", "pairing"])
+    store = _by_name(answer)["session_store"]
+    assert "did not answer" in store["message"]
+    assert "private-argv" not in str(answer)
+    # The runner it was given is bounded.
+    assert isinstance(runners[0], RealSubprocessRunner)
+    assert runners[0]._timeout == doctor.KEYCHAIN_TIMEOUT
+
+
+def test_the_runner_passes_its_timeout_to_the_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    RealSubprocessRunner(timeout=2.5).run(["true"])
+    assert seen["timeout"] == 2.5
+    RealSubprocessRunner().run(["true"])
+    assert seen["timeout"] is None
+
+
+@pytest.mark.parametrize(
+    "error", [ValueError("ZEO_INTEGRATION_X=secret"), OSError("/p")]
+)
+def test_a_store_that_raises_unexpectedly_is_a_fixed_failure_not_an_internal_error(
+    error: Exception,
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def boom(profile: str | None, **_: object) -> InMemorySecureSessionStore:
+        raise error
+
+    monkeypatch.setattr(client, "make_store", boom)
+    status, answer = _doctor(capsys=capsys)
+    assert (status, answer["failing"]) == (20, ["session_store", "pairing"])
+    assert "secret" not in str(answer)
+    assert "/p" not in str(answer)
+
+
+@pytest.mark.parametrize(
+    ("reason", "step"),
+    [
+        ("the session file was paired with another Broker", "ZEOCONNECT_URL"),
+        ("the session file is invalid", "delete"),
+        ("the session file must allow no group or other access", "chmod 600"),
+        ("the session file's directory is missing", "mode 0700"),
+    ],
+)
+def test_each_session_file_refusal_gets_its_own_advice(
+    reason: str,
+    step: str,
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def refuse(profile: str | None, **_: object) -> InMemorySecureSessionStore:
+        raise SecureStoreError(reason)
+
+    monkeypatch.setattr(client, "make_store", refuse)
+    monkeypatch.setenv(SESSION_FILE_ENV, "/private/not-echoed/session.json")
+    _, answer = _doctor(capsys=capsys)
+    store = _by_name(answer)["session_store"]
+    assert step in store["next"]
+    assert reason in store["message"]
+    assert "not-echoed" not in str(answer)
+
+
+def test_only_the_extras_own_packages_are_called_a_missing_extra(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def load(name: str) -> None:
+        raise ModuleNotFoundError("no httpx", name="httpx")
+
+    monkeypatch.setattr(doctor, "_extras", lambda: _original_extras(load))
+    _, answer = _doctor(capsys=capsys)
+    check = _by_name(answer)["extra:github"]
+    assert check["next"] == "uv tool install --reinstall zeocore"
+    assert "github" not in check["next"]
+
+
+def test_a_real_import_failure_names_the_extra_when_its_package_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "fake_release_module.py").write_text("import requests\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setitem(sys.modules, "requests", None)
+    monkeypatch.setattr(
+        doctor,
+        "EXTRAS",
+        (("release", "fake_release_module", "github", ("requests",)),),
+    )
+    check = _original_extras()[0]
+    assert check["ok"] is False
+    assert check["next"] == "pip install 'zeocore[github]'"
+
+
+def test_the_real_store_and_dispatcher_echo_no_path_or_profile_sentinel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for name in (client.PROFILE_ENV, "ZEOCONNECT_URL", "ZEOCONNECT_DEVELOPMENT"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(SESSION_FILE_ENV, str(tmp_path / "path-sentinel" / "s.json"))
+    status, answer = run(["doctor"], lambda: b"")
+    assert (status, answer["outcome"]) == (20, "not_ready")
+    store = _by_name(answer)["session_store"]
+    assert store["store"] == "file"
+    assert "directory is missing" in store["message"]
+    monkeypatch.setenv(client.PROFILE_ENV, "profile-sentinel")
+    status, refused = run(["doctor"], lambda: b"")
+    assert status == 2
+    out = capsys.readouterr().out
+    for text in (out, str(answer), str(refused)):
+        assert "path-sentinel" not in text
+        assert "profile-sentinel" not in text
