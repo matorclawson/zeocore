@@ -1,181 +1,131 @@
-# Contributing to ZeoCore
+# Contributing to ZeoCore: the contributors charter
 
-Thanks for considering a contribution. This document covers how to set up a
-dev environment, what the verification gate expects, and how to add tests.
+ZeoCore is a typed Python library for capability authoring (contracts, `@capability` tools, keyless integrations) and the `zeocore` command that gives other languages the same contracts and a client for ZEOconnect's Broker. **Start here: [AGENTS.md](AGENTS.md)** (what the command does, the exit codes, the rules that never bend). This file says how to change ZeoCore.
 
-## Development setup
+The seat that needs a change builds it. Propose it, agree the shape with the owner (the `zeocore` seat), the council and the Architect, implement it on your own fork under the rules below, and open a PR. The owner maintains: it answers proposals, reviews PRs, and keeps the shape and the gate strict.
 
-This repo uses [`uv`](https://github.com/astral-sh/uv) for environment and
-dependency management, wired up through `make`:
+## How to propose
+
+Propose before you build. A proposal is short and says:
+
+| Field | Say |
+|---|---|
+| Need | What you cannot do today, and what you tried |
+| Shape | The public API or CLI you want: function signature, command and stdin fields, result schema, exit codes |
+| Contract class | For anything that reaches a provider: `read`, `billed computation` or `effect` (Broker contract, see [docs/integrations/zeoconnect.md](docs/integrations/zeoconnect.md)) |
+| Who else gains | At least one other seat or consumer |
+| Risks | Custody (any credential), spend, exit-code or protocol change, new dependency |
+
+Where it goes:
+
+- **A seat:** a short note in your own SOW, sent by zmail to `zeocore` and `zeocouncil`, copying the Architect.
+- **Anyone else:** an issue on `zeroemployeeorg/zeocore`.
+- **A vulnerability:** never a public issue. Follow [SECURITY.md](SECURITY.md).
+- **A bug:** an issue with steps to reproduce, the `zeocore version` output and your Python version.
+
+Do not build a credentialed-provider integration before ZEOconnect has frozen its Broker contract and the council has reviewed it. The contract comes first, then the keyless client here (ZEOCORE-SOW-13 sets the order).
+
+## What is welcome
+
+ZeoCore keeps this shape:
+
+- **A typed library.** Strict mypy, Pydantic models, canonical contracts under `contracts/`.
+- **A command, `zeocore`,** with the protocol of `cli_protocol` 1: one JSON document on stdin, JSON lines on stdout, a documented exit family.
+- **Integrations** under `src/zeo_core/integrations/<name>/`. Follow `gemini`, `kit`, `hubspot` or `revolut`: service, models, operations, a page in `docs/integrations/`.
+- **Keyless clients.** The Broker holds every provider credential and does the handshake. ZeoCore never holds one.
+- **Agent experience.** Better `help --json`, clearer errors with a next action, fewer prompts, better `AGENTS.md`.
+- **Tests with fakes,** and documentation.
+
+Out of scope, and refused in review:
+
+| Not accepted | Why |
+|---|---|
+| Reading or holding a provider key, token or `.env` value | Custody belongs to the Broker |
+| A generic arbitrary-URL proxy, or a direct dotenv-to-agent path | Bypasses the Broker's contract and approval |
+| A live provider call in a test | Tests use fakes |
+| A new exit code, or any change to `cli_protocol` 1, without a protocol bump agreed with the owner | Every client depends on it |
+| A new runtime dependency without the operator's OK | Supply chain |
+| Code that detects it runs under test | `make hygiene-check` fails it |
+| Anything tied to one seat's private repository | ZeoCore is public |
+
+## Owner-only areas
+
+For these the requester still writes the proposal and the tests. The owner decides who writes the code.
+
+| Area | Why owner-only |
+|---|---|
+| `src/zeo_core/release/signing/` and `docs/how-to/release-signing.md` | Signing and custody: the admission rule, the allowlist, matormini-only signing |
+| `.github/workflows/release-on-merge.yml`, `.github/workflows/publish.yml`, `tools/install-pandoc.sh` | Release and deploy machinery: PyPI trusted publishing, the `pypi` environment, a pinned and checksummed pandoc |
+| Session and pairing code: `src/zeo_core/integrations/hosted/pairing.py`, `file_store.py`, `profile.py`, and the session handling in `src/zeo_core/cli/client.py` | Credentials |
+| `contracts/broker-1.4/`, `contracts/zeocore-v1/` and the other pinned contracts | Shared with ZEOconnect and the merger; changes are agreed with them and reviewed by the council |
+| The exit-code family and `src/zeo_core/cli/protocol.py` | Every client depends on `cli_protocol` 1 |
+| `pyproject.toml` packaging, dependency pins and `uv.lock` | Version and supply chain |
+
+### Releasing (maintainers only)
+
+Every merge to `main` is a release. Nobody bumps a version, tags or approves. `.github/workflows/publish.yml` calls `release-on-merge.yml`, which computes the version (the higher of the last tag and PyPI's newest, plus the highest `bump:` among the new `changelog.d` fragments), runs `make verify`, builds, tags `vX.Y.Z` at the merge commit, publishes to PyPI by trusted publishing, and creates the GitHub Release from the fragments. `pyproject.toml` has no version literal. The workflow's `smoke-test` job installs the published package into a clean venv: its failure means the release did NOT succeed, even if the publish step passed.
+
+One-time trusted-publisher setup (on PyPI's web UI): owner `zeroemployeeorg`, repository `zeocore`, workflow filename `publish.yml`, environment `pypi`. All four must match exactly, or the publish fails with `invalid-publisher` and no hint which field is wrong.
+
+## How to build
+
+**Fork and branch.** Fork `zeroemployeeorg/zeocore` to your own account. Branch as `<seat>/<topic>-<yyyymmdd>`. Never push to `main`. Never tag.
+
+**Set up.** `make setup` installs exactly what `uv.lock` pins (Python 3.14; the package requires 3.14+; every gate extra, `dev` and `lint`, the documentation group) into `.venv`. `make help` lists every target.
+
+**Heavy work on ZeoWork.** Keep the venv, caches and temporary files off the system disk:
 
 ```bash
-git clone https://github.com/zeroemployeeorg/zeocore.git
-cd zeocore
-make setup
+export TMPDIR=/Volumes/ZeoWork/<you>/tmp UV_CACHE_DIR=/Volumes/ZeoWork/<you>/uv-cache
+UV_PROJECT_ENVIRONMENT=/Volumes/ZeoWork/<you>/venv make setup PYTHON=/Volumes/ZeoWork/<you>/venv/bin/python
+make verify PYTHON=/Volumes/ZeoWork/<you>/venv/bin/python
 ```
 
-`make setup` creates a `.venv` (Python 3.14 by default -- see `PYTHON_VERSION`
-in the Makefile; the package itself requires 3.14+), installs `zeocore` in
-editable mode with all optional integrations, and installs the `dev` and
-`lint` extras. Activate it with:
+**The gate is `make verify`.** It must pass at the head you submit. It runs, in order: `format-check`, `ruff` lint, `mypy` strict, `arch-check` (import-linter contracts in `.importlinter`), `hygiene-check`, `hygiene-secrets`, `plugin-boundary`, and the tests with coverage (floor 90%). For a clean reinstall first, run `make verify-full`. For inner-loop work: `make lint`, `make typecheck`, `make test-fast`, `make test-docs`, `make test-module M=test_fs`.
 
-```bash
-source .venv/bin/activate
-```
+**Code.**
 
-Run `make help` at any point to see every available target.
+- Ruff (rules in `[tool.ruff]`, line length 88, double quotes). Format only the files you touch: `ruff format <paths>`. Never run `make format` on the tree; it rewrites unrelated files.
+- Fully typed under `mypy --strict`. Untyped code is not gated.
+- Import `zeo_core.tools` mixins from `zeo_core.tools`, not from `zeo_core.tools.mixins.*`.
+- Production code never detects that it runs under test. Inject a parameter, fixture or fake.
+- Examples under `examples/` import `zeo_core` and run with `uv run examples/<name>.py`. The beginner examples stay deterministic, offline and credential-free.
 
-## Before you open a PR: the gate
+**Tests.** They live under `tests/`, mirroring `src/zeo_core/` (see [tests/README.md](tests/README.md)). Rules:
 
-This repo has one gate that matters: `make verify`. Run it before every
-commit you intend to submit:
+- Test the failure path as well as the success path. Every refusal gets a negative control.
+- A test that proves a refusal does not echo its input value (use a sentinel).
+- Fakes only: no provider call, no key, no network.
+- Tests that run git must drop every inherited `GIT_*` variable: a hook sets `GIT_DIR`, and an inherited one re-initialises the real repository.
+- There is no mutation tooling in this repo. Say so in your PR; the negative controls stand in for it.
 
-```bash
-make verify
-```
+**Docs and changelog.** User-visible change needs a page or section under `docs/` (strict mkdocs build; `make test-docs` checks repository-relative links and anchors) and one `changelog.d/<branch>.md` fragment whose first line is `bump: patch`, `bump: minor` or `bump: major` ([changelog.d/README.md](changelog.d/README.md)). Never edit a merged fragment.
 
-It runs, in order: `format-check` -> `ruff` lint -> `mypy` (strict) ->
-`arch-check` (import-linter directional contracts) -> `hygiene-check` (fails
-if production code detects it's under test) -> `hygiene-secrets` ->
-`plugin-boundary` -> the test suite with coverage (floor: 90%).
+**The command's conventions** (`cli_protocol` 1; also `zeocore help --json` and [docs/reference/cli.md](docs/reference/cli.md)):
 
-For a slower, more thorough version that reinstalls from a clean environment
-first (catches issues that stale caches or a broken package layout would
-hide), use:
+- stdout is JSON lines. The last line is the result and carries `ok` and `schema` (`zeocore.<command>/v1`).
+- Exit codes: 0 done, 2 invalid input or command, 10 approval required, 11 waiting, 12 not paired, 13 ambiguous, 20 held or refused (for `doctor`, not ready), 1 internal.
+- stdin is one strict JSON document: no duplicate keys, no NaN, at most 1 MiB.
+- Errors never echo input, and end with the next action.
+- Nothing prompts, except a declared human step.
 
-```bash
-make verify-full
-```
+## How to submit
 
-A PR that doesn't pass `make verify` won't merge cleanly -- run it locally
-first, not just in CI.
+- **One PR at a time is ready to merge.** Stack the next one on your fork.
+- **Fork to gold.** Open the PR from your fork against `zeroemployeeorg/zeocore` `main`. Merges are merge commits: no squash, no rebase. Update a PR with a merge of `main`.
+- **PR body.** Use this order: what and why; a look-here list (files and functions to read first); contract and behaviour changes (exit codes, outcomes, schemas, new dependencies, or "none"); the gate numbers; what is NOT verified; the exact head sha.
+- **Evidence.** The `make verify` log, with the head sha first, stored on ZeoWork (name the path in the PR). For a large change add a bundle with `SHA256SUMS`.
+- **Review route.** The owner reviews first, then `zeocouncil` reviews the exact head, then the merger merges. Today the operator merges by hand.
+- **After a verdict, push nothing to that head.** A push dismisses the review and moves the head. New work goes in the next PR.
+- **Every merge is a release,** with a computed version (see Releasing above). You never tag.
+- **Never put a secret** in a file, commit, log, PR or message.
 
-### Individual checks
+## Response times
 
-If you want faster inner-loop feedback while iterating:
+| What | The owner commits to |
+|---|---|
+| Answer a proposal (accept, change the shape, or decline with a reason) | Within 4 hours |
+| First review of a PR at its exact head | Within 1 working day |
+| A re-review after you merge `main` or fix findings | Within 1 working day |
 
-```bash
-make format        # auto-fix formatting with ruff + isort (mutates files)
-make lint           # ruff check + format --check
-make typecheck       # mypy --strict
-make test-fast       # pytest without coverage
-make test-docs       # documentation links + safe beginner example smoke tests
-make test-module M=test_fs   # run one module's tests with coverage
-```
-
-`make test-docs` is a focused inner-loop target. The full `make verify` test
-step already discovers `tests/test_docs`, so documentation tests run there
-exactly once without a separate gate step.
-
-## Code style
-
-- **Linting**: [ruff](https://docs.astral.sh/ruff/), configured in
-  `pyproject.toml`'s `[tool.ruff]` / `[tool.ruff.lint]`. Enabled rule sets
-  include pycodestyle (E/W), pyflakes (F), isort (I), flake8-comprehensions
-  (C), flake8-bugbear (B), pyupgrade (UP), pep8-naming (N),
-  flake8-annotations (ANN), flake8-bandit (S), and flake8-builtins (A).
-  Line length is 88, double-quote strings.
-- **Type checking**: [mypy](https://mypy-lang.org/) in strict mode
-  (`disallow_untyped_defs`, `disallow_incomplete_defs`,
-  `warn_return_any`, etc -- see `[tool.mypy]` in `pyproject.toml`). New or
-  changed code must be fully typed; mypy only checks what's annotated, so
-  untyped code isn't actually gated.
-- **Import architecture**: `import-linter` enforces the directional
-  contracts declared in `.importlinter` (checked by `make arch-check`).
-- **Canonical import paths**: `zeo_core.tools`'s mixins
-  (`IntegrationEnabledMixin`, `LifecycleMixin`, `ToolEnvInitializerMixin`)
-  are implemented under `zeo_core.tools.mixins.*` but should always be
-  imported from `zeo_core.tools` directly (`from zeo_core.tools import
-  LifecycleMixin`, not `from zeo_core.tools.mixins.lifecycle import
-  LifecycleMixin`). Set `ZEO_WARN_NONCANONICAL_IMPORTS=1` in your dev/CI
-  environment to get a `FutureWarning` when this is violated -- it's
-  opt-in (not on by default) because it cannot reliably distinguish a
-  non-canonical import from the package's own internal bootstrap; see
-  `zeo_core/tools/mixins/__init__.py`'s module docstring for the full
-  reasoning.
-- **Examples**: files under `examples/` must import `zeo_core` (never a
-  predecessor package name) and be runnable with `uv run examples/<name>.py`.
-  Credential-gated examples may skip with a printed reason; they must not
-  crash on a missing extra if they document that extra.
-- **Documentation links**: use repository-relative links in user-facing
-  Markdown so local readers and GitHub resolve the same files. Include heading
-  fragments when linking to a section, and run `make test-docs` after moving
-  or renaming documentation.
-- **Beginner examples**: keep the credential-free onboarding examples
-  deterministic, offline, and runnable with the base install. If their
-  intentional output changes, update the expected output in
-  `tests/test_docs/test_examples.py`. Do not add credential, OAuth, server,
-  ffmpeg, or optional-extra examples to that smoke-test allowlist.
-- **No test-detection in production code**: production code (`src/zeo_core`)
-  must never branch on whether it's running under test (no
-  `inspect.stack()`, no `"pytest" in sys.modules`, etc). `make hygiene-check`
-  fails the build if it finds this pattern. If a test needs different
-  behavior, inject it (a parameter, a fixture, a fake) rather than having
-  production code sniff its caller.
-
-## Adding tests
-
-- Tests live under `tests/`, mirroring `src/zeo_core/`'s module layout --
-  see `tests/README.md` for the full structure and the fixtures available
-  in `tests/conftest.py`.
-- Test both success and failure paths, not just the happy path.
-- Prefer the dedicated mock classes already present in each test package
-  over ad hoc `MagicMock` wiring, for consistency with existing tests.
-- The coverage floor is 90% (`--cov-fail-under=90` in `make test`); a PR
-  that drops coverage below that will fail the gate.
-- `hypothesis` is available for property-based testing where it adds real
-  value (see the `dev` extra in `pyproject.toml`).
-
-## Submitting a change
-
-1. Fork the repository and create a branch for your change.
-2. Make your change, with tests.
-3. Run `make verify` locally and confirm it passes clean.
-4. Open a pull request describing what changed and why.
-
-## Reporting issues
-
-Please open a GitHub issue with a clear description, steps to reproduce (for
-bugs), and your Python/zeocore version. For vulnerabilities, see
-[SECURITY.md](SECURITY.md) — do not file a public issue.
-
-## Releasing (maintainers)
-
-Releases go through `.github/workflows/publish.yml`, using PyPI's [trusted
-publishing](https://docs.pypi.org/trusted-publishers/) (OIDC) -- no API
-token is stored as a repo secret. There is no TestPyPI target: its
-environment was unprotected, so every publish now goes through the
-protected `pypi` environment.
-
-**Every merge to `main` is a release.** Nobody bumps a version, tags or
-approves; the review and the merge are the gate.
-
-1. In your PR, add one fragment to `changelog.d/` whose first line is
-   `bump: patch`, `bump: minor` or `bump: major`, followed by the release
-   notes text ([`changelog.d/README.md`](changelog.d/README.md)). With no
-   fragment, the merge is a patch release.
-2. When the PR merges, `publish.yml` (through the shared
-   `release-on-merge.yml`) computes the version: the highest `v` tag plus
-   your increment. It runs `make verify`, builds with that version
-   (`hatch-vcs` reads it from the tag), tags `vX.Y.Z` at the merge commit,
-   publishes to PyPI, and creates the GitHub Release from your fragment.
-   `pyproject.toml` has no version literal, and installed
-   `zeo_core.__version__` reads the distribution metadata.
-3. The workflow's own `smoke-test` job installs the just-published package
-   into a clean venv and imports it -- treat that job's failure as the
-   release having NOT actually succeeded, even if the publish step itself
-   reported success (PyPI's own index can take a moment to propagate; the
-   workflow waits, but a failure here is still real signal, not a fluke to
-   ignore).
-
-**Trusted publisher setup** (one-time, on PyPI's web UI — not something
-a CI workflow can do for itself): https://pypi.org/manage/account/publishing/
-
-Register a trusted publisher with **all four** fields exact:
-repository owner `zeroemployeeorg`, repository name `zeocore`, workflow
-filename `publish.yml` (just the filename, not the full path), and
-environment name `pypi`. All four are baked into the OIDC token's claims and
-must match byte-for-byte, or the publish step fails with
-`invalid-publisher: valid token, but no corresponding publisher` -- an
-error that does not say which field is wrong, so get all four right rather
-than guessing from one failed attempt.
+The council's verdict follows its own queue and is separate. While a freeze is in force (for example the merger's proof), the council still reviews, but approval and merge wait. The owner says so in its answer and keeps reviewing.
