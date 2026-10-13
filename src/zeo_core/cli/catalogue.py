@@ -91,6 +91,14 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "zeocore version",
     ),
     Entry(
+        "doctor",
+        "is this machine ready? one local, read-only check per line (Python, "
+        "session store, pairing, ZEOCONNECT_URL, extras); a failing check "
+        "names its next command, and who must act when it isn't you",
+        "zeocore doctor [--profile P]",
+        arguments=(_PROFILE,),
+    ),
+    Entry(
         "schema",
         "list the contract schemas, or print one as JSON Schema 2020-12",
         "zeocore schema list | zeocore schema <name>",

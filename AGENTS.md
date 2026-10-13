@@ -12,7 +12,7 @@ zeocore help --json          # every command, argument, stdin, exit code and res
 
 Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the last line is the result, carrying `ok` and `schema` (`zeocore.<command>/v1`). Input is strict JSON on stdin, at most 1 MiB, and errors never echo it. Nothing prompts.
 
-## The five commands that matter
+## The commands that matter
 
 | Do | Command |
 |---|---|
@@ -20,6 +20,7 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 | Get a contract as JSON Schema 2020-12 | `zeocore schema <name>` |
 | Fingerprint a request (RFC 8785 sha256) | `zeocore digest < value.json` |
 | Run a ZEOconnect operation | `zeocore invoke <operation_id> --connection C [--wait-approval SECONDS] < arguments.json` |
+| Check this machine is ready (Python, pairing, Broker URL, extras), each failure with its fix | `zeocore doctor` |
 | Check pairing and connections | `zeocore whoami`, then `zeocore connections` (pair first with `zeocore login`) |
 
 **Exit codes**, the same for every command, also listed in `help --json`:

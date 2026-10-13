@@ -8,7 +8,7 @@ result last.
 ```console
 $ zeocore help --json
 $ zeocore version
-{"cli_protocol": "1", "commands": ["artifact", "connections", "digest", "help", "invoke", "login", "logout", "release", "schema", "validate", "version", "whoami"], "ok": true, "schema": "zeocore.version/v1", "zeoconnect_protocol": "1", "zeocore": "…"}
+{"cli_protocol": "1", "commands": ["artifact", "connections", "digest", "doctor", "help", "invoke", "login", "logout", "release", "schema", "validate", "version", "whoami"], "ok": true, "schema": "zeocore.version/v1", "zeoconnect_protocol": "1", "zeocore": "…"}
 $ zeocore schema list
 $ zeocore schema hosted.operation-request
 $ echo '{"code": "RATE_LIMITED", "message": "slow down"}' | zeocore validate connections.normalized-error
@@ -28,6 +28,7 @@ JSON already, so `zeocore help` without `--json` answers the same.
 |---|---|---|
 | `help [--json]` | no | the machine catalogue |
 | `version` | no | the release, `cli_protocol`, the ZEOconnect protocol, the commands |
+| `doctor [--profile P]` | no | is this machine ready: Python, session store, pairing, `ZEOCONNECT_URL`, extras; see below |
 | `schema list` | no | the stable schema names |
 | `schema <name>` | no | that contract as JSON Schema 2020-12 |
 | `validate <name>` | yes | `{"ok": true, "value": …}`, the normalized value, or `{"ok": false, "errors": [{"loc": […], "type": …}]}` |
@@ -35,6 +36,30 @@ JSON already, so `zeocore help` without `--json` answers the same.
 | `login`, `logout`, `whoami`, `connections`, `invoke`, `artifact get` | see below | the ZEOconnect client, for a product running as its own service user; not for seats, which use `zeo` |
 | `release sign`, `release verify` | yes | the shared signing step; see [Sign and verify a release](../how-to/release-signing.md) |
 | `release pypi plan \| admit \| apply \| approve \| reconcile \| verify` | yes | the PyPI adapter; see [Release to PyPI](../how-to/release-pypi.md) |
+
+## Is this machine ready? `zeocore doctor`
+
+`zeocore doctor` answers what an agent would otherwise find out by failing. It is
+local and read-only: no network call, nothing written, and never a token, a path
+or an environment value in the answer.
+
+Each check is one event line, `{"event": "check", "check": …, "ok": …, "message": …}`.
+The result is last, with `ok`, `outcome` (`ready` or `not_ready`), `failing` (the
+names of the checks that failed) and `checks` (the same lines, for a caller that
+doesn't stream). A failing check carries `next`, the exact command or step that
+fixes it, and `who` when someone other than the caller must act.
+
+| Check | Passes when | When it fails, `next` is |
+|---|---|---|
+| `python` | Python meets the package's floor, 3.14 | `uv tool install --python 3.14 zeocore` |
+| `session_store` | the Keychain, or the file `ZEOCORE_SESSION_FILE` names, is readable | how to make the store usable |
+| `pairing` | this profile holds a grant that hasn't expired | `zeocore login`, by `who`: a person, who approves it in ZEOconnect |
+| `zeoconnect_url` | `ZEOCONNECT_URL` is empty or an allowed Broker origin | unset it, or set `ZEOCONNECT_DEVELOPMENT=1` for a development Broker |
+| `extra:github` | `zeocore release` can load | `pip install 'zeocore[github]'` |
+
+Exit 0 when every check passes, 20 when any fails, 2 for a `--profile` that can't
+be used. A failing `session_store` also fails `pairing`, which then says it was
+not checked.
 
 ## The ZEOconnect client
 
@@ -132,8 +157,8 @@ Development origins also need `ZEOCONNECT_DEVELOPMENT=1`.
 
 ## Rules every command keeps (`cli_protocol` 1)
 
-- **stdout is JSON lines and nothing else.** Events (a pairing code, an approval
-  link, waiting) carry an `event` key. The result is always the last line: it
+- **stdout is JSON lines and nothing else.** Events (a pairing code, a doctor
+  check, an approval link, waiting) carry an `event` key. The result is always the last line: it
   carries `ok` and `schema` (`zeocore.<command>/v1`; `zeocore.usage/v1` for
   an unknown command; `zeocore.internal/v1` for an internal error) and never
   `event`. `zeocore schema <name>` is the one exception: its answer is the
