@@ -89,6 +89,7 @@ from .protocol import (
     Answer,
     emit,
     invalid,
+    own_action,
 )
 
 SIGNING_HOST_VARIABLE: Final = "ZEOCORE_SIGNING_HOST"
@@ -145,7 +146,11 @@ def _pack(loaded: LoadedManifest, request: dict[str, str]) -> Answer:
             manifest_path=request["manifest_path"],
         )
     except ValueError as error:
-        return invalid(f"the request is invalid: {error}")
+        return invalid(
+            own_action(
+                f"the request is invalid: {error}; fix it and send the request again"
+            )
+        )
     try:
         request_id = create_request(loaded, described, Path(request["out"]))
     except PackError as error:
@@ -163,7 +168,12 @@ def _receive(
     except PackError as error:
         return _refused(error)
     except FileExistsError:
-        return invalid("work_dir must not exist yet")
+        return invalid(
+            own_action(
+                "work_dir must not exist yet; choose a new work_dir, "
+                "or remove the old one"
+            )
+        )
     return _answer(verify(loaded, work, toolchain))
 
 
@@ -180,7 +190,10 @@ def _sign(
             "ok": False,
             "outcome": "signing_in_progress",
             "status": "held",
-            "message": "another signing run holds this work directory",
+            "message": own_action(
+                "another signing run holds this work directory; "
+                "wait for it to finish, or use a different work_dir"
+            ),
         }
     return _answer(outcome)
 
@@ -212,11 +225,19 @@ def _send(request: dict[str, str], post: Post) -> Answer:
         return invalid(str(error))
     out = Path(request["out"])
     if out.exists():
-        return invalid("out must not exist yet")
+        return invalid(
+            own_action(
+                "out must not exist yet; choose a new out path, or remove the old one"
+            )
+        )
     try:
         pack = Path(request["pack"]).read_bytes()
     except OSError:
-        return invalid("the pack can't be read")
+        return invalid(
+            own_action(
+                "the pack can't be read; check that pack names a file you can read"
+            )
+        )
     try:
         status, content_type, body = post(f"http://{host}:{port}/v1/sign", pack)
     except httpx.HTTPError:
@@ -225,7 +246,9 @@ def _send(request: dict[str, str], post: Post) -> Answer:
             "ok": False,
             "outcome": "service_unreachable",
             "status": "held",
-            "message": "no answer from the signing service; send the same pack again",
+            "message": own_action(
+                "no answer from the signing service; send the same pack again"
+            ),
         }
     if status == 200 and content_type == "application/x-tar":
         out.write_bytes(body)
@@ -242,7 +265,10 @@ def _send(request: dict[str, str], post: Post) -> Answer:
             "ok": False,
             "outcome": "service_answer_unreadable",
             "status": "ambiguous",
-            "message": "the signing service's answer can't be read",
+            "message": own_action(
+                "the signing service's answer can't be read; "
+                "send the same pack again, and report it if it repeats"
+            ),
         }
     exit_status = {"invalid": EXIT_INVALID, "ambiguous": EXIT_AMBIGUOUS}.get(
         state, EXIT_HELD
@@ -289,7 +315,9 @@ def _serve(
             "ok": False,
             "outcome": "signing_host_unconfigured",
             "status": "held",
-            "message": "set ZEOCORE_SIGNING_HOST to the signing host's name",
+            "message": own_action(
+                "set ZEOCORE_SIGNING_HOST to the signing host's name"
+            ),
         }
     emit({"event": "serving", "listen": request["listen"]})
     serve_with(request["listen"], Path(request["state_dir"]), host, limits)
@@ -321,7 +349,12 @@ def _parse(verb: str, stdin: bytes) -> dict[str, str] | Answer:
         or set(request) != _FIELDS[verb]
         or not all(isinstance(value, str) and value for value in request.values())
     ):
-        return invalid(f"stdin must hold exactly: {', '.join(sorted(_FIELDS[verb]))}")
+        return invalid(
+            own_action(
+                f"stdin has the wrong fields; pipe a JSON object with exactly: "
+                f"{', '.join(sorted(_FIELDS[verb]))}"
+            )
+        )
     return request
 
 
@@ -432,7 +465,11 @@ def _pypi(
     release_app: ReleaseAppFactory,
 ) -> Answer:
     if len(args) != 2 or args[1] not in _PYPI_STAGES:
-        return invalid(f"release pypi takes one of: {', '.join(_PYPI_STAGES)}")
+        return invalid(
+            own_action(
+                f"release pypi takes one stage; use one of: {', '.join(_PYPI_STAGES)}"
+            )
+        )
     try:
         request = parse_json(stdin)
     except ProtocolError as error:
@@ -442,7 +479,9 @@ def _pypi(
         or set(request) != {"manifest"}
         or not isinstance(request["manifest"], str)
     ):
-        return invalid('stdin must be {"manifest": path}')
+        return invalid(
+            own_action('stdin must be one JSON object; pipe {"manifest": path}')
+        )
     try:
         manifest = pypi.load(Path(request["manifest"]))
         app_id = _release_app_id(environ)
@@ -472,7 +511,11 @@ def _signing(
     serve_with: Serve,
 ) -> Answer:
     if len(args) != 1 or args[0] not in _FIELDS:
-        return invalid(f"release takes one of: {', '.join([*_FIELDS, 'pypi'])}")
+        return invalid(
+            own_action(
+                f"release takes one verb; use one of: {', '.join([*_FIELDS, 'pypi'])}"
+            )
+        )
     verb = args[0]
     request = _parse(verb, stdin)
     if isinstance(request, tuple):
