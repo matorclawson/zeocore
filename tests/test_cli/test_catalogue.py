@@ -48,30 +48,74 @@ def test_the_catalogue_lists_every_exit_code_the_protocol_defines() -> None:
     assert len({name for _, name, _ in EXIT_CODES}) == len(EXIT_CODES)
 
 
-def _declared_arguments(function: object) -> set[str]:
-    """Every name the function passes to ``add_argument``."""
+def _declared_arguments(
+    function: object,
+) -> dict[str, tuple[bool, bool, tuple[str, ...]]]:
+    """Each ``add_argument`` in the function: (required, takes a value, choices)."""
     tree = ast.parse(inspect.getsource(function))  # type: ignore[arg-type]
-    return {
-        node.args[0].value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "add_argument"
-        and node.args
-        and isinstance(node.args[0], ast.Constant)
-        and isinstance(node.args[0].value, str)
-    }
+    declared: dict[str, tuple[bool, bool, tuple[str, ...]]] = {}
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_argument"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            continue
+        name = node.args[0].value
+        # Only the keywords the catalogue describes; type=int etc. aren't literals.
+        keywords = {
+            k.arg: ast.literal_eval(k.value)
+            for k in node.keywords
+            if k.arg in {"required", "nargs", "action", "choices"}
+        }
+        positional = not name.startswith("-")
+        required = bool(keywords.get("required", positional)) and keywords.get(
+            "nargs"
+        ) not in ("?", "*")
+        takes_value = keywords.get("action") not in ("store_true", "store_false")
+        declared[name] = (required, takes_value, tuple(keywords.get("choices", ())))
+    return declared
 
 
 @pytest.mark.parametrize(
     "name", ["login", "logout", "whoami", "connections", "invoke", "artifact"]
 )
 def test_each_client_commands_arguments_match_its_parser(name: str) -> None:
-    """A flag added to or removed from a command must change the catalogue."""
+    """A flag added, removed or changed in a command must change the catalogue."""
     entry = next(e for e in ENTRIES if e.name == name)
-    assert {a.name for a in entry.arguments} == _declared_arguments(
-        getattr(client, name)
-    )
+    assert {
+        a.name: (a.required, a.takes_value, a.choices) for a in entry.arguments
+    } == _declared_arguments(getattr(client, name))
+
+
+def test_the_release_verbs_match_the_command_and_their_stdin_fields() -> None:
+    from zeo_core.cli import release
+
+    entry = next(e for e in ENTRIES if e.name == "release")
+    expected = {verb: tuple(sorted(fields)) for verb, fields in release._FIELDS.items()}
+    expected |= {f"pypi {stage}": ("manifest",) for stage in release._PYPI_STAGES}
+    assert {v.name: v.stdin_fields for v in entry.verbs} == expected
+
+
+@pytest.mark.parametrize(
+    "argv,status",
+    [
+        (("version",), 0),
+        (("version", "x"), 2),
+        (("help", "--json"), 0),
+        (("help", "--json", "x"), 2),
+        (("schema", "list"), 0),
+        (("schema",), 2),
+        (("validate",), 2),
+    ],
+)
+def test_the_hand_parsed_commands_take_what_the_catalogue_says(
+    argv: tuple[str, ...], status: int
+) -> None:
+    assert _call(*argv)[0] == status
 
 
 def test_commands_that_read_stdin_say_what_they_read() -> None:
@@ -101,6 +145,22 @@ def test_a_contract_document_is_answered_unaltered(name: str) -> None:
     _, answer = _call("schema", name)
     assert "schema" not in answer
     assert "$schema" in answer
+
+
+def test_a_failed_schema_lookup_is_a_labelled_result() -> None:
+    # The exception is the command, not the answer's content.
+    status, answer = _call("schema", "nope")
+    assert status == 2
+    assert answer["schema"] == "zeocore.schema/v1"
+
+
+def test_no_answer_can_override_its_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    def lying(args: object, stdin: bytes) -> tuple[int, dict[str, object]]:
+        return 0, {"ok": True, "schema": "something.else/v9", "$schema": "x"}
+
+    monkeypatch.setitem(COMMANDS, "version", lying)
+    _, answer = _call("version")
+    assert answer["schema"] == "zeocore.version/v1"
 
 
 def test_the_catalogue_module_has_no_command_logic() -> None:
