@@ -136,6 +136,29 @@ refuse a different renderer before anything runs. The output is deterministic fo
 given tuple. A new pandoc, filter or flag is a new tuple, so a new artifact that
 voids earlier marks: expect the digest to change when pandoc is upgraded.
 
+## What `--sandbox` does, and does not do
+
+Both components run pandoc with `--sandbox`, an empty data directory and an empty
+working directory, and they do not rely on the sandbox alone.
+
+- **zeocore never passes an embedding or file-reading option.** The runner allows only
+  `--from`, `--to`, `--wrap`, `--eol`, `--no-highlight`, `--metadata` and the package's
+  own `--lua-filter`, and refuses anything else (`--standalone`, `--embed-resources`,
+  `--self-contained`, `--extract-media`, `--filter`, `--template`, `--data-dir`,
+  `--defaults`, `--metadata-file`, `--include-*`, a short option, an input file)
+  before pandoc starts. A test captures the real argv of `convert_newsletter` and
+  `render_email_html` and checks it.
+- **pandoc's sandbox is not the same on every version.** With `--embed-resources`,
+  pandoc 3.11 refuses to read a local file under `--sandbox`; the pinned 3.1.3 in CI
+  reads it and embeds it as a `data:` URI anyway (seen in the CI log of PR #126). Only
+  3.11 was run to prove the refusal, so the probe test is gated at 3.11 and records
+  the older behaviour as an expected failure, never a skip. Because zeocore never
+  passes `--embed-resources`, the older behaviour cannot be reached.
+- **A named local file is never read on any version.** A test gives the real convert
+  and render an input that names an unreadable local file (as `file://`, an absolute
+  path and a relative path) and checks that nothing from it, and no `data:`, reaches
+  the output.
+
 ## Refusals
 
 Every failure is a `NewsletterRefusalError` with a stable `.code` and a fixed message

@@ -301,7 +301,11 @@ def test_the_filter_itself_refuses_a_list_that_does_not_start_at_one() -> None:
     flags = ["--from=markdown", "--to=html5", f"--lua-filter={source}"]
     with pytest.raises(NewsletterRefusalError) as caught:
         _runner.run_pandoc(
-            binary, flags, b"3. starts at three\n4. next\n", timeout_s=30
+            binary,
+            flags,
+            b"3. starts at three\n4. next\n",
+            timeout_s=30,
+            lua_filter=str(source),
         )
     assert caught.value.code == "ordered_list_start"
 

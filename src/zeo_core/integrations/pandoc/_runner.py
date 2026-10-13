@@ -7,6 +7,14 @@ a fixed environment (no user defaults, no inherited variables), an empty working
 directory and an empty data directory, an enforced timeout, a bound on the output,
 and ``--sandbox`` so pandoc reads and writes no file and calls no program.
 
+``--sandbox`` is not the whole defence, and it is not the same on every pandoc: CI's
+pinned 3.1.3 still reads a local file and embeds it as a ``data:`` URI when it is
+also given ``--embed-resources`` (CI log of PR #126, run 38449618130), while 3.11
+refuses. So the argv is checked as well: ``check_flags`` allows only the few options
+the two components use, and refuses everything that can read a file, embed a
+resource, run a filter or a template, or write a file. zeocore never passes
+``--standalone`` or ``--embed-resources``, so nothing is embedded on any version.
+
 It also resolves *which* binary ran: the version, and the sha256 of the executable
 itself (not only its name), so a renderer's output can be tied to the exact tool.
 """
@@ -32,6 +40,24 @@ MIN_PANDOC_VERSION: Final = (2, 15)
 
 #: The most output one conversion may return.
 MAX_OUTPUT_BYTES: Final = 8_000_000
+
+#: The only pandoc options a component may pass: choosing the reader and writer,
+#: wrapping, line endings, highlighting, a metadata value, and our own Lua filter.
+#: Everything else (``--standalone``, ``--embed-resources``, ``--self-contained``,
+#: ``--extract-media``, ``--filter``, ``--template``, ``--data-dir``, ``--defaults``,
+#: ``--metadata-file``, ``--include-*``, ``--resource-path``, ``--output``, any
+#: single-dash option and any positional input file) is refused.
+ALLOWED_FLAGS: Final = frozenset(
+    {
+        "--from",
+        "--to",
+        "--wrap",
+        "--eol",
+        "--no-highlight",
+        "--metadata",
+        "--lua-filter",
+    }
+)
 
 _VERSION_LINE: Final = re.compile(r"(\d+(?:\.\d+)+)")
 
@@ -172,20 +198,39 @@ def _signature(path: str) -> tuple[int, int, int]:
     return (info.st_size, info.st_mtime_ns, info.st_ino)
 
 
+def check_flags(flags: list[str], *, lua_filter: str | None = None) -> None:
+    """
+    Refuse any option outside ``ALLOWED_FLAGS``, before pandoc is started.
+
+    A ``--lua-filter`` is allowed only when its path is exactly ``lua_filter``, the
+    package's own filter. This guards the code, not the input: the flags are ours, so
+    a refusal here is a defect, raised as ``ValueError`` (its text names no input).
+    """
+    for flag in flags:
+        name, _, value = flag.partition("=")
+        if name not in ALLOWED_FLAGS:
+            raise ValueError("a pandoc option outside the allowed set was passed")
+        if name == "--lua-filter" and (lua_filter is None or value != lua_filter):
+            raise ValueError("a Lua filter other than the package's own was passed")
+
+
 def run_pandoc(
     binary: PandocBinary,
     flags: list[str],
     stdin: bytes,
     *,
     timeout_s: float,
+    lua_filter: str | None = None,
 ) -> bytes:
     """
     Run ``pandoc <flags>`` with ``stdin`` and return stdout.
 
-    ``--sandbox`` and an empty ``--data-dir`` are always added. The child gets a
-    fixed environment and an empty working directory. A timeout, a failure or an
+    ``--sandbox`` and an empty ``--data-dir`` are always added, and ``flags`` must
+    pass ``check_flags`` (``lua_filter`` names the one filter allowed). The child gets
+    a fixed environment and an empty working directory. A timeout, a failure or an
     oversized result is a typed refusal; pandoc's own error text is never returned.
     """
+    check_flags(flags, lua_filter=lua_filter)
     with tempfile.TemporaryDirectory(prefix="zeocore-pandoc-") as work:
         data_dir = Path(work) / "data"
         data_dir.mkdir()

@@ -251,8 +251,25 @@ def test_an_invalid_data_file_is_refused(monkeypatch: pytest.MonkeyPatch) -> Non
         _noise.load.cache_clear()
 
 
-def test_the_pandoc_child_runs_sandboxed_in_a_clean_environment() -> None:
-    """A positive control: pandoc embeds a local file unsandboxed, and not sandboxed."""
+#: The lowest pandoc on which ``--sandbox`` is PROVEN to stop ``--embed-resources`` from
+#: reading a local file. Only 3.11 was run for this; CI's pinned 3.1.3 was not
+#: stopped (CI log of PR #126, run 38449618130: the output held an
+#: ``<embed src="data:...">`` of the file even with ``--sandbox``).
+SANDBOX_COVERS_EMBED_FROM = (3, 11)
+
+
+def _version() -> tuple[int, ...]:
+    return tuple(int(part) for part in _runner.find_pandoc().version.split("."))
+
+
+def test_the_sandbox_stops_a_resource_embed_where_it_is_proven() -> None:
+    """
+    A version-gated probe of ``--sandbox`` against ``--embed-resources``.
+
+    zeocore never passes ``--embed-resources`` (see the guard tests below), so this
+    is a statement about pandoc, not a defence we rely on. On a pandoc older than the
+    proven one the weakness is documented as an expected failure, never skipped.
+    """
     binary = _runner.find_pandoc()
     work = Path(__file__).parent / "fixtures" / "newsletters"
     marker = work / "02-tracking-pixels.html"
@@ -262,9 +279,133 @@ def test_the_pandoc_child_runs_sandboxed_in_a_clean_environment() -> None:
         [binary.path, *flags], input=md, capture_output=True, check=False
     )
     assert unsandboxed.returncode == 0
-    assert b"data:" in unsandboxed.stdout  # it read the file and embedded it
-    sandboxed = _runner.run_pandoc(binary, flags, md, timeout_s=30)
-    assert b"data:" not in sandboxed  # the same call, sandboxed, reads nothing
+    assert b"data:" in unsandboxed.stdout  # without the sandbox it reads and embeds
+    sandboxed = subprocess.run(  # noqa: S603
+        [binary.path, "--sandbox", *flags],
+        input=md,
+        capture_output=True,
+        check=False,
+    )
+    if b"data:" in sandboxed.stdout:
+        assert _version() < SANDBOX_COVERS_EMBED_FROM
+        pytest.xfail(
+            f"pandoc {binary.version}: --sandbox does not stop --embed-resources "
+            "reading a local file (seen on 3.1.3 in the CI log of PR #126, run "
+            "38449618130); zeocore never passes --embed-resources"
+        )
+    assert _version() >= SANDBOX_COVERS_EMBED_FROM or sandboxed.returncode != 0
+
+
+class _Captured:
+    """The argv of every pandoc the components started, with the real run."""
+
+    def __init__(self) -> None:
+        self.argvs: list[list[str]] = []
+
+
+@pytest.fixture
+def captured(monkeypatch: pytest.MonkeyPatch) -> _Captured:
+    seen = _Captured()
+    real = subprocess.run
+
+    def spy(argv: list[str], *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        if "--version" not in argv:
+            seen.argvs.append(list(argv))
+        return real(argv, *args, **kwargs)  # noqa: S603
+
+    monkeypatch.setattr(_runner.subprocess, "run", spy)
+    return seen
+
+
+FORBIDDEN = (
+    "--standalone", "-s", "--embed-resources", "--self-contained", "--extract-media",
+    "--filter", "-F", "--template", "--defaults", "-d", "--metadata-file",
+    "--resource-path", "--output", "-o", "--css", "--reference-doc",
+)  # fmt: skip
+
+
+def _assert_clean_argv(argv: list[str], filter_name: str | None) -> None:
+    assert "--sandbox" in argv
+    assert sum(1 for a in argv if a.startswith("--data-dir=")) == 1
+    data_dir = next(a for a in argv if a.startswith("--data-dir="))
+    assert Path(data_dir.partition("=")[2]).name == "data"  # the empty pinned one
+    for flag in argv[1:]:
+        name = flag.partition("=")[0]
+        assert name not in FORBIDDEN, flag
+        assert not name.startswith("--include-"), flag
+        if name == "--lua-filter":
+            assert filter_name is not None
+            assert Path(flag.partition("=")[2]).name == filter_name
+        else:
+            assert flag.startswith("--"), flag  # no input file, no short option
+
+
+def test_production_never_passes_an_embedding_or_file_reading_flag(
+    captured: _Captured,
+) -> None:
+    from zeo_core.integrations.pandoc.render import render_email_html
+
+    _convert("<html><body><p>Hello</p></body></html>")
+    render_email_html("A paragraph.\n")
+    assert len(captured.argvs) == 2
+    _assert_clean_argv(captured.argvs[0], None)  # convert has no filter
+    _assert_clean_argv(captured.argvs[1], "email_subset.lua")  # render, its own
+
+
+def test_the_runner_refuses_flags_outside_the_allowed_set() -> None:
+    binary = _runner.find_pandoc()
+    for flags in (
+        ["--standalone"],
+        ["--embed-resources"],
+        ["--self-contained"],
+        ["--extract-media=x"],
+        ["--filter=x"],
+        ["--template=x"],
+        ["--data-dir=x"],
+        ["--defaults=x"],
+        ["--metadata-file=x"],
+        ["--include-in-header=x"],
+        ["--resource-path=x"],
+        ["-s"],
+        ["input.html"],
+    ):
+        with pytest.raises(ValueError, match="pandoc"):
+            _runner.run_pandoc(binary, flags, b"x", timeout_s=5)
+    with pytest.raises(ValueError, match="Lua filter"):
+        _runner.run_pandoc(binary, ["--lua-filter=/a.lua"], b"x", timeout_s=5)
+    with pytest.raises(ValueError, match="Lua filter"):
+        _runner.run_pandoc(
+            binary, ["--lua-filter=/a.lua"], b"x", timeout_s=5, lua_filter="/b.lua"
+        )
+
+
+def test_a_local_file_named_in_the_input_is_never_read_or_embedded(
+    tmp_path: Path,
+) -> None:
+    """The real convert and render, on every pandoc: a named local file stays unread."""
+    from zeo_core.integrations.pandoc.render import render_email_html
+
+    secret = tmp_path / "secret.png"
+    sentinel = "ZEOCORE-SECRET-SENTINEL-7f3a"
+    secret.write_text(sentinel, encoding="utf-8")
+    secret.chmod(0o000)  # a read would fail: pandoc exits non-zero if it tries
+    try:
+        for source in (f"file://{secret}", str(secret), "secret.png"):
+            item = _convert(
+                f'<html><body><p>Hi</p><img src="{source}" alt="x">'
+                f'<a href="{source}">link</a><link rel="stylesheet" href="{source}">'
+                "</body></html>"
+            )
+            assert sentinel not in item.markdown
+            assert "data:" not in item.markdown
+            try:
+                rendered = render_email_html(f"![x]({source})\n\n[l]({source})\n").html
+            except NewsletterRefusalError:
+                continue  # a typed refusal is a safe answer
+            assert sentinel not in rendered
+            assert "data:" not in rendered
+    finally:
+        secret.chmod(0o600)
 
 
 def test_the_refusal_table_ends_every_message_with_an_action() -> None:

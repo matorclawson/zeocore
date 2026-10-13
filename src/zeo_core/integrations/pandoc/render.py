@@ -320,7 +320,9 @@ def render_email_html(
         flags = [*FLAGS, f"--lua-filter={filter_path}"]
         if sizes is not None:
             flags.append(f"--metadata=zeocore_image_sizes={sizes}")
-        out = run_pandoc(binary, flags, data, timeout_s=timeout_s)
+        out = run_pandoc(
+            binary, flags, data, timeout_s=timeout_s, lua_filter=str(filter_path)
+        )
     html_text = out.decode("utf-8", "replace")
     check_email_subset(html_text)
     return RenderedHtml(
