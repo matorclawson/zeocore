@@ -80,6 +80,11 @@ def _declared_arguments(
     return declared
 
 
+#: Where a command declares its arguments, when it isn't the command function
+#: itself: ``invoke`` and ``artifact`` check their command line before stdin is read.
+_PARSER_FUNCTION = {"invoke": "_invoke_options", "artifact": "_artifact_options"}
+
+
 @pytest.mark.parametrize(
     "name", ["login", "logout", "whoami", "connections", "invoke", "artifact"]
 )
@@ -88,7 +93,7 @@ def test_each_client_commands_arguments_match_its_parser(name: str) -> None:
     entry = next(e for e in ENTRIES if e.name == name)
     assert {
         a.name: (a.required, a.takes_value, a.choices) for a in entry.arguments
-    } == _declared_arguments(getattr(client, name))
+    } == _declared_arguments(getattr(client, _PARSER_FUNCTION.get(name, name)))
 
 
 def test_the_release_verbs_match_the_command_and_their_stdin_fields() -> None:

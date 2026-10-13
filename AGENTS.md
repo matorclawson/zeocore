@@ -2,7 +2,7 @@
 
 **What zeocore is.** A typed Python library for capability authoring: contracts, `@capability` tools, and integrations (Google, HubSpot, YouTube, Bluesky, Revolut and more). It also installs the `zeocore` command, which gives callers that don't import Python the same contracts, plus a client for ZEOconnect's Broker. Python 3.14 or later.
 
-**Install:** `uv tool install zeocore` gives the command. `uv pip install zeocore` gives the library, and an extra adds an integration, for example `zeocore[google]`. `zeocore release` also needs the `github` extra.
+**Install:** `uv tool install zeocore` gives the command. `uv pip install zeocore` gives the library, and an extra adds an integration, for example `zeocore[google]`. `zeocore release` also needs the `github` extra. From a checkout, install it into a virtual environment with `uv pip install /path/to/checkout`.
 
 ## The command: learn it from itself
 
@@ -11,6 +11,16 @@ zeocore help --json          # every command, argument, stdin, exit code and res
 ```
 
 Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the last line is the result, carrying `ok` and `schema` (`zeocore.<command>/v1`). The one exception is a successful `zeocore schema <name>`: its answer is the contract document itself, named by its own `$schema` and `$id`. Input is strict JSON on stdin, at most 1 MiB, and errors never echo it. Nothing prompts.
+
+## A first run, end to end
+
+```bash
+zeocore schema list                                    # names the contracts
+zeocore schema connections.normalized-error            # its fields, types and which are required
+echo '{"code": "RATE_LIMITED", "message": "slow down"}' | zeocore validate connections.normalized-error
+```
+
+The last command answers `{"ok": true, "schema": "zeocore.validate/v1", "value": {...}}` and exits 0. A value that doesn't match answers `ok: false`, `outcome: invalid`, and the `loc` and `type` of each problem (never the value), and exits 20. A bad command line or malformed stdin exits 2, and says why in `reason` (`empty`, `too_large`, `not_utf8`, `syntax`, `duplicate_key`, `non_finite_number`, `too_deep`, `outside_canonical_domain` or `not_an_object`).
 
 ## The commands that matter
 
@@ -25,15 +35,17 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 
 **Exit codes**, the same for every command, also listed in `help --json`:
 - 0 done;
-- 2 invalid input, nothing sent;
+- 2 invalid input, nothing sent: a bad command line, or stdin that isn't strict JSON;
 - 10 approval required;
 - 11 still in flight, so ask the same again;
 - 12 not paired: run `zeocore login`;
 - 13 ambiguous, never retried automatically;
-- 20 refused or held (for `doctor`: not ready, some check failed);
+- 20 refused or held: a well-formed value that fails its contract is 20, not 2 (for `doctor`: not ready, some check failed);
 - 1 internal, which for an effect counts as ambiguous.
 
 **Errors end with what to do.** A failing answer's `message` is `what failed; the next action`. For an internal error (exit 1), rerun the same command with `ZEOCORE_DEBUG=1` (diagnostics go to stderr, never the input; frame paths are absolute and can include the installing user's home directory, so it is an explicit opt-in), and report the command, the zeocore version and that output.
+
+**The Broker job, honestly.** Pairing needs a person: `zeocore login` emits a pairing event and waits for a person to approve it in ZEOconnect, so an agent cannot finish it alone (`zeocore doctor` says so). Then `zeocore connections` lists the connection ids, and `zeocore invoke` runs one operation. An operation id is the Broker's name for an operation, for example `hubspot.newsletter.create_draft` or `google.gmail.messages.read_page`. **No zeocore command lists operation ids yet**: ask the person who owns the connection, or read [ZEOconnect](docs/integrations/zeoconnect.md) and the [hosted profile tutorial](docs/tutorials/zeoconnect-hosted-profile.md). The answer's shape, its events (`approval`) and the `retry` field are in [the CLI reference, "Invoking"](docs/reference/cli.md#invoking).
 
 `invoke` is idempotent. The same connection, operation, arguments and `--occurrence` replay the stored outcome, and a new `--occurrence` is a deliberate new act.
 

@@ -15,7 +15,16 @@ MAX_BYTES = 1024 * 1024
 
 
 class ProtocolError(ValueError):
-    """Untrusted wire data failed validation; never an instruction to retry."""
+    """Untrusted wire data failed validation; never an instruction to retry.
+
+    ``reason`` is a fixed category (never the input) when the reader knows
+    one: ``empty``, ``too_large``, ``not_utf8``, ``syntax``, ``duplicate_key``,
+    ``non_finite_number``, ``too_deep`` or ``outside_canonical_domain``.
+    """
+
+    def __init__(self, message: str, *, reason: str | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class InvalidRequestError(ProtocolError):
@@ -34,28 +43,49 @@ def digest(value: object) -> str:
 
 
 def parse_json(raw: bytes, *, limit: int = MAX_BYTES) -> Any:  # noqa: ANN401 -- decoded JSON
-    if not raw or len(raw) > limit:
-        raise ProtocolError("empty or oversized JSON message")
+    if not raw:
+        raise ProtocolError("empty or oversized JSON message", reason="empty")
+    if len(raw) > limit:
+        raise ProtocolError("empty or oversized JSON message", reason="too_large")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ProtocolError("invalid canonical JSON input", reason="not_utf8") from exc
+    result = _loads(text)
+    try:
+        canonical_bytes(result)  # also rejects unsafe integers and lone surrogates
+    except ProtocolError as exc:
+        deep = isinstance(exc.__cause__, RecursionError)
+        raise ProtocolError(
+            "invalid canonical JSON input",
+            reason="too_deep" if deep else "outside_canonical_domain",
+        ) from exc
+    return result
+
+
+def _loads(text: str) -> Any:  # noqa: ANN401 -- decoded JSON
+    """Strict ``json.loads``: no duplicate keys, no NaN; refusals carry a reason."""
 
     def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
         result: dict[str, object] = {}
         for key, value in items:
             if key in result:
-                raise ProtocolError("duplicate JSON key")
+                raise ProtocolError("duplicate JSON key", reason="duplicate_key")
             result[key] = value
         return result
 
     def constant(_: str) -> None:
-        raise ProtocolError("non-finite JSON number")
+        raise ProtocolError("non-finite JSON number", reason="non_finite_number")
 
     try:
-        result = json.loads(
-            raw.decode("utf-8"), object_pairs_hook=pairs, parse_constant=constant
-        )
-        canonical_bytes(result)  # also rejects unsafe integers and lone surrogates
-        return result
-    except (ValueError, UnicodeError, RecursionError) as exc:
-        raise ProtocolError("invalid canonical JSON input") from exc
+        return json.loads(text, object_pairs_hook=pairs, parse_constant=constant)
+    except ProtocolError as exc:
+        # The duplicate-key and non-finite hooks already name their reason.
+        raise ProtocolError("invalid canonical JSON input", reason=exc.reason) from exc
+    except RecursionError as exc:
+        raise ProtocolError("invalid canonical JSON input", reason="too_deep") from exc
+    except ValueError as exc:  # json.JSONDecodeError
+        raise ProtocolError("invalid canonical JSON input", reason="syntax") from exc
 
 
 def manifest_inventory(manifests: Sequence[CapabilityManifest]) -> list[dict[str, Any]]:

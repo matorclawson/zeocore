@@ -47,16 +47,11 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable, Sequence
-from typing import Final
+from typing import Final, TextIO
 
 from pydantic import ValidationError
 
-from zeo_core.adapters.runtime_host.canonical import (
-    MAX_BYTES,
-    ProtocolError,
-    digest,
-    parse_json,
-)
+from zeo_core.adapters.runtime_host.canonical import MAX_BYTES, digest
 
 from . import client, doctor
 from .catalogue import catalogue
@@ -71,11 +66,13 @@ from .protocol import (
     EXIT_NOT_PAIRED,
     EXIT_WAIT,
     Answer,
+    ArgumentsError,
     Command,
     debug_internal,
     emit,
     invalid,
     own_action,
+    strict_json,
     with_next_action,
 )
 from .schemas import SCHEMAS, adapter, render_schema
@@ -121,21 +118,47 @@ def _version(args: Sequence[str], _stdin: bytes) -> Answer:
     }
 
 
+#: An unknown schema name is its own refusal: the name is the caller's, so it
+#: is never echoed.
+_NO_SUCH_SCHEMA: Final = "no such schema; run zeocore schema list"
+
+
 def _schema(args: Sequence[str], _stdin: bytes) -> Answer:
     if list(args) == ["list"]:
         return OK, {"ok": True, "schemas": sorted(SCHEMAS)}
-    if len(args) != 1 or args[0] not in SCHEMAS:
-        return _invalid("schema takes 'list' or one schema name")
+    if len(args) != 1:
+        return _invalid(
+            own_action(
+                "schema takes 'list' or one schema name; run zeocore schema list"
+            )
+        )
+    if args[0] not in SCHEMAS:
+        return _invalid(own_action(_NO_SUCH_SCHEMA))
     return OK, render_schema(args[0])
 
 
+def _validate_arguments(args: Sequence[str]) -> Answer | None:
+    """The usage check, which runs before stdin is read."""
+    if len(args) != 1:
+        return _invalid(
+            own_action(
+                "validate takes one schema name; run zeocore schema list "
+                "to see the names"
+            )
+        )
+    if args[0] not in SCHEMAS:
+        return _invalid(own_action(_NO_SUCH_SCHEMA))
+    return None
+
+
 def _validate(args: Sequence[str], stdin: bytes) -> Answer:
-    if len(args) != 1 or args[0] not in SCHEMAS:
-        return _invalid("validate takes one schema name")
+    problem = _validate_arguments(args)
+    if problem is not None:
+        return problem
     try:
-        value = parse_json(stdin)
-    except ProtocolError as error:
-        return _invalid(str(error))
+        value = strict_json(stdin)
+    except ArgumentsError as error:
+        return error.answer()
     validator = adapter(args[0])
     try:
         model = validator.validate_python(value)
@@ -144,6 +167,11 @@ def _validate(args: Sequence[str], stdin: bytes) -> Answer:
         return EXIT_HELD, {
             "ok": False,
             "outcome": "invalid",
+            "message": own_action(
+                f"the value doesn't match {args[0]}; run zeocore schema {args[0]} "
+                "for its fields and types, fix each loc in errors, then validate "
+                "the value again"
+            ),
             # loc and type only: a message or input could quote the value. A
             # key that isn't a declared field (one inside a free-form object,
             # or an unknown extra) is the caller's data, so it shows as "*".
@@ -180,13 +208,22 @@ def _field_names(schema: object) -> frozenset[str]:
     return frozenset(names)
 
 
-def _digest(args: Sequence[str], stdin: bytes) -> Answer:
+def _digest_arguments(args: Sequence[str]) -> Answer | None:
     if args:
-        return _invalid("digest takes no arguments")
+        return _invalid(
+            own_action("digest takes no arguments; pipe one JSON document on stdin")
+        )
+    return None
+
+
+def _digest(args: Sequence[str], stdin: bytes) -> Answer:
+    problem = _digest_arguments(args)
+    if problem is not None:
+        return problem
     try:
-        return OK, {"ok": True, "sha256": digest(parse_json(stdin))}
-    except ProtocolError as error:
-        return _invalid(str(error))
+        return OK, {"ok": True, "sha256": digest(strict_json(stdin))}
+    except ArgumentsError as error:
+        return error.answer()
 
 
 def _release(args: Sequence[str], stdin: bytes) -> Answer:
@@ -199,15 +236,29 @@ def _release(args: Sequence[str], stdin: bytes) -> Answer:
     try:
         from .release import release
     except ModuleNotFoundError as error:
-        if (error.name or "").startswith("zeo_core"):
-            raise
-        return EXIT_HELD, {
-            "ok": False,
-            "outcome": "extra_missing",
-            "message": "zeocore release needs the github extra: "
-            "pip install 'zeocore[github]'",
-        }
+        return _extra_missing(error)
     return release(args, stdin)
+
+
+def _extra_missing(error: ModuleNotFoundError) -> Answer:
+    """``release`` without the github extra; any other missing module is a bug."""
+    if (error.name or "").startswith("zeo_core"):
+        raise error
+    return EXIT_HELD, {
+        "ok": False,
+        "outcome": "extra_missing",
+        "message": "zeocore release needs the github extra: "
+        "pip install 'zeocore[github]'",
+    }
+
+
+def _release_arguments(args: Sequence[str]) -> Answer | None:
+    """The usage check, before stdin is read. Without the extra, its answer."""
+    try:
+        from .release import argument_problem
+    except ModuleNotFoundError as error:
+        return _extra_missing(error)
+    return argument_problem(args)
 
 
 def _help(args: Sequence[str], _stdin: bytes) -> Answer:
@@ -235,6 +286,15 @@ COMMANDS: Final[dict[str, Command]] = {
     "version": _version,
 }
 _READS_STDIN: Final = frozenset({"artifact", "digest", "invoke", "release", "validate"})
+#: Usage checks that run BEFORE stdin is read, so a bad command line answers at
+#: once and a command never waits on stdin it will refuse (rule 1: no prompts).
+_PRECHECKS: Final[dict[str, Callable[[Sequence[str]], Answer | None]]] = {
+    "artifact": client.artifact_arguments,
+    "digest": _digest_arguments,
+    "invoke": client.invoke_arguments,
+    "release": _release_arguments,
+    "validate": _validate_arguments,
+}
 
 
 def run(argv: Sequence[str], stdin: Callable[[], bytes]) -> Answer:
@@ -249,7 +309,11 @@ def run(argv: Sequence[str], stdin: Callable[[], bytes]) -> Answer:
         )
         return status, {**answer, "schema": USAGE_SCHEMA}
     name, args = argv[0], argv[1:]
-    status, answer = COMMANDS[name](args, stdin() if name in _READS_STDIN else b"")
+    early = _PRECHECKS[name](args) if name in _PRECHECKS else None
+    if early is not None:
+        status, answer = early
+    else:
+        status, answer = COMMANDS[name](args, stdin() if name in _READS_STDIN else b"")
     answer = with_next_action(status, answer)
     if _is_contract_document(name, args, status):
         # A successful `zeocore schema <name>` answers with the contract
@@ -265,12 +329,24 @@ def _is_contract_document(name: str, args: Sequence[str], status: int) -> bool:
     return name == "schema" and status == OK and list(args) != ["list"]
 
 
+def _read_stdin() -> bytes:
+    """All of stdin, up to one byte past the limit (enough to refuse an oversized
+    input). A terminal is never waited on: nobody is piping a document, so the
+    answer is the usual refusal for an empty stdin."""
+    stream: TextIO | None = sys.stdin
+    try:
+        if stream is None or stream.isatty():
+            return b""
+        return stream.buffer.read(MAX_BYTES + 1)
+    except ValueError:  # stdin was closed: there is nothing to read
+        return b""
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     try:
         status, answer = run(
             sys.argv[1:] if argv is None else argv,
-            # One byte past the limit is enough to refuse an oversized input.
-            lambda: sys.stdin.buffer.read(MAX_BYTES + 1),
+            _read_stdin,
         )
     except Exception as error:
         # Never a traceback in place of the answer. The detail could quote

@@ -238,8 +238,13 @@ def catalogue() -> dict[str, Any]:
             "stdout": "JSON lines only; events carry 'event', and the last line "
             "is the result, carrying 'ok' and 'schema', except a successful "
             "'schema <name>', which is the contract document itself",
-            "stdin": "strict JSON: no duplicate keys, no NaN, at most 1 MiB",
-            "errors": "never echo input values",
+            "stdin": "strict JSON: no duplicate keys, no NaN, at most 1 MiB; a "
+            "terminal is never waited on, and a refusal says why in 'reason'",
+            "errors": "never echo input values; a refusal's message ends with "
+            "the next action",
+            "contracts": "'zeocore schema list' names the contracts a value "
+            "can be validated against; 'zeocore schema <name>' prints one as "
+            "JSON Schema 2020-12 (its fields, types and which are required)",
         },
         "exit_codes": [
             {"code": code, "name": name, "meaning": meaning}

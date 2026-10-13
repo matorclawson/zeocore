@@ -14,6 +14,8 @@ import traceback
 from collections.abc import Callable, Sequence
 from typing import Any, Final, NoReturn
 
+from zeo_core.adapters.runtime_host.canonical import ProtocolError, parse_json
+
 CLI_PROTOCOL: Final = "1"
 #: The exit family, the same numbers as the YouTube publish command's.
 EXIT_DONE: Final = 0
@@ -143,12 +145,34 @@ def debug_internal(error: BaseException) -> None:
     sys.stderr.flush()
 
 
-def invalid(message: str) -> Answer:
-    return EXIT_INVALID, {"ok": False, "outcome": "invalid_request", "message": message}
+def invalid(message: str, *, reason: str | None = None) -> Answer:
+    """An invalid request: exit 2, nothing sent. ``reason`` is a fixed category."""
+    answer: dict[str, Any] = {
+        "ok": False,
+        "outcome": "invalid_request",
+        "message": message,
+    }
+    if reason is not None:
+        answer["reason"] = reason
+    return EXIT_INVALID, answer
 
 
 class ArgumentsError(ValueError):
-    """The command line can't be used; answered as exit 2, never printed."""
+    """The command line can't be used; answered as exit 2, never printed.
+
+    ``reason`` is a fixed category (never the input) the answer carries.
+    """
+
+    def __init__(self, message: str, *, reason: str | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+    def answer(self) -> Answer:
+        """The exit-2 answer. An own-action message keeps its provenance."""
+        message = self.args[0] if self.args else ""
+        if not isinstance(message, OwnAction):
+            message = str(self)
+        return invalid(message, reason=self.reason)
 
 
 class Arguments(argparse.ArgumentParser):
@@ -159,3 +183,34 @@ class Arguments(argparse.ArgumentParser):
 
     def error(self, message: str) -> NoReturn:
         raise ArgumentsError(message)
+
+
+#: What to do for each reason the strict reader refuses stdin. Each is zeocore's
+#: own words and never quotes the input.
+_JSON_FIX: Final = {
+    "empty": "pipe one JSON document on stdin",
+    "too_large": "send one JSON document of at most 1 MiB",
+    "not_utf8": "send one JSON document encoded as UTF-8",
+    "syntax": "send one well-formed JSON document",
+    "duplicate_key": "send one JSON document with unique keys",
+    "non_finite_number": "send finite numbers only, no NaN or infinity",
+    "too_deep": "send a flatter JSON document",
+    "outside_canonical_domain": "use safe integers and valid text",
+}
+
+
+def stdin_error(error: ProtocolError) -> ArgumentsError:
+    """Why stdin is not strict JSON, as a category and the fix. Never the input."""
+    reason = error.reason if error.reason in _JSON_FIX else "syntax"
+    return ArgumentsError(
+        own_action(f"stdin is not valid strict JSON ({reason}); {_JSON_FIX[reason]}"),
+        reason=reason,
+    )
+
+
+def strict_json(stdin: bytes) -> Any:  # noqa: ANN401 -- decoded JSON
+    """Read stdin as strict JSON, or raise ``ArgumentsError`` with the reason."""
+    try:
+        return parse_json(stdin)
+    except ProtocolError as error:
+        raise stdin_error(error) from None

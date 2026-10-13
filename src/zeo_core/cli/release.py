@@ -46,7 +46,6 @@ from typing import Final
 
 import httpx
 
-from zeo_core.adapters.runtime_host.canonical import ProtocolError, parse_json
 from zeo_core.release import pypi
 from zeo_core.release.pypi.targets import (
     RELEASE_APP_ID_VARIABLE,
@@ -87,9 +86,11 @@ from .protocol import (
     EXIT_INVALID,
     EXIT_WAIT,
     Answer,
+    ArgumentsError,
     emit,
     invalid,
     own_action,
+    strict_json,
 )
 
 SIGNING_HOST_VARIABLE: Final = "ZEOCORE_SIGNING_HOST"
@@ -341,9 +342,9 @@ def _serve_forever(
 
 def _parse(verb: str, stdin: bytes) -> dict[str, str] | Answer:
     try:
-        request = parse_json(stdin)
-    except ProtocolError as error:
-        return invalid(str(error))
+        request = strict_json(stdin)
+    except ArgumentsError as error:
+        return error.answer()
     if (
         not isinstance(request, dict)
         or set(request) != _FIELDS[verb]
@@ -457,6 +458,26 @@ class _PyPIRun:
         )
 
 
+def argument_problem(args: Sequence[str]) -> Answer | None:
+    """The usage check of ``release``, which runs before stdin is read."""
+    if args and args[0] == "pypi":
+        if len(args) != 2 or args[1] not in _PYPI_STAGES:
+            return invalid(
+                own_action(
+                    "release pypi takes one stage; "
+                    f"use one of: {', '.join(_PYPI_STAGES)}"
+                )
+            )
+        return None
+    if len(args) != 1 or args[0] not in _FIELDS:
+        return invalid(
+            own_action(
+                f"release takes one verb; use one of: {', '.join([*_FIELDS, 'pypi'])}"
+            )
+        )
+    return None
+
+
 def _pypi(
     args: Sequence[str],
     stdin: bytes,
@@ -464,16 +485,13 @@ def _pypi(
     environ: Mapping[str, str],
     release_app: ReleaseAppFactory,
 ) -> Answer:
-    if len(args) != 2 or args[1] not in _PYPI_STAGES:
-        return invalid(
-            own_action(
-                f"release pypi takes one stage; use one of: {', '.join(_PYPI_STAGES)}"
-            )
-        )
+    problem = argument_problem(args)
+    if problem is not None:
+        return problem
     try:
-        request = parse_json(stdin)
-    except ProtocolError as error:
-        return invalid(str(error))
+        request = strict_json(stdin)
+    except ArgumentsError as error:
+        return error.answer()
     if (
         not isinstance(request, dict)
         or set(request) != {"manifest"}
@@ -510,12 +528,9 @@ def _signing(
     post: Post,
     serve_with: Serve,
 ) -> Answer:
-    if len(args) != 1 or args[0] not in _FIELDS:
-        return invalid(
-            own_action(
-                f"release takes one verb; use one of: {', '.join([*_FIELDS, 'pypi'])}"
-            )
-        )
+    problem = argument_problem(args)
+    if problem is not None:
+        return problem
     verb = args[0]
     request = _parse(verb, stdin)
     if isinstance(request, tuple):

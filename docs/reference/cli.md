@@ -169,6 +169,19 @@ Development origins also need `ZEOCONNECT_DEVELOPMENT=1`.
   events prints exactly one line. Diagnostics go to stderr.
 - **Input is strict JSON:** no duplicate keys, no `NaN` or infinities, at most
   1 MiB.
+- **Nothing waits on a prompt.** A command checks its command line *before* it
+  reads stdin, so a wrong flag or an unknown schema name answers at once, even
+  with a stdin that never closes. A terminal on stdin is never waited on: it
+  reads as an empty stdin.
+- **Refused stdin says why.** The answer carries a `reason`, one of `empty`,
+  `too_large`, `not_utf8`, `syntax`, `duplicate_key`, `non_finite_number`,
+  `too_deep` or `outside_canonical_domain` (or `not_an_object`, for arguments
+  that are valid JSON but not an object), and a message that ends with the fix.
+  The reason is a fixed category and never quotes the input.
+- **A schema name that doesn't exist** answers `no such schema; run zeocore
+  schema list` (exit 2) from `schema` and `validate` alike, without echoing the
+  name. A value that fails a known contract answers exit 20 and points at
+  `zeocore schema <name>` for its fields and types.
 - **A failing message ends with the next action.** A failing answer's `message`
   names what failed, then, after a `;`, what to do next: a command to run, a
   flag to set, or who has to act (for example `this device is not paired with
@@ -194,7 +207,7 @@ Development origins also need `ZEOCONNECT_DEVELOPMENT=1`.
   | Code | Meaning |
   |---|---|
   | 0 | done |
-  | 2 | invalid input or command; nothing was sent |
+  | 2 | invalid input or command: a bad command line, or stdin that isn't strict JSON; nothing was sent |
   | 10 | approval required |
   | 11 | waiting: try the same request later |
   | 12 | not paired: run `zeocore login` |

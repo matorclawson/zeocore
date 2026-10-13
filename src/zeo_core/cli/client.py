@@ -20,6 +20,7 @@ request is an exact replay of the stored outcome, never a second act.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import socket
@@ -32,7 +33,7 @@ from typing import Any, Final
 
 from pydantic import ValidationError
 
-from zeo_core.adapters.runtime_host.canonical import ProtocolError, digest, parse_json
+from zeo_core.adapters.runtime_host.canonical import digest
 from zeo_core.connections.adapters.subprocess_runner import SubprocessRunner
 from zeo_core.integrations.hosted.client import (
     ACCESS_GUIDANCE,
@@ -80,8 +81,8 @@ from .protocol import (
     ArgumentsError,
     Emit,
     emit,
-    invalid,
     own_action,
+    strict_json,
 )
 
 PROFILE_ENV: Final = "ZEOCORE_PROFILE"
@@ -187,7 +188,7 @@ def _guarded(body: Callable[[], Answer]) -> Answer:
     try:
         return body()
     except ArgumentsError as error:
-        return invalid(str(error))
+        return error.answer()
     except (HostedClientError, SecureStoreError, _NotPairedError) as error:
         answer = _not_paired(error)
         if answer is not None:
@@ -378,24 +379,41 @@ def request_key(
     return "zc-" + material.removeprefix("sha256:")
 
 
-def invoke(args: Sequence[str], stdin: bytes, *, out: Emit = emit) -> Answer:
+def _invoke_options(args: Sequence[str]) -> argparse.Namespace:
+    """The invoke command line, checked. Raises ``ArgumentsError``; reads nothing."""
     parser = Arguments("zeocore invoke")
     parser.add_argument("operation_id")
     parser.add_argument("--connection", required=True)
     parser.add_argument("--occurrence", default="1")
     parser.add_argument("--wait-approval", type=int, metavar="SECONDS")
     parser.add_argument("--profile")
+    options = parser.parse_args(list(args))
+    if options.wait_approval is not None and not 0 < options.wait_approval <= 3600:
+        raise ArgumentsError("--wait-approval is 1 to 3600 seconds")
+    return options
 
+
+def invoke_arguments(args: Sequence[str]) -> Answer | None:
+    """The usage check, which runs before stdin is read."""
+    try:
+        _invoke_options(args)
+    except ArgumentsError as error:
+        return error.answer()
+    return None
+
+
+def invoke(args: Sequence[str], stdin: bytes, *, out: Emit = emit) -> Answer:
     def body() -> Answer:
-        options = parser.parse_args(list(args))
-        if options.wait_approval is not None and not 0 < options.wait_approval <= 3600:
-            raise ArgumentsError("--wait-approval is 1 to 3600 seconds")
-        try:
-            arguments = parse_json(stdin)
-        except ProtocolError as error:
-            raise ArgumentsError(str(error)) from None
+        options = _invoke_options(args)
+        arguments = strict_json(stdin)
         if not isinstance(arguments, dict):
-            raise ArgumentsError("the arguments on stdin are a JSON object")
+            raise ArgumentsError(
+                own_action(
+                    "the arguments on stdin are not a JSON object; "
+                    "pipe one JSON object of the operation's arguments"
+                ),
+                reason="not_an_object",
+            )
         key = request_key(
             connection=options.connection,
             operation=options.operation_id,
@@ -499,19 +517,39 @@ def _answer(response: HostedOperationResponse, key: str) -> Answer:
 # -- artifact get ----------------------------------------------------------------
 
 
-def artifact(args: Sequence[str], stdin: bytes) -> Answer:
-    """``artifact get --out PATH``: the descriptor from an answer, on stdin."""
+def _artifact_options(args: Sequence[str]) -> argparse.Namespace:
+    """The artifact command line, checked. Raises ``ArgumentsError``; reads nothing."""
     parser = Arguments("zeocore artifact")
     parser.add_argument("action", choices=("get",))
     parser.add_argument("--out", required=True)
     parser.add_argument("--profile")
+    return parser.parse_args(list(args))
+
+
+def artifact_arguments(args: Sequence[str]) -> Answer | None:
+    """The usage check, which runs before stdin is read."""
+    try:
+        _artifact_options(args)
+    except ArgumentsError as error:
+        return error.answer()
+    return None
+
+
+def artifact(args: Sequence[str], stdin: bytes) -> Answer:
+    """``artifact get --out PATH``: the descriptor from an answer, on stdin."""
 
     def body() -> Answer:
-        options = parser.parse_args(list(args))
+        options = _artifact_options(args)
+        document = strict_json(stdin)
         try:
-            descriptor = HostedArtifactDescriptor.model_validate(parse_json(stdin))
-        except ProtocolError, ValidationError:
-            raise ArgumentsError("stdin is not an artifact descriptor") from None
+            descriptor = HostedArtifactDescriptor.model_validate(document)
+        except ValidationError:
+            raise ArgumentsError(
+                own_action(
+                    "stdin is not an artifact descriptor; pipe the descriptor "
+                    "from the operation's answer"
+                )
+            ) from None
         destination = Path(options.out)
         if destination.exists() or not destination.parent.is_dir():
             raise ArgumentsError("--out must be a new file in an existing directory")

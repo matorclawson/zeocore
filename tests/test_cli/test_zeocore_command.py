@@ -250,6 +250,10 @@ def test_stdin_is_read_only_one_byte_past_the_limit(
     asked: list[int] = []
 
     class Stdin:
+        @staticmethod
+        def isatty() -> bool:
+            return False
+
         class buffer:  # noqa: N801
             @staticmethod
             def read(size: int = -1) -> bytes:
