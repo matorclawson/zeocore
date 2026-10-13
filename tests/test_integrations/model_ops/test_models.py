@@ -113,7 +113,9 @@ class ModelOperationTests(unittest.TestCase):
             ),
         )
         req = self.request().model_copy(update={"model": "unknown-model"})
-        with self.assertRaisesRegex(HostedClientError, "^model_not_allowed$"):
+        with self.assertRaisesRegex(
+            HostedClientError, "select an owner-pinned catalogue model"
+        ):
             client.prepare(req, idempotency_key="same-act")
 
     def test_prompt_is_excluded_from_repr(self) -> None:
@@ -176,7 +178,7 @@ class ModelOperationTests(unittest.TestCase):
             ),
         )
         request = self.request().model_copy(update={"max_output_tokens": 129})
-        with self.assertRaisesRegex(HostedClientError, "^bad_request$"):
+        with self.assertRaisesRegex(HostedClientError, "reduce max_output_tokens"):
             client.prepare(request, idempotency_key="same-act")
 
     def test_json_escaping_and_structure_count_towards_byte_limit(self) -> None:
@@ -187,3 +189,15 @@ class ModelOperationTests(unittest.TestCase):
                 messages=(ModelMessage(role="user", text="\x01" * 50_000),),
                 max_output_tokens=64,
             )
+
+
+def test_output_tokens_fit_canonical_json() -> None:
+    for model_type in (TextCompletionRequest, CataloguedModel):
+        values: dict[str, object] = {
+            "model": "synthetic-model",
+            "max_output_tokens": 1 << 53,
+        }
+        if model_type is TextCompletionRequest:
+            values["messages"] = [{"role": "user", "text": "Synthetic."}]
+        with unittest.TestCase().assertRaises(ValidationError):
+            model_type.model_validate(values)

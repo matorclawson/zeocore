@@ -9,7 +9,11 @@ from zeo_core.integrations.hosted.client import (
     HostedClientError,
     HostedOperationResponse,
 )
-from zeo_core.integrations.model_ops import ParsedModelResponse, parse_model_response
+from zeo_core.integrations.model_ops import (
+    AmbiguousModelReceiptError,
+    ParsedModelResponse,
+    parse_model_response,
+)
 
 
 def receipt() -> dict[str, Any]:
@@ -20,6 +24,7 @@ def receipt() -> dict[str, Any]:
         "usage_provider": {"input_tokens": 30, "details": {"cached": 20}},
         "cost": {
             "reservation_micro_usd": 100,
+            "held": True,
             "tariff_estimate_micro_usd": 10,
             "rates_source": {
                 "revision": "draft-test",
@@ -89,6 +94,7 @@ def test_live_keeps_costs_distinct_and_missing_usage_unknown() -> None:
     assert not parsed.expired
     assert parsed.receipt.usage.input_uncached_tokens is None
     assert parsed.receipt.usage.cache_read_tokens == 20
+    assert parsed.receipt.cost is not None
     assert parsed.receipt.cost.reservation_micro_usd == 100
     assert parsed.receipt.cost.tariff_estimate_micro_usd == 10
     assert parsed.receipt.usage_provider["input_tokens"] == 30
@@ -117,15 +123,34 @@ def test_expired_replay_has_no_fetchable_completion() -> None:
         ("rate_limited", "failed_safe", "RATE_LIMITED"),
         ("provider_unavailable", "failed_safe", "PROVIDER_UNAVAILABLE"),
         ("unknown_outcome", "ambiguous", "RESULT_AMBIGUOUS"),
-        (None, "refused", "CONNECTION_REVOKED"),
-        (None, "refused", "CONNECTION_REPAIR_REQUIRED"),
-        (None, "refused", "CONNECTOR_REVISION_UNAVAILABLE"),
+        ("connection_revoked", "refused", "CONNECTION_REVOKED"),
+        ("connection_repair_required", "refused", "CONNECTION_REPAIR_REQUIRED"),
+        ("connector_revision_unavailable", "refused", "CONNECTOR_REVISION_UNAVAILABLE"),
     ],
 )
 def test_fixed_error_mapping(reason: str | None, status: str, code: str) -> None:
     r = receipt()
     r["reason"] = reason
     r["cost"]["tariff_estimate_micro_usd"] = None
+    if reason in {"model_not_allowed", "bad_request", "budget_exhausted"}:
+        r = {
+            key: value
+            for key, value in r.items()
+            if key in {"capability", "reason", "model_requested", "cost", "budget"}
+        }
+        r.update(request_sha256="sha256:" + "a" * 64, request_size_bytes=32)
+        if reason == "budget_exhausted":
+            r["cost"].pop("tariff_estimate_micro_usd")
+            r["cost"]["held"] = False
+        else:
+            r.pop("cost")
+            r.pop("budget")
+    if reason in {
+        "connection_revoked",
+        "connection_repair_required",
+        "connector_revision_unavailable",
+    }:
+        r = {"capability": "text_completion", "reason": reason}
     value: dict[str, Any] = {
         "status": status,
         "execution_id": "synthetic",
@@ -221,4 +246,175 @@ def test_incomplete_estimate_preserves_missing_rate() -> None:
     value["receipt"]["cost"].update(
         tariff_estimate_micro_usd=None, incomplete=["cache_read_tokens"]
     )
-    assert parse(value).receipt.cost.tariff_estimate_micro_usd is None
+    cost = parse(value).receipt.cost
+    assert cost is not None and cost.tariff_estimate_micro_usd is None
+
+
+def early(reason: str = "bad_request") -> dict[str, Any]:
+    return {
+        "status": "refused",
+        "execution_id": "synthetic",
+        "normalized_error": {
+            "code": "REQUEST_REFUSED",
+            "message": "Synthetic refusal.",
+        },
+        "receipt": {
+            "capability": "text_completion",
+            "reason": reason,
+            "request_sha256": "sha256:" + "a" * 64,
+            "request_size_bytes": 32,
+        },
+    }
+
+
+def test_pre_budget_refusal_has_no_computed_money() -> None:
+    parsed = parse(early())
+    assert parsed.receipt.cost is None and parsed.receipt.budget is None
+    assert parsed.receipt.usage.input_uncached_tokens is None
+    assert "cost" not in parsed.receipt.model_fields_set
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "cost",
+        "budget",
+        "request_artifact",
+        "completion",
+        "usage",
+        "usage_provider",
+        "provider_request_id",
+        "model_reported",
+    ],
+)
+def test_early_refusal_forbids_even_null_uncomputed_fields(field: str) -> None:
+    value = early()
+    value["receipt"][field] = None
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("field", ["request_sha256", "request_size_bytes"])
+def test_early_refusal_requires_request_fingerprint(field: str) -> None:
+    value = early()
+    value["receipt"].pop(field)
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_budget_refusal_reports_worst_case_but_holds_nothing() -> None:
+    value = early("budget_exhausted")
+    cost = receipt()["cost"]
+    cost.pop("tariff_estimate_micro_usd")
+    cost["held"] = False
+    value["receipt"].update(cost=cost, budget=receipt()["budget"])
+    parsed = parse(value)
+    assert parsed.receipt.cost is not None and not parsed.receipt.cost.held
+    assert parsed.receipt.cost.reservation_micro_usd == 100
+    value["receipt"]["cost"]["held"] = True
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("field", ["cost", "budget", "request_artifact"])
+def test_provider_receipt_requires_computed_fields(field: str) -> None:
+    value = live()
+    value["receipt"].pop(field)
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("held", [False, "true", 1])
+def test_unknown_outcome_requires_strict_held_reservation(held: object) -> None:
+    value = live()
+    value.pop("artifact")
+    value["status"] = "ambiguous"
+    value["normalized_error"] = {
+        "code": "RESULT_AMBIGUOUS",
+        "message": "Synthetic unknown.",
+    }
+    value["receipt"]["reason"] = "unknown_outcome"
+    value["receipt"]["cost"].update(held=held, tariff_estimate_micro_usd=None)
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("field", ["tariff_estimate_micro_usd", "incomplete"])
+def test_budget_refusal_cannot_report_uncomputed_usage_estimate(field: str) -> None:
+    value = early("budget_exhausted")
+    cost = receipt()["cost"]
+    cost.pop("tariff_estimate_micro_usd")
+    cost["held"] = False
+    cost[field] = None if field == "tariff_estimate_micro_usd" else []
+    value["receipt"].update(cost=cost, budget=receipt()["budget"])
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "model_requested",
+        "request_sha256",
+        "request_size_bytes",
+        "cost",
+        "budget",
+        "request_artifact",
+        "usage",
+        "usage_provider",
+    ],
+)
+def test_lifecycle_refusal_has_no_uncomputed_request_fields(field: str) -> None:
+    value = early("connection_revoked")
+    value["normalized_error"]["code"] = "CONNECTION_REVOKED"
+    value["receipt"] = {
+        "capability": "text_completion",
+        "reason": "connection_revoked",
+        field: None,
+    }
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_old_missing_lifecycle_reason_is_rejected() -> None:
+    value = early()
+    value["normalized_error"]["code"] = "CONNECTION_REVOKED"
+    value["receipt"] = {"capability": "text_completion"}
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_ambiguous_missing_reason_preserves_dispatch_uncertainty() -> None:
+    value = live()
+    value.pop("artifact")
+    value["status"] = "ambiguous"
+    value["normalized_error"] = {
+        "code": "RESULT_AMBIGUOUS",
+        "message": "Synthetic unknown.",
+    }
+    value["receipt"].pop("reason", None)
+    with pytest.raises(
+        AmbiguousModelReceiptError, match="may have been dispatched; do not retry"
+    ):
+        parse(value)
+
+
+@pytest.mark.parametrize(
+    "field", ["reservation_micro_usd", "tariff_estimate_micro_usd"]
+)
+def test_cost_counters_fit_canonical_json(field: str) -> None:
+    value = live()
+    value["receipt"]["cost"][field] = 1 << 53
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize(
+    "field", ["apiKey", "x-api-key", "bearer", "auth_token", "id_token"]
+)
+def test_native_usage_rejects_normalized_secret_names(field: str) -> None:
+    value = live()
+    value["receipt"]["usage_provider"] = {"nested": {field: "synthetic-private-text"}}
+    with pytest.raises(HostedClientError) as error:
+        parse(value)
+    assert "synthetic-private-text" not in str(error.value)

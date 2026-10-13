@@ -16,10 +16,9 @@ from zeo_core.integrations.hosted.client import (
     HostedOperationStatus,
 )
 
-RECEIPT_SCHEMA_DRAFT_SHA256 = (
-    "e737e8fe615143e776b746d1c7547693e7b29a749f6ca8562fb7057aa6b0e007"
-)
-Count = Annotated[int, Field(strict=True, ge=0)]
+from .models import MAX_SAFE_JSON_INTEGER
+
+Count = Annotated[int, Field(strict=True, ge=0, le=MAX_SAFE_JSON_INTEGER)]
 NativeValue = Count | Annotated[str, Field(strict=True, max_length=200)]
 NativeKey = Annotated[str, Field(min_length=1, max_length=128)]
 Reason = Literal[
@@ -31,6 +30,9 @@ Reason = Literal[
     "rate_limited",
     "provider_unavailable",
     "unknown_outcome",
+    "connection_revoked",
+    "connection_repair_required",
+    "connector_revision_unavailable",
 ]
 
 
@@ -62,6 +64,7 @@ class RateSources(_Closed):
 
 class ModelCost(_Closed):
     reservation_micro_usd: Count
+    held: bool = Field(strict=True)
     tariff_estimate_micro_usd: Count | None = None
     incomplete: tuple[Annotated[str, Field(min_length=1, max_length=128)], ...] = Field(
         default=(), max_length=32
@@ -102,7 +105,11 @@ class ExpiredCompletion(_Closed):
 
 
 class ModelReceipt(BaseModel):
-    """Project model evidence while allowing common member-receipt metadata."""
+    """Project model evidence while allowing common member-receipt metadata.
+
+    Extra metadata is ignored for hosted protocol forward compatibility; known
+    model fields are validated and absent stage fields are never invented.
+    """
 
     model_config = ConfigDict(frozen=True, extra="ignore", hide_input_in_errors=True)
     capability: Literal["text_completion"]
@@ -113,12 +120,79 @@ class ModelReceipt(BaseModel):
     usage_provider: dict[NativeKey, NativeValue | dict[NativeKey, NativeValue]] = Field(
         default_factory=dict, max_length=32
     )
-    cost: ModelCost
-    budget: BudgetRemaining
+    cost: ModelCost | None = None
+    budget: BudgetRemaining | None = None
+    request_sha256: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    request_size_bytes: Count | None = None
     request_artifact: ReceiptArtifact | None = None
     completion: ReceiptArtifact | None = None
     provider_request_id: str | None = Field(default=None, min_length=1, max_length=500)
     replayed: bool = Field(default=False, strict=True)
+
+    @model_validator(mode="after")
+    def _stage_fields(self) -> ModelReceipt:
+        if self.reason in _LIFECYCLE_REASONS:
+            if self.model_fields_set - {"capability", "reason", "replayed"}:
+                raise ValueError("lifecycle refusal carries uncomputed fields")
+            return self
+        pre_budget = self.reason in {"bad_request", "model_not_allowed"}
+        budget_refused = self.reason == "budget_exhausted"
+        if pre_budget:
+            forbidden = {
+                "cost",
+                "budget",
+                "request_artifact",
+                "completion",
+                "usage",
+                "usage_provider",
+                "provider_request_id",
+                "model_reported",
+            }
+            if forbidden & self.model_fields_set:
+                raise ValueError("pre-budget refusal carries uncomputed fields")
+        else:
+            if self.cost is None or self.budget is None:
+                raise ValueError("budget-read receipt requires cost and budget")
+        if pre_budget or budget_refused:
+            if self.request_sha256 is None or self.request_size_bytes is None:
+                raise ValueError("request fingerprint is required")
+        return self
+
+    @model_validator(mode="after")
+    def _provider_fields(self) -> ModelReceipt:
+        pre_budget = self.reason in {"bad_request", "model_not_allowed"}
+        budget_refused = self.reason == "budget_exhausted"
+        if self.reason in _LIFECYCLE_REASONS:
+            return self
+        if not pre_budget and not budget_refused:
+            if self.request_artifact is None:
+                raise ValueError("provider-reached receipt requires request artifact")
+            if (
+                self.reason == "unknown_outcome"
+                and self.cost is not None
+                and not self.cost.held
+            ):
+                raise ValueError("unknown outcome must retain the reservation")
+        return self
+
+    @model_validator(mode="after")
+    def _budget_refusal(self) -> ModelReceipt:
+        if self.reason == "budget_exhausted":
+            forbidden = {
+                "request_artifact",
+                "completion",
+                "usage",
+                "usage_provider",
+                "provider_request_id",
+                "model_reported",
+            }
+            if forbidden & self.model_fields_set or self.cost is None or self.cost.held:
+                raise ValueError(
+                    "budget refusal must not hold funds or carry provider evidence"
+                )
+            if {"tariff_estimate_micro_usd", "incomplete"} & self.cost.model_fields_set:
+                raise ValueError("budget refusal carries no usage estimate")
+        return self
 
     @model_validator(mode="after")
     def _native_usage_bounded(self) -> ModelReceipt:
@@ -129,18 +203,25 @@ class ModelReceipt(BaseModel):
             "password",
             "credential",
             "credentials",
-            "api_key",
-            "access_token",
-            "refresh_token",
-            "client_secret",
+            "apikey",
+            "accesstoken",
+            "refreshtoken",
+            "clientsecret",
             "authorization",
+            "xapikey",
+            "bearer",
+            "authtoken",
+            "idtoken",
         }
         for key, value in self.usage_provider.items():
-            if key.lower() in forbidden:
+            if "".join(c for c in key.lower() if c.isalnum()) in forbidden:
                 raise ValueError("secret-bearing native usage field")
             if isinstance(value, dict):
                 keys += len(value)
-                if any(name.lower() in forbidden for name in value):
+                if any(
+                    "".join(c for c in name.lower() if c.isalnum()) in forbidden
+                    for name in value
+                ):
                     raise ValueError("secret-bearing native usage field")
         if keys > 32:
             raise ValueError("native usage exceeds total key limit")
@@ -175,11 +256,23 @@ _REASON_MAPPING = {
         NormalizedErrorCode.RESULT_AMBIGUOUS,
     ),
 }
-_LIFECYCLE_CODES = {
-    NormalizedErrorCode.CONNECTION_REVOKED,
-    NormalizedErrorCode.CONNECTION_REPAIR_REQUIRED,
-    NormalizedErrorCode.CONNECTOR_REVISION_UNAVAILABLE,
+_LIFECYCLE_REASONS = {
+    "connection_revoked": NormalizedErrorCode.CONNECTION_REVOKED,
+    "connection_repair_required": NormalizedErrorCode.CONNECTION_REPAIR_REQUIRED,
+    "connector_revision_unavailable": (
+        NormalizedErrorCode.CONNECTOR_REVISION_UNAVAILABLE
+    ),
 }
+_REASON_MAPPING.update(
+    {
+        reason: (HostedOperationStatus.REFUSED, code)
+        for reason, code in _LIFECYCLE_REASONS.items()
+    }
+)
+
+
+class AmbiguousModelReceiptError(HostedClientError):
+    """Parsing failed after an ambiguous response; dispatch cannot be ruled out."""
 
 
 @dataclass(frozen=True)
@@ -244,13 +337,11 @@ def _not_confirmed(response: HostedOperationResponse, receipt: ModelReceipt) -> 
         expected_status, expected_code = _REASON_MAPPING[receipt.reason]
         if response.status != expected_status or error.code != expected_code:
             raise ValueError("reason mapping mismatch")
-    elif (
-        response.status != HostedOperationStatus.REFUSED
-        or error.code not in _LIFECYCLE_CODES
-    ):
-        raise ValueError("unknown refusal mapping")
+    else:
+        raise ValueError("missing refusal reason")
     if (
         response.status is HostedOperationStatus.AMBIGUOUS
+        and receipt.cost is not None
         and receipt.cost.tariff_estimate_micro_usd is not None
     ):
         raise ValueError("unknown outcome cannot carry a usage estimate")
@@ -260,6 +351,7 @@ def parse_model_response(
     response: HostedOperationResponse, *, expected_model: str, catalogue_revision: str
 ) -> ParsedModelResponse:
     """Refuse mismatched evidence without returning raw provider/input text."""
+    ambiguous = response.status == HostedOperationStatus.AMBIGUOUS
     try:
         response = HostedOperationResponse.model_validate(response.model_dump())
         receipt = ModelReceipt.model_validate(response.receipt)
@@ -268,7 +360,10 @@ def parse_model_response(
             and receipt.model_requested != expected_model
         ):
             raise ValueError("model mismatch")
-        if receipt.cost.rates_source.revision != catalogue_revision:
+        if (
+            receipt.cost is not None
+            and receipt.cost.rates_source.revision != catalogue_revision
+        ):
             raise ValueError("rate revision mismatch")
         expired = False
         if response.status is HostedOperationStatus.CONFIRMED:
@@ -283,4 +378,13 @@ def parse_model_response(
             expired=expired,
         )
     except ValidationError, ValueError, TypeError, KeyError:
-        raise HostedClientError("model operation receipt is invalid") from None
+        if ambiguous:
+            raise AmbiguousModelReceiptError(
+                "model operation receipt is invalid; "
+                "the call may have been dispatched; "
+                "do not retry until its outcome and reservation are settled"
+            ) from None
+        raise HostedClientError(
+            "model operation receipt is invalid; inspect the receiving contract and "
+            "retained evidence without assuming the call was not dispatched"
+        ) from None

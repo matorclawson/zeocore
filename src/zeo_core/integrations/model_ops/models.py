@@ -8,9 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Provider = Literal["anthropic", "openai", "google"]
-REQUEST_SCHEMA_DRAFT_SHA256 = (
-    "4b45e5913e3ad7eee937f34f31e5fbb187890bca094e8cabe6e3325ad68d629a"
-)
+MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
 MAX_REQUEST_BYTES = 256 * 1024
 
 
@@ -36,7 +34,7 @@ class TextCompletionRequest(BaseModel):
 
     model: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
     messages: tuple[ModelMessage, ...] = Field(min_length=1, max_length=64, repr=False)
-    max_output_tokens: int = Field(strict=True, gt=0)
+    max_output_tokens: int = Field(strict=True, gt=0, le=MAX_SAFE_JSON_INTEGER)
     system: str | None = Field(default=None, max_length=MAX_REQUEST_BYTES, repr=False)
 
     temperature: float | None = Field(
@@ -65,7 +63,7 @@ class CataloguedModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     model: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
-    max_output_tokens: int = Field(strict=True, gt=0)
+    max_output_tokens: int = Field(strict=True, gt=0, le=MAX_SAFE_JSON_INTEGER)
 
     @model_validator(mode="after")
     def _known_aliases_refused(self) -> CataloguedModel:

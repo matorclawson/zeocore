@@ -50,14 +50,20 @@ class DraftModelOperationClient:
         """Validate a selected model and preserve the caller's exact replay key."""
         request = TextCompletionRequest.model_validate(request.model_dump())
         if request.model not in self._catalogue.model_ids:
-            raise HostedClientError("model_not_allowed")
+            raise HostedClientError(
+                "model is not allowed by this catalogue; "
+                "select an owner-pinned catalogue model"
+            )
         limit = next(
             item.max_output_tokens
             for item in self._catalogue.models
             if item.model == request.model
         )
         if request.max_output_tokens > limit:
-            raise HostedClientError("bad_request")
+            raise HostedClientError(
+                "output-token limit exceeds the catalogue ceiling; "
+                "reduce max_output_tokens"
+            )
         arguments: dict[str, JsonValue] = {
             "model": request.model,
             "messages": [
