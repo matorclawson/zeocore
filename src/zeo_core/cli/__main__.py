@@ -236,13 +236,18 @@ def run(argv: Sequence[str], stdin: Callable[[], bytes]) -> Answer:
         return status, {**answer, "schema": USAGE_SCHEMA}
     name, args = argv[0], argv[1:]
     status, answer = COMMANDS[name](args, stdin() if name in _READS_STDIN else b"")
-    if "$schema" in answer:
-        # `zeocore schema <name>` answers with the contract itself, which
-        # names itself by $schema and $id; adding a key would alter it.
+    if _is_contract_document(name, args, status):
+        # A successful `zeocore schema <name>` answers with the contract
+        # itself, which names itself by $schema and $id; a key would alter it.
         return status, answer
     # Every other result line names its schema, so an agent can check what
-    # it parses.
-    return status, {"schema": f"zeocore.{name}/v1", **answer}
+    # it parses. The label comes last, so no answer can override it.
+    return status, {**answer, "schema": f"zeocore.{name}/v1"}
+
+
+def _is_contract_document(name: str, args: Sequence[str], status: int) -> bool:
+    """The one answer that is a document, not a result: `schema <name>`."""
+    return name == "schema" and status == OK and list(args) != ["list"]
 
 
 def main(argv: Sequence[str] | None = None) -> None:
