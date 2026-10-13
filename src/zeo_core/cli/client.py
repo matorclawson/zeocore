@@ -33,6 +33,7 @@ from typing import Any, Final
 from pydantic import ValidationError
 
 from zeo_core.adapters.runtime_host.canonical import ProtocolError, digest, parse_json
+from zeo_core.connections.adapters.subprocess_runner import SubprocessRunner
 from zeo_core.integrations.hosted.client import (
     ACCESS_GUIDANCE,
     HostedAccessRefusedError,
@@ -92,7 +93,9 @@ def origin() -> str:
     return os.environ.get("ZEOCONNECT_URL", ZEOCONNECT_PRODUCTION_ORIGIN)
 
 
-def make_store(profile: str | None) -> SecureSessionStore:
+def make_store(
+    profile: str | None, *, runner: SubprocessRunner | None = None
+) -> SecureSessionStore:
     # A grant is bound to the origin it was paired with: a production session
     # never reaches a development Broker, and the reverse.
     selected = origin()
@@ -109,6 +112,7 @@ def make_store(profile: str | None) -> SecureSessionStore:
     # No session file: the Keychain, and a Keychain that can't be read is a
     # refusal, never a reason to look for a file.
     return KeychainSecureSessionStore(
+        **({} if runner is None else {"runner": runner}),
         profile=profile,
         origin=None if selected == ZEOCONNECT_PRODUCTION_ORIGIN else selected,
     )

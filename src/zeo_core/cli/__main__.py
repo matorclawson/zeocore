@@ -6,6 +6,9 @@ Commands (``zeocore help`` is the machine catalogue of all of them):
   family and its result schema (``zeo_core.cli.catalogue``).
 - ``zeocore version``: the release, this command's protocol and the
   ZEOconnect protocol it speaks.
+- ``zeocore doctor``: is this machine ready? One local, read-only check per line
+  (Python, session store, pairing, ``ZEOCONNECT_URL``, extras); each failing
+  check names the next command (``zeo_core.cli.doctor``).
 - ``zeocore schema list``: the stable schema names.
 - ``zeocore schema <name>``: that contract as JSON Schema 2020-12.
 - ``zeocore validate <name>``: validate stdin against ``<name>``. Answers
@@ -22,9 +25,9 @@ Commands (``zeocore help`` is the machine catalogue of all of them):
 
 Rules every command keeps (``cli_protocol`` 1):
 
-- stdout is JSON lines and nothing else. Events (a pairing code, an approval
-  link, waiting) carry an ``event`` key; the result is always the last line,
-  carries ``ok`` and ``schema`` (``zeocore.<command>/v1``) and never
+- stdout is JSON lines and nothing else. Events (a pairing code, a doctor
+  check, an approval link, waiting) carry an ``event`` key; the result is always
+  the last line, carries ``ok`` and ``schema`` (``zeocore.<command>/v1``) and never
   ``event``. A command with no events prints one line. Diagnostics go to
   stderr.
 - Input JSON is strict: no duplicate keys, no NaN, at most 1 MiB.
@@ -52,7 +55,7 @@ from zeo_core.adapters.runtime_host.canonical import (
     parse_json,
 )
 
-from . import client
+from . import client, doctor
 from .catalogue import catalogue
 from .protocol import (
     CLI_PROTOCOL,
@@ -214,6 +217,7 @@ COMMANDS: Final[dict[str, Command]] = {
     "artifact": client.artifact,
     "connections": client.connections,
     "digest": _digest,
+    "doctor": doctor.doctor,
     "help": _help,
     "invoke": client.invoke,
     "login": client.login,
@@ -236,13 +240,18 @@ def run(argv: Sequence[str], stdin: Callable[[], bytes]) -> Answer:
         return status, {**answer, "schema": USAGE_SCHEMA}
     name, args = argv[0], argv[1:]
     status, answer = COMMANDS[name](args, stdin() if name in _READS_STDIN else b"")
-    if "$schema" in answer:
-        # `zeocore schema <name>` answers with the contract itself, which
-        # names itself by $schema and $id; adding a key would alter it.
+    if _is_contract_document(name, args, status):
+        # A successful `zeocore schema <name>` answers with the contract
+        # itself, which names itself by $schema and $id; a key would alter it.
         return status, answer
     # Every other result line names its schema, so an agent can check what
-    # it parses.
-    return status, {"schema": f"zeocore.{name}/v1", **answer}
+    # it parses. The label comes last, so no answer can override it.
+    return status, {**answer, "schema": f"zeocore.{name}/v1"}
+
+
+def _is_contract_document(name: str, args: Sequence[str], status: int) -> bool:
+    """The one answer that is a document, not a result: `schema <name>`."""
+    return name == "schema" and status == OK and list(args) != ["list"]
 
 
 def main(argv: Sequence[str] | None = None) -> None:

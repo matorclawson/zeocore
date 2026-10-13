@@ -117,12 +117,19 @@ class RealSubprocessRunner:
     `returncode` itself.
     """
 
+    def __init__(self, *, timeout: float | None = None) -> None:
+        # None waits as long as the child runs (the default). A caller that must
+        # not hang, such as `zeocore doctor` on a locked Keychain, passes
+        # seconds; `subprocess.TimeoutExpired` then reaches the caller.
+        self._timeout = timeout
+
     def run(self, args: list[str]) -> CompletedSubprocess:
         completed = subprocess.run(  # noqa: S603
             args,
             capture_output=True,
             text=True,
             check=False,
+            timeout=self._timeout,
         )
         return CompletedSubprocess(
             returncode=completed.returncode,
@@ -149,6 +156,7 @@ class RealSubprocessRunner:
             capture_output=True,
             text=True,
             check=False,
+            timeout=self._timeout,
         )
         del stdin_payload
         return CompletedSubprocess(
