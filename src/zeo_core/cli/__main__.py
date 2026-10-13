@@ -53,7 +53,7 @@ from pydantic import ValidationError
 
 from zeo_core.adapters.runtime_host.canonical import MAX_BYTES, digest
 
-from . import client, doctor
+from . import client, doctor, release_usage
 from .catalogue import catalogue
 from .protocol import (
     CLI_PROTOCOL,
@@ -231,8 +231,11 @@ def _release(args: Sequence[str], stdin: bytes) -> Answer:
 
     It reaches GitHub through ``zeo_core.integrations.github``, whose
     dependencies are the ``github`` extra's. Every other command runs on a
-    plain install.
+    plain install, and so does ``release tree-digest``, which only walks a
+    directory (``release_usage``, standard library only).
     """
+    if list(args) == [release_usage.NO_EXTRA_VERB]:
+        return release_usage.tree_digest_command(stdin)
     try:
         from .release import release
     except ModuleNotFoundError as error:
@@ -253,7 +256,12 @@ def _extra_missing(error: ModuleNotFoundError) -> Answer:
 
 
 def _release_arguments(args: Sequence[str]) -> Answer | None:
-    """The usage check, before stdin is read. Without the extra, its answer."""
+    """The usage check, before stdin is read. Without the extra, its answer.
+
+    ``tree-digest`` needs no extra, so its usage check never asks for one.
+    """
+    if list(args[:1]) == [release_usage.NO_EXTRA_VERB]:
+        return release_usage.argument_problem(args)
     try:
         from .release import argument_problem
     except ModuleNotFoundError as error:

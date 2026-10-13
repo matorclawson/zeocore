@@ -79,7 +79,8 @@ signing:
   `ac.zeo.<product>.<name>`. Nested code keeps the rule, and its name, which
   names its receipt, is the identifier's last part.
 - **The tree digest.** `zeocore release tree-digest < {"path": "app/build/Zeo.app"}`
-  prints `unsigned_tree_sha256`: the sha256 of one line per entry, sorted by
+  runs on a plain install (it needs no `github` extra: it only walks the
+  directory) and prints `unsigned_tree_sha256`: the sha256 of one line per entry, sorted by
   path as UTF-8 bytes, each `path TAB type TAB mode TAB value LF`. The path is
   relative and UTF-8; the type is `file`, `dir` or `symlink`; the mode is
   `755` for a directory or a file with any execute bit, `644` otherwise, `-`

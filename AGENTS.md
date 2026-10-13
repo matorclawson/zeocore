@@ -2,7 +2,7 @@
 
 **What zeocore is.** A typed Python library for capability authoring: contracts, `@capability` tools, and integrations (Google, HubSpot, YouTube, Bluesky, Revolut and more). It also installs the `zeocore` command, which gives callers that don't import Python the same contracts, plus a client for ZEOconnect's Broker. Python 3.14 or later.
 
-**Install:** `uv tool install zeocore` gives the command. `uv pip install zeocore` gives the library, and an extra adds an integration, for example `zeocore[google]`. `zeocore release` also needs the `github` extra. From a checkout, install it into a virtual environment with `uv pip install /path/to/checkout`.
+**Install:** `uv tool install zeocore` gives the command. `uv pip install zeocore` gives the library, and an extra adds an integration, for example `zeocore[google]`. `zeocore release` also needs the `github` extra, except `zeocore release tree-digest`, which runs on a plain install. From a checkout, install it into a virtual environment with `uv pip install /path/to/checkout`.
 
 ## The command: learn it from itself
 

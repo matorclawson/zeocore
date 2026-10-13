@@ -204,7 +204,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
     ),
     Entry(
         "release",
-        "the shared signing step and the PyPI adapter; needs the github extra",
+        "the shared signing step and the PyPI adapter; needs the github extra, except "
+        "tree-digest, which runs on a plain install",
         "zeocore release sign|verify|pack|receive|send|serve|tree-digest "
         "< request.json | "
         "zeocore release pypi plan|admit|apply|approve|reconcile|verify < request.json",

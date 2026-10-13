@@ -76,9 +76,8 @@ from zeo_core.release.signing.service import (
     serve,
     tailnet_address,
 )
-from zeo_core.release.signing.tree import TreeError, listing
-from zeo_core.release.signing.tree import digest as tree_digest
 
+from . import release_usage
 from .protocol import (
     EXIT_AMBIGUOUS,
     EXIT_DONE,
@@ -117,15 +116,7 @@ def _answer(outcome: Outcome) -> Answer:
     return _EXIT[outcome.status], body
 
 
-_FIELDS: Final = {
-    "send": {"pack", "service", "out"},
-    "serve": {"listen", "state_dir"},
-    "sign": {"manifest", "work_dir"},
-    "verify": {"manifest", "work_dir"},
-    "pack": {"manifest", "out", "repo", "commit", "manifest_path"},
-    "receive": {"manifest", "response", "work_dir"},
-    "tree-digest": {"path"},
-}
+_FIELDS: Final = release_usage.FIELDS
 
 
 def _refused(error: PackError) -> Answer:
@@ -199,24 +190,7 @@ def _sign(
     return _answer(outcome)
 
 
-def _tree(request: dict[str, str]) -> Answer:
-    try:
-        entries = listing(Path(request["path"]))
-    except TreeError as error:
-        return EXIT_HELD, {
-            "ok": False,
-            "outcome": "bundle_unsafe",
-            "status": "refused",
-            "message": str(error),
-        }
-    except OSError:
-        return invalid("the bundle can't be read")
-    return EXIT_DONE, {
-        "ok": True,
-        "outcome": "digested",
-        "unsigned_tree_sha256": tree_digest(entries),
-        "entries": len(entries),
-    }
+_tree = release_usage.tree
 
 
 def _send(request: dict[str, str], post: Post) -> Answer:
@@ -340,28 +314,12 @@ def _serve_forever(
         service.close()
 
 
-def _parse(verb: str, stdin: bytes) -> dict[str, str] | Answer:
-    try:
-        request = strict_json(stdin)
-    except ArgumentsError as error:
-        return error.answer()
-    if (
-        not isinstance(request, dict)
-        or set(request) != _FIELDS[verb]
-        or not all(isinstance(value, str) and value for value in request.values())
-    ):
-        return invalid(
-            own_action(
-                f"stdin has the wrong fields; pipe a JSON object with exactly: "
-                f"{', '.join(sorted(_FIELDS[verb]))}"
-            )
-        )
-    return request
+_parse = release_usage.parse_request
 
 
 PyPIReads = Callable[[], tuple[pypi.GitHubCli, pypi.PyPIHttp]]
 ReleaseAppFactory = Callable[[int, Mapping[str, str]], pypi.TagCreator]
-_PYPI_STAGES: Final = ("plan", "admit", "apply", "approve", "reconcile", "verify")
+_PYPI_STAGES: Final = release_usage.PYPI_STAGES
 _PYPI_EXIT: Final = {
     "done": EXIT_DONE,
     "waiting": EXIT_WAIT,
@@ -458,24 +416,7 @@ class _PyPIRun:
         )
 
 
-def argument_problem(args: Sequence[str]) -> Answer | None:
-    """The usage check of ``release``, which runs before stdin is read."""
-    if args and args[0] == "pypi":
-        if len(args) != 2 or args[1] not in _PYPI_STAGES:
-            return invalid(
-                own_action(
-                    "release pypi takes one stage; "
-                    f"use one of: {', '.join(_PYPI_STAGES)}"
-                )
-            )
-        return None
-    if len(args) != 1 or args[0] not in _FIELDS:
-        return invalid(
-            own_action(
-                f"release takes one verb; use one of: {', '.join([*_FIELDS, 'pypi'])}"
-            )
-        )
-    return None
+argument_problem = release_usage.argument_problem
 
 
 def _pypi(
