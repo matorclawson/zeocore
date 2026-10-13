@@ -18,7 +18,7 @@ Commands (``zeocore help`` is the machine catalogue of all of them):
 - ``zeocore digest``: the sha256 of stdin's RFC 8785 canonical bytes.
 - ``zeocore login | logout | whoami | connections | invoke | artifact get``:
   the ZEOconnect Broker client (``zeo_core.cli.client``).
-- ``zeocore release sign | verify | pack | receive | send | serve``: the
+- ``zeocore release sign | verify | pack | receive | send | serve | tree-digest``: the
   shared signing step
   (``zeo_core.cli.release``). It needs the ``github`` extra and loads only
   when it is used; every other command runs on a plain install.
