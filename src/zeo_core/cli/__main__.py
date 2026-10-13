@@ -72,6 +72,7 @@ from .protocol import (
     debug_internal,
     emit,
     invalid,
+    own_action,
     with_next_action,
 )
 from .schemas import SCHEMAS, adapter, render_schema
@@ -235,8 +236,12 @@ _READS_STDIN: Final = frozenset({"artifact", "digest", "invoke", "release", "val
 def run(argv: Sequence[str], stdin: Callable[[], bytes]) -> Answer:
     if not argv or argv[0] not in COMMANDS:
         status, answer = _invalid(
-            "commands: " + ", ".join(sorted(COMMANDS)) + "; run zeocore help for each "
-            "command's arguments, stdin, exit codes and result schema"
+            own_action(
+                "commands: "
+                + ", ".join(sorted(COMMANDS))
+                + "; run zeocore help for each "
+                "command's arguments, stdin, exit codes and result schema"
+            )
         )
         return status, {**answer, "schema": USAGE_SCHEMA}
     name, args = argv[0], argv[1:]
@@ -273,9 +278,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             {
                 "ok": False,
                 "outcome": "internal",
-                "message": "zeocore failed internally; rerun the same command "
-                "with ZEOCORE_DEBUG=1 to print diagnostics on stderr, then report "
-                "the command, the zeocore version and that output",
+                "message": own_action(
+                    "zeocore failed internally; rerun the same command "
+                    "with ZEOCORE_DEBUG=1 to print diagnostics on stderr, then report "
+                    "the command, the zeocore version and that output"
+                ),
                 "schema": INTERNAL_SCHEMA,
             },
         )

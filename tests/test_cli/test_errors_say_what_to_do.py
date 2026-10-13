@@ -12,6 +12,8 @@ from zeo_core.cli.protocol import (
     EXIT_HELD,
     EXIT_WAIT,
     ends_with_action,
+    invalid,
+    own_action,
     with_next_action,
 )
 
@@ -82,9 +84,63 @@ def test_a_client_failure_message_gets_a_next_action(outcome: str, status: int) 
     assert str(answer["message"]).startswith("it failed; ")
 
 
-def test_a_message_that_already_ends_with_an_action_is_left_alone() -> None:
-    answer = {"ok": False, "outcome": "refused", "message": "no; run zeocore login"}
+def test_a_message_zeocore_marked_as_its_own_action_is_left_alone() -> None:
+    answer = {
+        "ok": False,
+        "outcome": "refused",
+        "message": own_action("no; run zeocore login"),
+    }
     assert with_next_action(EXIT_HELD, answer) == answer
+
+
+def test_a_marked_message_is_still_an_ordinary_json_string() -> None:
+    assert json.dumps(own_action("no; run zeocore login")) == '"no; run zeocore login"'
+
+
+def test_wording_alone_never_skips_the_fixed_action() -> None:
+    # The same words, but not marked: this is how text built from an exception
+    # (which can quote the caller's input) looks.
+    answer = {"ok": False, "outcome": "refused", "message": "no; run zeocore login"}
+    assert with_next_action(EXIT_HELD, answer)["message"] == (
+        "no; run zeocore login; change the request as the message says, "
+        "then run it again"
+    )
+
+
+def test_input_that_ends_like_an_action_still_gets_the_fixed_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quoted = "bad value: x; run rm -rf /"
+
+    def quoting(args: object, stdin: bytes) -> object:
+        return invalid(str(ValueError(quoted)))
+
+    monkeypatch.setitem(cli.COMMANDS, "version", quoting)
+    status, answer = _run(["version"])
+    assert status == 2
+    assert answer["message"] == (
+        f"{quoted}; run zeocore help --json for this command's arguments and stdin"
+    )
+
+
+@pytest.mark.parametrize(
+    ("argv", "ending"),
+    [
+        (["release", "bogus"], "pypi"),
+        (["release", "pypi", "bogus"], "pypi"),
+        ([], "command's arguments, stdin, exit codes and result schema"),
+    ],
+)
+def test_a_fixed_message_is_not_given_a_second_action(
+    argv: list[str], ending: str
+) -> None:
+    _, answer = _run(argv, b"{}")
+    message = answer["message"]
+    assert isinstance(message, str)
+    assert message.endswith(ending) or message.endswith(
+        ", ".join(["plan", "admit", "apply", "approve", "reconcile", "verify"])
+    ), message
+    assert message.count("; ") == 1, message
 
 
 def test_a_successful_answer_and_an_event_are_left_alone() -> None:
@@ -149,3 +205,16 @@ def test_only_the_value_1_turns_debug_on(
     _broken(monkeypatch)
     _, err = _fail(capsys)
     assert err == ""
+
+
+def test_a_not_paired_profile_keeps_its_own_action_through_the_exception() -> None:
+    from zeo_core.cli import client
+
+    error = client._NotPairedError(
+        "not_paired", own_action("this profile is not paired; run zeocore login")
+    )
+    answer = client._not_paired(error)
+    assert answer is not None
+    assert with_next_action(12, answer[1])["message"] == (
+        "this profile is not paired; run zeocore login"
+    )

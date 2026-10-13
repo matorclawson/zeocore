@@ -73,8 +73,34 @@ _NEXT_BY_STATUS: Final = {
 }
 
 
+class OwnAction(str):
+    """A message zeocore wrote itself, whose last clause is the next action.
+
+    Provenance, not wording, decides whether the fixed action is appended: a
+    message built from an exception's text (which can quote the caller's
+    input) is a plain ``str`` and always gets the fixed action, even when
+    that text happens to end like an action. Only ``own_action`` makes one.
+    It is a ``str``, so the JSON answer is an ordinary string.
+    """
+
+    __slots__ = ()
+
+
+def own_action(message: str) -> OwnAction:
+    """Mark a message zeocore authored, ending in its own next action.
+
+    The text before the last ``;`` may quote an error, but the last clause
+    must be zeocore's own words, never the caller's.
+    """
+    return OwnAction(message)
+
+
 def ends_with_action(message: str) -> bool:
-    """True when the message's last clause starts with an imperative verb."""
+    """True when the message's last clause starts with an imperative verb.
+
+    A wording check for tests and docs only; it never decides what a caller
+    sees (see ``OwnAction``).
+    """
     clause = message.rsplit(";", 1)[-1].strip().lower()
     return clause.split(" ", 1)[0].strip(",:") in ACTION_VERBS
 
@@ -82,8 +108,9 @@ def ends_with_action(message: str) -> bool:
 def with_next_action(status: int, answer: dict[str, Any]) -> dict[str, Any]:
     """Make a failing answer's message end with what to do next.
 
-    Messages that already end with an action are left alone. Nothing here
-    reads the input: the action is fixed text chosen by outcome and status.
+    Messages marked ``OwnAction`` are left alone; every other message gets the
+    fixed action appended. Nothing here reads the input: the action is fixed
+    text chosen by outcome and status.
     """
     if answer.get("ok") is not False or answer.get("event") is not None:
         return answer
@@ -91,7 +118,7 @@ def with_next_action(status: int, answer: dict[str, Any]) -> dict[str, Any]:
     outcome = answer.get("outcome")
     if message is None and outcome == "invalid":
         message = "the value doesn't match the schema"
-    if not isinstance(message, str) or ends_with_action(message):
+    if not isinstance(message, str) or isinstance(message, OwnAction):
         return answer if message is None else {**answer, "message": message}
     action = _NEXT_BY_OUTCOME.get(str(outcome)) or _NEXT_BY_STATUS.get(status)
     if action is None:
