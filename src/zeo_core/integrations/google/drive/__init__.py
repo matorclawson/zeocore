@@ -6,15 +6,25 @@ files, with a consistent interface for uploading, downloading, and managing cont
 """
 
 from zeo_core.integrations.core.protocols import StorageIntegrationProtocol
+from zeo_core.integrations.google.drive.comments import (
+    DriveComment,
+    DriveCommentAuthor,
+    DriveQuotedContent,
+    DriveReply,
+)
 from zeo_core.integrations.google.drive.models import DriveFile, DriveFolder
 from zeo_core.integrations.google.drive.protocols import DriveDownloadProtocol
 from zeo_core.integrations.google.drive.service import GoogleDriveService
 
 __all__ = [
     "GoogleDriveService",
+    "DriveComment",
+    "DriveCommentAuthor",
     "DriveFile",
     "DriveFolder",
     "DriveDownloadProtocol",
+    "DriveQuotedContent",
+    "DriveReply",
     "create_integration",
 ]
 
