@@ -335,7 +335,7 @@ def test_unknown_outcome_requires_strict_held_reservation(held: object) -> None:
     }
     value["receipt"]["reason"] = "unknown_outcome"
     value["receipt"]["cost"].update(held=held, tariff_estimate_micro_usd=None)
-    with pytest.raises(HostedClientError):
+    with pytest.raises(AmbiguousModelReceiptError):
         parse(value)
 
 
@@ -410,7 +410,18 @@ def test_cost_counters_fit_canonical_json(field: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "field", ["apiKey", "x-api-key", "bearer", "auth_token", "id_token"]
+    "field",
+    [
+        "apiKey",
+        "x-api-key",
+        "bearer",
+        "auth_token",
+        "id_token",
+        "secretkey",
+        "privatekey",
+        "apisecret",
+        "nested_private_key_value",
+    ],
 )
 def test_native_usage_rejects_normalized_secret_names(field: str) -> None:
     value = live()
@@ -418,3 +429,27 @@ def test_native_usage_rejects_normalized_secret_names(field: str) -> None:
     with pytest.raises(HostedClientError) as error:
         parse(value)
     assert "synthetic-private-text" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("receipt", "budget", "authority_remaining_micro_usd"),
+        ("receipt", "budget", "day_calls_remaining"),
+        ("receipt", "budget", "day_spend_remaining_micro_usd"),
+        ("receipt", "request_artifact", "size_bytes"),
+        ("artifact", "size_bytes"),
+        ("receipt", "cost", "reservation_micro_usd"),
+        ("receipt", "cost", "tariff_estimate_micro_usd"),
+    ],
+)
+def test_money_and_size_canonical_json_boundary(path: tuple[str, ...]) -> None:
+    value = live()
+    target = value
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = (1 << 53) - 1
+    assert parse(value).completion is not None
+    target[path[-1]] = 1 << 53
+    with pytest.raises(HostedClientError):
+        parse(value)

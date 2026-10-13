@@ -2,6 +2,7 @@
 
 import unittest
 
+import pytest
 from pydantic import ValidationError
 
 from zeo_core.integrations.hosted.client import HostedClientError, HostedExpectedBinding
@@ -199,5 +200,39 @@ def test_output_tokens_fit_canonical_json() -> None:
         }
         if model_type is TextCompletionRequest:
             values["messages"] = [{"role": "user", "text": "Synthetic."}]
-        with unittest.TestCase().assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             model_type.model_validate(values)
+
+
+@pytest.mark.parametrize("model_type", [TextCompletionRequest, CataloguedModel])
+def test_output_tokens_accept_canonical_json_upper_bound(
+    model_type: type[TextCompletionRequest] | type[CataloguedModel],
+) -> None:
+    values: dict[str, object] = {
+        "model": "synthetic-model",
+        "max_output_tokens": (1 << 53) - 1,
+    }
+    if model_type is TextCompletionRequest:
+        values["messages"] = [{"role": "user", "text": "Synthetic."}]
+    assert model_type.model_validate(values).max_output_tokens == (1 << 53) - 1
+
+
+def test_configuration_is_validated_before_preparation() -> None:
+    catalogue = ModelCatalogue(
+        provider="anthropic",
+        models=(CataloguedModel(model="synthetic", max_output_tokens=10),),
+        connector_revision="draft-test",
+        proposed_contract_sha256="a" * 64,
+    )
+    binding = HostedExpectedBinding(
+        external_identity="synthetic", connection_revision="1"
+    )
+    with pytest.raises(HostedClientError, match="fresh connection binding"):
+        DraftModelOperationClient(
+            catalogue=catalogue, connection_id="", expected_binding=binding
+        )
+    invalid = binding.model_copy(update={"connection_revision": "0"})
+    with pytest.raises(HostedClientError, match="fresh connection binding"):
+        DraftModelOperationClient(
+            catalogue=catalogue, connection_id="synthetic", expected_binding=invalid
+        )

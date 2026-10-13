@@ -80,6 +80,7 @@ class ModelCatalogue(BaseModel):
     provider: Provider
     models: tuple[CataloguedModel, ...] = Field(min_length=1, max_length=100)
     connector_revision: str = Field(min_length=1, max_length=200)
+    # Owner-selected draft provenance only, never frozen-contract admission.
     proposed_contract_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @property

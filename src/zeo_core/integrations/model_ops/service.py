@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Annotated, Final
 
-from pydantic import JsonValue
+from pydantic import Field, JsonValue, TypeAdapter, ValidationError
 
 from zeo_core.integrations.hosted.client import (
     HostedClientError,
@@ -13,6 +13,10 @@ from zeo_core.integrations.hosted.client import (
 )
 
 from .models import ModelCatalogue, TextCompletionRequest
+
+_CONNECTION_ID: TypeAdapter[str] = TypeAdapter(
+    Annotated[str, Field(strict=True, min_length=1, max_length=200)]
+)
 
 _PROPOSED_OPERATIONS: Final = {
     "anthropic": "anthropic.messages.create",
@@ -24,7 +28,8 @@ _PROPOSED_OPERATIONS: Final = {
 class DraftModelOperationClient:
     """Inert contribution for contract review; never a native provider client.
 
-    The operation names come from model-ops rev a/b. They remain proposals.
+    The external owner drafts are named and hashed in the External draft inputs
+    section of docs/integrations/model-operations.md. Names remain proposals.
     This class prepares input for fake contract tests, but deliberately exposes
     no invoke method, transport, credential reader or registry registration.
     """
@@ -36,9 +41,17 @@ class DraftModelOperationClient:
         connection_id: str,
         expected_binding: HostedExpectedBinding,
     ) -> None:
-        self._catalogue = catalogue
-        self._connection_id = connection_id
-        self._expected_binding = expected_binding
+        try:
+            self._catalogue = ModelCatalogue.model_validate(catalogue.model_dump())
+            self._connection_id = _CONNECTION_ID.validate_python(connection_id)
+            self._expected_binding = HostedExpectedBinding.model_validate(
+                expected_binding.model_dump()
+            )
+        except ValidationError:
+            raise HostedClientError(
+                "model client configuration is invalid; select a valid catalogue "
+                "and fresh connection binding"
+            ) from None
 
     @property
     def capability(self) -> str:

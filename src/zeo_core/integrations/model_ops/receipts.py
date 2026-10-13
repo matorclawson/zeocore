@@ -36,6 +36,24 @@ Reason = Literal[
 ]
 
 
+def _secret_usage_name(name: str) -> bool:
+    normalized = "".join(c for c in name.lower() if c.isalnum())
+    markers = (
+        "secret",
+        "password",
+        "credential",
+        "privatekey",
+        "apikey",
+        "authorization",
+        "bearer",
+        "authtoken",
+        "idtoken",
+        "accesstoken",
+        "refreshtoken",
+    )
+    return normalized == "token" or any(marker in normalized for marker in markers)
+
+
 class _Closed(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
@@ -197,31 +215,12 @@ class ModelReceipt(BaseModel):
     @model_validator(mode="after")
     def _native_usage_bounded(self) -> ModelReceipt:
         keys = len(self.usage_provider)
-        forbidden = {
-            "token",
-            "secret",
-            "password",
-            "credential",
-            "credentials",
-            "apikey",
-            "accesstoken",
-            "refreshtoken",
-            "clientsecret",
-            "authorization",
-            "xapikey",
-            "bearer",
-            "authtoken",
-            "idtoken",
-        }
         for key, value in self.usage_provider.items():
-            if "".join(c for c in key.lower() if c.isalnum()) in forbidden:
+            if _secret_usage_name(key):
                 raise ValueError("secret-bearing native usage field")
             if isinstance(value, dict):
                 keys += len(value)
-                if any(
-                    "".join(c for c in name.lower() if c.isalnum()) in forbidden
-                    for name in value
-                ):
+                if any(_secret_usage_name(name) for name in value):
                     raise ValueError("secret-bearing native usage field")
         if keys > 32:
             raise ValueError("native usage exceeds total key limit")
@@ -297,6 +296,9 @@ def _confirmed(response: HostedOperationResponse, receipt: ModelReceipt) -> bool
     if receipt.reason is not None or receipt.model_requested is None:
         raise ValueError("completed receipt is not bound to requested model")
     if response.artifact is not None:
+        ReceiptArtifact.model_validate(
+            response.artifact.model_dump() | {"state": "available"}
+        )
         if (
             request.state != "available"
             or response.artifact.media_type != "text/plain"

@@ -67,13 +67,12 @@ stop and expired application grants are not parsed as model-operation receipts.
 
 ## External draft inputs
 
-These owner-provided files are **not in this repository**, not public contract
-artifacts and not frozen. They reside under the absolute directory
-`/Volumes/ZeoWork/zeoconnect/design/model-ops-20261013/`. A reader without that
-host cannot reproduce their contents from this PR. Once adopted, the frozen
-contract must be provided through the project's normal contract distribution.
+These are owner drafts, **not in this repository**, not public contract artifacts
+and not frozen. Their names and hashes identify the contribution inputs; a public
+checkout cannot reproduce their contents. Once adopted, the frozen contract must
+be provided through the project's normal contract distribution.
 
-| File under that directory | SHA256 |
+| Owner draft, not in this repo | SHA256 |
 |---|---|
 | DESIGN-NOTE-rev-a.md | `7ad6355ea8a6f83c3712981e2a30c261c27777bd5399ffa7f980e1e7459109dc` |
 | DESIGN-NOTE-rev-b.md | `5c721ca329eb009a4d5a23e8a692f440e206e510e81e2dda15ce6d29b107854b` |
@@ -82,8 +81,8 @@ contract must be provided through the project's normal contract distribution.
 | SCHEMA-draft-2-delta-b.md | `e737e8fe615143e776b746d1c7547693e7b29a749f6ca8562fb7057aa6b0e007` |
 | SCHEMA-draft-2-delta-c.md | `f9b85f190ae5bb98c60da175a1afd59ebdcd0da3a626d047687ca8452b370e5c` |
 
-The lifecycle names were clarified separately in owner message
-`ans_bcc931b11f593da5` on 14 October. That message is not a frozen contract either.
+The owner separately clarified the lifecycle names. That clarification is also
+a draft, not a frozen contract.
 No installed Broker contract version is claimed by these draft formats.
 
 ## What the checks establish
@@ -107,3 +106,9 @@ the owner remains responsible for pinning actual snapshot IDs.
 
 Rate-source page strings are retained as evidence and are never fetched. All
 integer counters fit canonical JSON's interoperable range, up to 2^53 minus 1.
+
+
+`ModelCatalogue.proposed_contract_sha256` records the owner-selected draft's
+provenance for consumers retaining their catalogue. It is not checked against a
+frozen-contract registry and does not authorize execution. Consumers must retain
+that binding with their evidence; an arbitrary hash is never admission proof.
