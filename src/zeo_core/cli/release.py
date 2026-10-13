@@ -27,6 +27,16 @@ Keychain); ``approve`` approves the waiting deployment as matorclawson, once.
 Their journal is this user's, at
 ``$XDG_STATE_HOME/zeocore/release/pypi-journal.jsonl``, keyed by repository
 and version, so "never retried" holds across work directories.
+
+``pypi wait`` takes ``{"manifest": "<release.yaml>", "seconds": 1..3600}`` and
+runs ``reconcile``, which only reads, again and again until its answer is final
+or the seconds are up. Final is any status but ``waiting``, so ``published``,
+``publish_failed`` and a refusal end the wait at once. It emits one
+``{"event": "waiting", "reason", "elapsed"}`` line for each reason it waits on,
+and its last line is the last ``reconcile`` answer with that answer's own exit
+status, plus ``waited`` (whole seconds). If the time runs out first that status
+is ``waiting`` (11): ask the same again. It never makes the tag, never approves
+and never retries an effect.
 Every signing input comes from the manifest's ``signing`` section, never from
 a flag. The signing host is configuration: ``ZEOCORE_SIGNING_HOST`` names it,
 and ``sign`` holds on any other host. ``verify`` is read-only and runs on any
@@ -39,6 +49,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -328,6 +339,12 @@ def _parse(verb: str, stdin: bytes) -> dict[str, str] | Answer:
 PyPIReads = Callable[[], tuple[pypi.GitHubCli, pypi.PyPIHttp]]
 ReleaseAppFactory = Callable[[int, Mapping[str, str]], pypi.TagCreator]
 _PYPI_STAGES: Final = ("plan", "admit", "apply", "approve", "reconcile", "verify")
+_PYPI_WAIT: Final = "wait"
+_WAIT_POLL_SECONDS: Final = 5.0
+_WAIT_MAX_SECONDS: Final = 3600
+# Replaced in tests, as client.py's sleep is.
+sleep: Callable[[float], None] = time.sleep
+monotonic: Callable[[], float] = time.monotonic
 _PYPI_EXIT: Final = {
     "done": EXIT_DONE,
     "waiting": EXIT_WAIT,
@@ -424,6 +441,48 @@ class _PyPIRun:
         )
 
 
+def _wait_for_final(run: _PyPIRun, seconds: int) -> tuple[pypi.Outcome, int]:
+    """``reconcile`` until it is final or ``seconds`` pass; whole seconds waited.
+
+    Only ``reconcile`` runs here, and it only reads, so waiting never repeats an
+    effect. It is asked once more at the deadline, so a publish that finished
+    in the last interval is not reported as still waiting.
+    """
+    start = monotonic()
+    announced: set[str] = set()
+    while True:
+        outcome = run.stage("reconcile")
+        elapsed = monotonic() - start
+        remaining = seconds - elapsed
+        if outcome.status != "waiting" or remaining <= 0:
+            return outcome, int(elapsed)
+        if outcome.reason not in announced:
+            announced.add(outcome.reason)
+            emit(
+                {"event": "waiting", "reason": outcome.reason, "elapsed": int(elapsed)}
+            )
+        sleep(min(_WAIT_POLL_SECONDS, remaining))
+
+
+def _pypi_request(stage: str, request: object) -> tuple[str, int | None] | None:
+    """The manifest path and, for ``wait``, the seconds; None if malformed."""
+    if not isinstance(request, dict):
+        return None
+    fields = {"manifest", "seconds"} if stage == _PYPI_WAIT else {"manifest"}
+    if set(request) != fields or not isinstance(request["manifest"], str):
+        return None
+    if stage != _PYPI_WAIT:
+        return request["manifest"], None
+    seconds = request["seconds"]
+    if (
+        isinstance(seconds, bool)
+        or not isinstance(seconds, int)
+        or not 0 < seconds <= _WAIT_MAX_SECONDS
+    ):
+        return None
+    return request["manifest"], seconds
+
+
 def _pypi(
     args: Sequence[str],
     stdin: bytes,
@@ -431,26 +490,35 @@ def _pypi(
     environ: Mapping[str, str],
     release_app: ReleaseAppFactory,
 ) -> Answer:
-    if len(args) != 2 or args[1] not in _PYPI_STAGES:
-        return invalid(f"release pypi takes one of: {', '.join(_PYPI_STAGES)}")
+    stages = (*_PYPI_STAGES, _PYPI_WAIT)
+    if len(args) != 2 or args[1] not in stages:
+        return invalid(f"release pypi takes one of: {', '.join(stages)}")
+    stage = args[1]
     try:
         request = parse_json(stdin)
     except ProtocolError as error:
         return invalid(str(error))
-    if (
-        not isinstance(request, dict)
-        or set(request) != {"manifest"}
-        or not isinstance(request["manifest"], str)
-    ):
+    parsed = _pypi_request(stage, request)
+    if parsed is None:
+        if stage == _PYPI_WAIT:
+            return invalid(
+                'stdin must be {"manifest": path, "seconds": 1 to '
+                f"{_WAIT_MAX_SECONDS}}}"
+            )
         return invalid('stdin must be {"manifest": path}')
+    path, seconds = parsed
     try:
-        manifest = pypi.load(Path(request["manifest"]))
+        manifest = pypi.load(Path(path))
         app_id = _release_app_id(environ)
     except (pypi.ManifestError, ValueError) as error:
         return invalid(str(error))
     github, index = reads()
     run = _PyPIRun(manifest, github, index, app_id, environ, release_app)
-    outcome = run.stage(args[1])
+    waited: int | None = None
+    if seconds is not None:
+        outcome, waited = _wait_for_final(run, seconds)
+    else:
+        outcome = run.stage(stage)
     body: dict[str, object] = {
         "ok": outcome.status == "done",
         "outcome": outcome.reason,
@@ -460,6 +528,8 @@ def _pypi(
     }
     if outcome.facts:
         body["facts"] = outcome.facts
+    if waited is not None:
+        body["waited"] = waited
     return _PYPI_EXIT[outcome.status], body
 
 

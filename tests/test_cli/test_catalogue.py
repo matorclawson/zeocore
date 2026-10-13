@@ -97,6 +97,7 @@ def test_the_release_verbs_match_the_command_and_their_stdin_fields() -> None:
     entry = next(e for e in ENTRIES if e.name == "release")
     expected = {verb: tuple(sorted(fields)) for verb, fields in release._FIELDS.items()}
     expected |= {f"pypi {stage}": ("manifest",) for stage in release._PYPI_STAGES}
+    expected["pypi wait"] = ("manifest", "seconds")
     assert {v.name: v.stdin_fields for v in entry.verbs} == expected
 
 

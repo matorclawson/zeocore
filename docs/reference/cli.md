@@ -36,6 +36,7 @@ JSON already, so `zeocore help` without `--json` answers the same.
 | `login`, `logout`, `whoami`, `connections`, `invoke`, `artifact get` | see below | the ZEOconnect client, for a product running as its own service user; not for seats, which use `zeo` |
 | `release sign`, `release verify`, `release tree-digest` | yes | the shared signing step, and a bundle's tree digest; see [Sign and verify a release](../how-to/release-signing.md) |
 | `release pypi plan \| admit \| apply \| approve \| reconcile \| verify` | yes | the PyPI adapter; see [Release to PyPI](../how-to/release-pypi.md) |
+| `release pypi wait` | yes, with `seconds` | `reconcile` until the publish is final or `seconds` (1 to 3600) pass; exit 11 if it is still waiting |
 
 ## Is this machine ready? `zeocore doctor`
 

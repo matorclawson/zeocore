@@ -1030,6 +1030,194 @@ def test_the_pypi_command_refuses_a_bad_request(args: list[str], stdin: bytes) -
     assert (status, answer["outcome"]) == (2, "invalid_request")
 
 
+# -- pypi wait ------------------------------------------------------------------------
+
+
+class _Clock:
+    """A clock the wait loop can't outlast: sleeping advances it."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+@dataclass
+class _Scripted(FakeGitHub):
+    """A GitHub whose runs change between reads; the last answer repeats."""
+
+    script: tuple[tuple[WorkflowRun, ...], ...] = ()
+    reads: int = 0
+
+    def runs(self, repo: str, workflow: str, commit: str) -> tuple[WorkflowRun, ...]:
+        answer = self.script[min(self.reads, len(self.script) - 1)]
+        self.reads += 1
+        return answer
+
+
+_PENDING = (WorkflowRun("queued", None, "v0.13.0"),)
+_WAITING = (WorkflowRun("waiting", None, "v0.13.0"),)
+_DONE = (WorkflowRun("completed", "success", "v0.13.0"),)
+_FAILED = (WorkflowRun("completed", "failure", "v0.13.0"),)
+
+
+def _wait(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    github: FakeGitHub,
+    seconds: object = 60,
+) -> tuple[tuple[int, dict[str, Any]], _Clock]:
+    from zeo_core.cli import release
+
+    clock = _Clock()
+    monkeypatch.setattr(release, "monotonic", clock.monotonic)
+    monkeypatch.setattr(release, "sleep", clock.sleep)
+    manifest = json.loads(_manifest_file(tmp_path))["manifest"]
+    stdin = json.dumps({"manifest": manifest, "seconds": seconds}).encode()
+    return _command(github, FakePyPI())(["pypi", "wait"], stdin), clock
+
+
+def _events(capsys: pytest.CaptureFixture[str]) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+
+
+def test_wait_returns_at_once_when_reconcile_is_already_final(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    github = _Scripted(tag=COMMIT, script=(_DONE,))
+    (status, answer), clock = _wait(tmp_path, monkeypatch, github)
+    assert (status, answer["outcome"], answer["status"], answer["waited"]) == (
+        0,
+        "published",
+        "done",
+        0,
+    )
+    assert (github.reads, clock.sleeps, _events(capsys)) == (1, [], [])
+
+
+def test_wait_polls_reconcile_until_the_publish_is_final(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    github = _Scripted(tag=COMMIT, script=((), _PENDING, _WAITING, _WAITING, _DONE))
+    (status, answer), clock = _wait(tmp_path, monkeypatch, github)
+    assert (status, answer["outcome"], answer["waited"]) == (0, "published", 20)
+    assert (github.reads, clock.sleeps) == (5, [5.0, 5.0, 5.0, 5.0])
+    # One event for each reason it waits on, not one for each poll.
+    assert _events(capsys) == [
+        {"event": "waiting", "reason": "publish_pending", "elapsed": 0},
+        {"event": "waiting", "reason": "publish_running", "elapsed": 5},
+        {"event": "waiting", "reason": "awaiting_approval", "elapsed": 10},
+    ]
+
+
+def test_wait_that_runs_out_of_time_answers_waiting_with_exit_11(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    github = _Scripted(tag=COMMIT, script=(_WAITING,))
+    (status, answer), clock = _wait(tmp_path, monkeypatch, github, seconds=12)
+    assert (status, answer["outcome"], answer["status"], answer["waited"]) == (
+        11,
+        "awaiting_approval",
+        "waiting",
+        12,
+    )
+    # Asked at 0, 5 and 10, then once more at the deadline: never past it.
+    assert (github.reads, clock.sleeps) == (4, [5.0, 5.0, 2.0])
+    assert [e["reason"] for e in _events(capsys)] == ["awaiting_approval"]
+    assert github.approvals == []
+
+
+def test_wait_sees_a_publish_that_finishes_in_the_last_interval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    github = _Scripted(tag=COMMIT, script=(_WAITING, _WAITING, _DONE))
+    (status, answer), _ = _wait(tmp_path, monkeypatch, github, seconds=7)
+    assert (status, answer["outcome"], answer["waited"]) == (0, "published", 7)
+
+
+@pytest.mark.parametrize(
+    ("github", "status", "outcome"),
+    [
+        (_Scripted(tag=COMMIT, script=(_FAILED,)), 20, "publish_failed"),
+        (_Scripted(tag=None, script=((),)), 20, "tag_absent"),
+        (_Scripted(tag="b" * 40, script=((),)), 20, "tag_mismatch"),
+        (_Scripted(tag=COMMIT, script=((),), broken=True), 20, "target_unreadable"),
+    ],
+)
+def test_wait_ends_at_once_on_any_answer_that_is_not_waiting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    github: FakeGitHub,
+    status: int,
+    outcome: str,
+) -> None:
+    (got, answer), clock = _wait(tmp_path, monkeypatch, github)
+    assert (got, answer["outcome"], clock.sleeps) == (status, outcome, [])
+
+
+def test_wait_does_not_swallow_an_error_from_reconcile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Broken(_Scripted):
+        def runs(
+            self, repo: str, workflow: str, commit: str
+        ) -> tuple[WorkflowRun, ...]:
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        _wait(tmp_path, monkeypatch, Broken(tag=COMMIT, script=((),)))
+
+
+def test_wait_never_makes_the_tag_or_approves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    github = _Scripted(tag=COMMIT, script=(_WAITING,))
+    _wait(tmp_path, monkeypatch, github, seconds=12)
+    assert github.approvals == []
+    assert github.tag == COMMIT
+
+
+@pytest.mark.parametrize(
+    "seconds", [0, -1, 3601, True, "60", 1.5, None, [60]], ids=repr
+)
+def test_wait_refuses_seconds_outside_1_to_3600(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seconds: object
+) -> None:
+    (status, answer), _ = _wait(
+        tmp_path, monkeypatch, _Scripted(tag=COMMIT, script=(_DONE,)), seconds
+    )
+    assert (status, answer["outcome"]) == (2, "invalid_request")
+    assert "seconds" in answer["message"]
+    assert "60" not in answer["message"].replace("3600", "")
+
+
+def test_wait_and_the_other_stages_take_exactly_their_own_fields(
+    tmp_path: Path,
+) -> None:
+    command = _command(FakeGitHub(), FakePyPI())
+    manifest = json.loads(_manifest_file(tmp_path))["manifest"]
+    for args, body in (
+        (["pypi", "wait"], {"manifest": manifest}),
+        (["pypi", "wait"], {"manifest": manifest, "seconds": 5, "extra": 1}),
+        (["pypi", "reconcile"], {"manifest": manifest, "seconds": 5}),
+    ):
+        status, answer = command(args, json.dumps(body).encode())
+        assert (status, answer["outcome"]) == (2, "invalid_request")
+        assert manifest not in json.dumps(answer)
+
+
+def test_the_pypi_command_names_wait_among_its_stages() -> None:
+    status, answer = _command(FakeGitHub(), FakePyPI())(["pypi", "nope"], b"{}")
+    assert status == 2
+    assert answer["message"].endswith("reconcile, verify, wait")
+
+
 # -- the real readers, with fake transports -------------------------------------
 
 

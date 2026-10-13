@@ -20,6 +20,7 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 | Get a contract as JSON Schema 2020-12 | `zeocore schema <name>` |
 | Fingerprint a request (RFC 8785 sha256) | `zeocore digest < value.json` |
 | Run a ZEOconnect operation and wait for its outcome | `zeocore invoke <operation_id> --connection C --wait SECONDS < arguments.json` |
+| Wait for a release's publish to finish (it only reads, and ends at once on a final answer) | `echo '{"manifest": "release.yaml", "seconds": 600}' \| zeocore release pypi wait` |
 | Check this machine is ready (Python, session store, pairing, Broker URL, extras), each failure with its fix | `zeocore doctor` |
 | Check pairing and connections | `zeocore whoami`, then `zeocore connections` (pair first with `zeocore login`) |
 

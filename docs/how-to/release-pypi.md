@@ -77,7 +77,32 @@ $ echo '{"manifest": "release.yaml"}' | zeocore release pypi plan
 | `apply` | **one: creates the tag `vX.Y.Z`, as the App** | `tag_created`, or `already_applied` |
 | `approve` | **one: approves the waiting `pypi` deployment, as matorclawson, once** | `approved`, or `already_approved` |
 | `reconcile` | none | the tag, then its run: `awaiting_approval` (exit 11), `publish_failed`, or `published` |
+| `wait` | none | `reconcile`, repeated until its answer is final or `seconds` pass (below) |
 | `verify` | none | `publisher_recorded` when PyPI lists a wheel and an sdist, neither yanked, and each file's attestation names the target's publisher and exactly that file and digest |
+
+### Waiting for the publish
+
+`reconcile` answers once, and a publish that waits for approval takes a while,
+so an agent would poll it. `wait` does the polling:
+
+```console
+$ echo '{"manifest": "release.yaml", "seconds": 600}' | zeocore release pypi wait
+{"event": "waiting", "reason": "awaiting_approval", "elapsed": 0}
+{"ok": true, "outcome": "published", "status": "done", "waited": 85, …}
+```
+
+- It runs `reconcile` every 5 seconds, and once more at the deadline. Only
+  `reconcile` runs, and it only reads: the wait never makes the tag, never
+  approves and never retries an effect.
+- It waits only while `reconcile` says `waiting` (`publish_pending`,
+  `publish_running`, `awaiting_approval`). Anything else is final and ends the
+  wait at once: `published`, `publish_failed`, `tag_absent`, `tag_mismatch`,
+  `target_unreadable`.
+- It prints one `waiting` event for each reason it waits on, with the whole
+  seconds elapsed. The last line is the last `reconcile` answer, with that
+  answer's own exit status, plus `waited`.
+- If `seconds` (1 to 3600) run out first, the answer is still `waiting` and
+  the exit is 11: ask the same again.
 
 `verify` checks the publisher PyPI recorded for each attestation, not its
 Sigstore signature, and says so in its answer.
