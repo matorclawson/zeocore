@@ -10,7 +10,7 @@
 zeocore help --json          # every command, argument, stdin, exit code and result schema
 ```
 
-Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the last line is the result, carrying `ok` and `schema` (`zeocore.<command>/v1`). Input is strict JSON on stdin, at most 1 MiB, and errors never echo it. Nothing prompts.
+Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the last line is the result, carrying `ok` and `schema` (`zeocore.<command>/v1`). The one exception is a successful `zeocore schema <name>`: its answer is the contract document itself, named by its own `$schema` and `$id`. Input is strict JSON on stdin, at most 1 MiB, and errors never echo it. Nothing prompts.
 
 ## The commands that matter
 

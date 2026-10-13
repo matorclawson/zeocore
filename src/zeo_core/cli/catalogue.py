@@ -53,6 +53,16 @@ class Argument:
     summary: str
     required: bool = False
     takes_value: bool = True
+    #: The only values accepted, when the command restricts them.
+    choices: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Verb:
+    """A subcommand that takes one JSON object on stdin, with exactly these fields."""
+
+    name: str
+    stdin_fields: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -62,6 +72,7 @@ class Entry:
     usage: str
     stdin: str | None = None
     arguments: tuple[Argument, ...] = field(default_factory=tuple)
+    verbs: tuple[Verb, ...] = field(default_factory=tuple)
 
     @property
     def schema(self) -> str:
@@ -100,7 +111,9 @@ ENTRIES: Final[tuple[Entry, ...]] = (
     ),
     Entry(
         "schema",
-        "list the contract schemas, or print one as JSON Schema 2020-12",
+        "list the contract schemas, or print one as JSON Schema 2020-12; "
+        "`schema <name>` answers with the contract document itself, named by "
+        "its $schema and $id, so it carries no 'ok' or 'schema'",
         "zeocore schema list | zeocore schema <name>",
     ),
     Entry(
@@ -169,7 +182,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "zeocore artifact get --out PATH [--profile P] < ref.json",
         stdin="the artifact reference, as JSON",
         arguments=(
-            Argument("action", "get", required=True),
+            Argument("action", "what to do", required=True, choices=("get",)),
             Argument("--out", "where to write the bytes", required=True),
             _PROFILE,
         ),
@@ -181,6 +194,25 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "zeocore release pypi plan|admit|apply|approve|reconcile|verify < request.json",
         stdin="the step's request, as a JSON object; a wrong field set is refused with "
         "the exact fields it needs",
+        verbs=(
+            Verb("pack", ("commit", "manifest", "manifest_path", "out", "repo")),
+            Verb("receive", ("manifest", "response", "work_dir")),
+            Verb("send", ("out", "pack", "service")),
+            Verb("serve", ("listen", "state_dir")),
+            Verb("sign", ("manifest", "work_dir")),
+            Verb("verify", ("manifest", "work_dir")),
+            *(
+                Verb(f"pypi {stage}", ("manifest",))
+                for stage in (
+                    "plan",
+                    "admit",
+                    "apply",
+                    "approve",
+                    "reconcile",
+                    "verify",
+                )
+            ),
+        ),
     ),
 )
 
@@ -196,7 +228,8 @@ def catalogue() -> dict[str, Any]:
         "cli_protocol": CLI_PROTOCOL,
         "protocol": {
             "stdout": "JSON lines only; events carry 'event', and the last line "
-            "is the result, carrying 'ok' and 'schema'",
+            "is the result, carrying 'ok' and 'schema', except a successful "
+            "'schema <name>', which is the contract document itself",
             "stdin": "strict JSON: no duplicate keys, no NaN, at most 1 MiB",
             "errors": "never echo input values",
         },
@@ -216,8 +249,13 @@ def catalogue() -> dict[str, Any]:
                         "summary": argument.summary,
                         "required": argument.required,
                         "takes_value": argument.takes_value,
+                        "choices": list(argument.choices),
                     }
                     for argument in entry.arguments
+                ],
+                "verbs": [
+                    {"name": verb.name, "stdin_fields": list(verb.stdin_fields)}
+                    for verb in entry.verbs
                 ],
                 "result_schema": entry.schema,
             }
