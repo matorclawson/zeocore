@@ -21,7 +21,7 @@ from tests.test_integrations.hosted.test_pairing import (
     session,
 )
 from zeo_core.cli import client, doctor
-from zeo_core.cli.__main__ import run
+from zeo_core.cli.__main__ import main, run
 from zeo_core.cli.catalogue import ENTRIES
 from zeo_core.connections.adapters.subprocess_runner import RealSubprocessRunner
 from zeo_core.integrations.hosted import InMemorySecureSessionStore, SecureStoreError
@@ -232,7 +232,8 @@ def test_the_profile_is_chosen_by_the_flag_then_the_environment(
     monkeypatch.setenv(client.PROFILE_ENV, "studio")
     _doctor(capsys=capsys)
     _doctor("--profile", "other", capsys=capsys)
-    assert seen == ["studio", "other"]
+    # Each run asks twice: once up front to refuse a bad profile, once for the check.
+    assert seen == ["studio", "studio", "other", "other"]
 
 
 def test_a_bad_profile_or_flag_is_invalid_input_not_a_diagnosis(
@@ -314,6 +315,7 @@ def test_a_keychain_that_does_not_answer_fails_the_store_and_says_so(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     runners: list[object] = []
+    monkeypatch.setattr(sys, "platform", "darwin")
 
     def slow(
         profile: str | None, *, runner: object = None
@@ -374,6 +376,7 @@ def test_a_store_that_raises_unexpectedly_is_a_fixed_failure_not_an_internal_err
         ("the session file is invalid", "delete"),
         ("the session file must allow no group or other access", "chmod 600"),
         ("the session file's directory is missing", "mode 0700"),
+        ("the session file must be an absolute path", "absolute path"),
     ],
 )
 def test_each_session_file_refusal_gets_its_own_advice(
@@ -446,3 +449,104 @@ def test_the_real_store_and_dispatcher_echo_no_path_or_profile_sentinel(
     for text in (out, str(answer), str(refused)):
         assert "path-sentinel" not in text
         assert "profile-sentinel" not in text
+
+
+def test_a_bad_profile_is_refused_before_any_check_prints(
+    machine: InMemorySecureSessionStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(profile: str | None, **_: object) -> InMemorySecureSessionStore:
+        raise SecureStoreError("session profile name is invalid")
+
+    monkeypatch.setattr(client, "make_store", refuse)
+    seen: list[dict[str, Any]] = []
+    status, answer = doctor.doctor(["--profile", "Not A Name"], b"", out=seen.append)
+    assert status == 2
+    assert seen == []
+    assert "checks" not in answer
+
+
+def test_a_profile_with_a_session_file_is_refused_before_any_check_prints(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for name in (client.PROFILE_ENV, "ZEOCONNECT_URL", "ZEOCONNECT_DEVELOPMENT"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(SESSION_FILE_ENV, str(tmp_path / "s.json"))
+    seen: list[dict[str, Any]] = []
+    status, _ = doctor.doctor(["--profile", "studio"], b"", out=seen.append)
+    assert (status, seen) == (2, [])
+    monkeypatch.setenv(client.PROFILE_ENV, "studio")
+    seen.clear()
+    assert (doctor.doctor([], b"", out=seen.append)[0], seen) == (2, [])
+
+
+@pytest.mark.parametrize(("platform", "bounded"), [("darwin", True), ("linux", False)])
+def test_the_keychain_runner_is_only_passed_on_a_mac(
+    platform: str,
+    bounded: bool,  # noqa: FBT001
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runners: list[object] = []
+
+    def make_store(
+        profile: str | None, *, runner: object = None
+    ) -> InMemorySecureSessionStore:
+        runners.append(runner)
+        return machine
+
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(client, "make_store", make_store)
+    _doctor(capsys=capsys)
+    assert runners
+    for runner in runners:
+        assert isinstance(runner, RealSubprocessRunner) is bounded
+        assert (runner is None) is (not bounded)
+
+
+def test_an_invalid_keychain_entry_says_logout_not_unlock(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def refuse(profile: str | None, **_: object) -> InMemorySecureSessionStore:
+        raise SecureStoreError("secure session storage is invalid")
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(client, "make_store", refuse)
+    _, answer = _doctor(capsys=capsys)
+    step = _by_name(answer)["session_store"]["next"]
+    assert "zeocore logout" in step
+    assert "unlock" not in step
+
+
+def test_a_locked_or_missing_keychain_says_unlock(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def refuse(profile: str | None, **_: object) -> InMemorySecureSessionStore:
+        raise SecureStoreError("secure session storage is unavailable")
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(client, "make_store", refuse)
+    _, answer = _doctor(capsys=capsys)
+    assert "unlock the login Keychain" in _by_name(answer)["session_store"]["next"]
+
+
+def test_a_plain_import_error_is_an_internal_error_with_no_detail(
+    machine: InMemorySecureSessionStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def load(name: str) -> None:
+        raise ImportError("cannot import name secret-detail")
+
+    monkeypatch.setattr(doctor, "_extras", lambda: _original_extras(load))
+    with pytest.raises(SystemExit) as stopped:
+        main(["doctor"])
+    assert stopped.value.code == 1
+    out = capsys.readouterr().out
+    last = json.loads(out.splitlines()[-1])
+    assert (last["ok"], last["outcome"]) == (False, "internal")
+    assert "secret-detail" not in out

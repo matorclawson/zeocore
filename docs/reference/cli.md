@@ -52,13 +52,14 @@ fixes it, and `who` when someone other than the caller must act.
 | Check | Passes when | When it fails, `next` is |
 |---|---|---|
 | `python` | Python meets the package's floor, 3.14 | `uv tool install --python 3.14 zeocore` |
+| `zeoconnect_url` | `ZEOCONNECT_URL` is unset or an allowed Broker origin | unset it, or set `ZEOCONNECT_DEVELOPMENT=1` for a development Broker |
 | `session_store` | the Keychain (asked for at most 5 s), or the file `ZEOCORE_SESSION_FILE` names, is readable | how to make the store usable, for that refusal |
 | `pairing` | this profile holds a grant that hasn't expired | `zeocore login`, by `who`: a person, who approves it in ZEOconnect |
-| `zeoconnect_url` | `ZEOCONNECT_URL` is unset or an allowed Broker origin | unset it, or set `ZEOCONNECT_DEVELOPMENT=1` for a development Broker |
 | `extra:github` | `zeocore release` can load | `pip install 'zeocore[github]'` |
 
 Exit 0 when every check passes, 20 when any fails (for `doctor`, 20 means *not
-ready*), 2 for a `--profile` that can't be used. Checks print as they finish. A
+ready*), 2 for a `--profile` that can't be used, found before any check prints. Checks
+print as they finish. A
 failing `zeoconnect_url` or `session_store` also fails `pairing`, which then says
 it was not checked: with a bad origin `zeocore login` would fail too, so no
 person is named.

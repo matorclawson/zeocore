@@ -10,8 +10,8 @@ caller must act.
 Each check is an event line (``{"event": "check", ...}``); the result is last
 and carries the same checks, so one line is enough for a caller that doesn't
 stream. Exit 0 when every check passes, 20 when any fails (for doctor, 20 means
-"not ready"), 2 for a bad ``--profile``. Checks print as they finish, so a slow
-one doesn't hide the others.
+"not ready"), 2 for a bad ``--profile``, found before any check prints. Checks
+print as they finish, so a slow one doesn't hide the others.
 """
 
 from __future__ import annotations
@@ -99,7 +99,12 @@ def _file_fix(reason: str) -> str:
         )
     if "invalid" in reason or "too large" in reason:
         return f"delete the file {SESSION_FILE_ENV} names, then run zeocore login"
-    if "directory" in reason or "above" in reason or "symbolic link" in reason:
+    if (
+        "directory" in reason
+        or "above" in reason
+        or "symbolic link" in reason
+        or "absolute" in reason
+    ):
         return (
             f"fix {SESSION_FILE_ENV}: an absolute path in a directory you own, "
             "mode 0700, with no symbolic link"
@@ -109,13 +114,34 @@ def _file_fix(reason: str) -> str:
     return f"check that you can read and write the file {SESSION_FILE_ENV} names"
 
 
-def _keychain_fix() -> str:
+def _keychain_fix(reason: str = "") -> str:
     if sys.platform != "darwin":
         return (
             "run zeocore on macOS, or set "
             f"{SESSION_FILE_ENV} for a service user's own session file"
         )
+    if "invalid" in reason:
+        # The entry is there but unusable: unlocking won't help.
+        return "run zeocore logout, then zeocore login"
     return "unlock the login Keychain, then run zeocore doctor again"
+
+
+def _runner() -> RealSubprocessRunner | None:
+    """A bounded Keychain runner on macOS; elsewhere the store's own refusal."""
+    if sys.platform != "darwin":
+        return None
+    return RealSubprocessRunner(timeout=KEYCHAIN_TIMEOUT)
+
+
+def _validate_profile(profile: str | None) -> None:
+    """A profile that can't be used is invalid input, found before any check prints."""
+    try:
+        client.make_store(profile, runner=_runner())
+    except SecureStoreError as error:
+        if "profile" in str(error):
+            raise ArgumentsError(str(error)) from None
+    except subprocess.TimeoutExpired, ValueError, OSError:
+        pass  # a store problem: the session_store check reports it
 
 
 def _store_failed(kind: str, message: str, fix: str) -> tuple[Check, None, bool]:
@@ -131,8 +157,7 @@ def _session(profile: str | None) -> tuple[Check, DeviceSession | None, bool]:
     kind = "file" if os.environ.get(SESSION_FILE_ENV) else "keychain"
     fix = _file_fix("") if kind == "file" else _keychain_fix()
     try:
-        runner = RealSubprocessRunner(timeout=KEYCHAIN_TIMEOUT)
-        store = client.make_store(profile, runner=runner)
+        store = client.make_store(profile, runner=_runner())
         session = store.load()
     except SecureStoreError as error:
         reason = str(error)
@@ -143,7 +168,9 @@ def _session(profile: str | None) -> tuple[Check, DeviceSession | None, bool]:
                 kind, f"the session file can't be used: {reason}", _file_fix(reason)
             )
         return _store_failed(
-            kind, "no usable secure session store on this machine", fix
+            kind,
+            "no usable secure session store on this machine",
+            _keychain_fix(reason),
         )
     except subprocess.TimeoutExpired:
         return _store_failed(
@@ -281,6 +308,7 @@ def doctor(args: Sequence[str], _stdin: bytes, *, out: Emit = emit) -> Answer:
     try:
         selected = parser.parse_args(list(args)).profile
         profile = selected or os.environ.get(client.PROFILE_ENV) or None
+        _validate_profile(profile)
         report(_python())
         origin = _origin()
         report(origin)
