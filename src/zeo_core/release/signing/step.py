@@ -261,6 +261,13 @@ def _bundle_keys(loaded: LoadedManifest, bundle: Bundle) -> list[str]:
     ]
 
 
+def _bundle_names_and_keys(
+    loaded: LoadedManifest, bundle: Bundle
+) -> list[tuple[str, str]]:
+    names = [item.name for item in bundle.nested] + [bundle.name]
+    return [(name, _key(loaded, name)) for name in names]
+
+
 def _inside_out(bundle: Bundle) -> list[Any]:
     """Nested code deepest first, so nothing is signed before what it holds."""
     return sorted(
@@ -310,7 +317,8 @@ def _nested_unsigned(bundle: Bundle, source: Path) -> Outcome | None:
         try:
             signed_sha256, tree = _code_digests(source / item.path)
         except TreeError as error:
-            # A nested bundle's own subtree, with a link that leaves it.
+            # Only if the tree changed after the whole bundle was listed: the
+            # listing already refuses every link a nested subtree could hold.
             return _stop("refused", "bundle_unsafe", str(error), item.name)
         except OSError:
             return _stop(
@@ -814,7 +822,17 @@ class _Run:
                 "verify; reconcile it before any new attempt",
                 bundle.name,
             )
-        return self._record_bundle(bundle, candidate, facts, reconciled=True)
+        recorded = self._record_bundle(bundle, candidate, facts, reconciled=True)
+        if isinstance(recorded, Outcome) and recorded.reason == "bundle_unsafe":
+            # The copy can't be described, so it isn't this attempt's answer:
+            # close what it left open, and the next run signs afresh.
+            opened = [
+                name
+                for name, key in _bundle_names_and_keys(self.loaded, bundle)
+                if self.journal.is_open(key)
+            ]
+            return self._close(opened, recorded)
+        return recorded
 
     def _sign_bundle(self, bundle: Bundle) -> list[dict[str, Any]] | Outcome:
         """Sign a copy inside-out, then the bundle; never with ``--deep``."""
