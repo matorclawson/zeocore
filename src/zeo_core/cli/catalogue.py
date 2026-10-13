@@ -193,6 +193,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
             Verb("send", ("out", "pack", "service")),
             Verb("serve", ("listen", "state_dir")),
             Verb("sign", ("manifest", "work_dir")),
+            Verb("tree-digest", ("path",)),
             Verb("verify", ("manifest", "work_dir")),
             *(
                 Verb(f"pypi {stage}", ("manifest",))
