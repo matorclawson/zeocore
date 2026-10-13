@@ -1,6 +1,6 @@
 # Model-operation client contribution
 
-This draft contributes typed, keyless inputs and request preparation for the
+This draft contributes typed, keyless inputs, request preparation and receipt parsing for the
 proposed ZEOconnect model operations. It does not register a provider, dispatch
 requests, read keys, pair devices or establish coding-agent access.
 
@@ -34,6 +34,22 @@ Use only synthetic inputs in tests. No live provider call or secret is needed.
 The request subset now follows SCHEMA-draft-1 SHA256
 `4b45e5913e3ad7eee937f34f31e5fbb187890bca094e8cabe6e3325ad68d629a`.
 The five accepted fields are model, messages, system, max_output_tokens and
-temperature. Receipt mapping waits for clarification of native usage keys,
-artifact formats/expiry and non-confirmed hosted-response shapes. No frozen
-contract or live handshake is claimed.
+temperature.
+
+`parse_model_response()` checks a synthetic or supplied hosted response against
+the requested model and catalogue revision. It keeps reservation, tariff estimate
+and remaining budget separate. Missing usage stays missing: it is not counted as
+zero. Native provider usage is a bounded evidence block and is never used for
+price arithmetic. The parser neither calculates prices nor settles reservations.
+
+Receipt parsing follows draft 2 delta b SHA256
+`e737e8fe615143e776b746d1c7547693e7b29a749f6ca8562fb7057aa6b0e007`.
+Detailed refusal reasons must match the existing uppercase error code and response
+status. A live completion uses the outer artifact descriptor. An expired replay
+has matching digests and sizes in its marker and receipt metadata; it supplies no
+fetchable completion. These checks never establish that a provider was called,
+that usage is authentic or that a retry is safe.
+
+This is draft format conformance, not a frozen contract or live handshake. The
+receiving owner and council must review the contract, including failure receipts,
+before any receiver qualification or activation.
