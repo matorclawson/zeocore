@@ -58,14 +58,26 @@ python -m zeo_core.integrations.revolut.local authorize --client-id <client id>
 #    the one human step: only you can copy that address. In a terminal the
 #    input is hidden so the code does not land in your shell history.
 python -m zeo_core.integrations.revolut.local complete
-#    Without a terminal it reads exactly one line from stdin instead, so a
-#    program can pipe the URL. Never pass the URL as an argument: the code
-#    would show in process listings and shell history.
-printf '%s\n' "$REDIRECT_URL" | python -m zeo_core.integrations.revolut.local complete
+#    Without a terminal it reads the first line of stdin instead, so a
+#    program can pipe the URL; later lines are ignored. Never pass the URL as an
+#    argument: the code would show in process listings and shell history, and
+#    `complete` refuses an argument without echoing it. Pipe it from your own
+#    shell without writing it into a command line or a variable:
+pbpaste | python -m zeo_core.integrations.revolut.local complete
+#    or read it silently:  read -rs URL; printf '%s\n' "$URL" | ... complete
+#    A pipe that sends nothing for 30 seconds is refused; `< /dev/null` is
+#    refused at once.
 
 python -m zeo_core.integrations.revolut.local status     # never prints a secret
 python -m zeo_core.integrations.revolut.local accounts   # first live check
 ```
+
+**Exit codes.** `0` done. `2` the input was not accepted and nothing was sent: a
+usage error, or `REDIRECT_URL` (no usable first line on stdin, a first line over
+8192 bytes, a silent pipe, an address that is not a URL, or a URL given as an
+argument). `1` every other refusal of this module (`NOT_SET_UP`,
+`CONSENT_MISMATCH`, `EXCHANGE_*`, store errors); these older refusals keep `1`.
+Every `REDIRECT_URL` message ends with what to do, and none quotes the address.
 
 The same steps are available in Python as
 `LocalRevolutEnrollment(environment).setup(...)`, `.authorize(...)`,

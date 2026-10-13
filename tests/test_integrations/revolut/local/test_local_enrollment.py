@@ -609,8 +609,19 @@ def test_complete_on_a_terminal_prompts_and_never_reads_stdin(
     assert "secret-code" not in seen.out + seen.err
 
 
-@pytest.mark.parametrize("text", ["", "\n", "   \n", "x" * 9000 + "\n"])
-def test_complete_refuses_with_a_next_action_when_stdin_has_no_usable_url(
+SENTINEL = "secret-sentinel-code"
+MAX = 8192
+
+
+def _refusal(capsys: pytest.CaptureFixture[str]) -> str:
+    seen = capsys.readouterr()
+    assert SENTINEL not in seen.out + seen.err
+    assert "code=" not in seen.out + seen.err
+    return seen.err
+
+
+@pytest.mark.parametrize("text", ["", "\n", "   \n", "\r\n"])
+def test_complete_refuses_with_a_next_action_when_stdin_has_no_url(
     text: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -619,13 +630,180 @@ def test_complete_refuses_with_a_next_action_when_stdin_has_no_usable_url(
     _enrolled_cli(tmp_path, monkeypatch)
     capsys.readouterr()
     monkeypatch.setattr("sys.stdin", _Stdin(text, tty=False))
-    assert main(["complete"]) == 1
-    error = capsys.readouterr().err
+    assert main(["complete"]) == 2
+    error = _refusal(capsys)
     assert error.startswith("REDIRECT_URL: no redirect URL on stdin;")
     assert error.strip().endswith("as one line on stdin")
+
+
+def _padded(size: int) -> str:
+    """A redirect URL of exactly ``size`` bytes, with the sentinel as its code."""
+    head = f"{REDIRECT}?code={SENTINEL}&state="
+    return head + "s" * (size - len(head))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "x" * (MAX + 1),
+        "x" * MAX + " ",
+        "x" * (MAX + 1) + "\n",
+        _padded(MAX + 1) + "\n",
+        "\u00e9" * (MAX // 2 + 1) + "\n",
+    ],
+    ids=["no-newline", "whitespace-truncated", "newline", "one-over", "multibyte"],
+)
+def test_complete_refuses_a_first_line_longer_than_the_bound(
+    text: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _enrolled_cli(tmp_path, monkeypatch)
+    capsys.readouterr()
+    monkeypatch.setattr("sys.stdin", _Stdin(text, tty=False))
+    assert main(["complete"]) == 2
+    error = _refusal(capsys)
+    assert error.startswith("REDIRECT_URL: the first line on stdin is too long;")
     assert "xxxx" not in error
 
 
-def test_the_redirect_url_is_never_an_argument() -> None:
-    with pytest.raises(SystemExit):
-        main(["complete", f"{REDIRECT}?code=c&state=x"])
+@pytest.mark.parametrize(
+    "ending",
+    ["\n", "\r\n", "", "\nsecond line\nthird"],
+    ids=["lf", "crlf", "eof", "more"],
+)
+def test_complete_accepts_a_first_line_of_exactly_the_bound(
+    ending: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _enrolled_cli(tmp_path, monkeypatch)
+    capsys.readouterr()
+    monkeypatch.setattr("sys.stdin", _Stdin(_padded(MAX) + ending, tty=False))
+    assert main(["complete"]) == 1
+    error = _refusal(capsys)
+    assert error.startswith("CONSENT_MISMATCH")
+
+
+class _Recorder:
+    """Stands in for the enrollment: remembers the URL it was handed."""
+
+    def __init__(self, environment: RevolutEnvironment) -> None:
+        self.environment = environment
+        self.url: str | None = None
+        _Recorder.last = self
+
+    last: _Recorder | None = None
+
+    def complete(self, url: str) -> None:
+        self.url = url
+
+
+@pytest.mark.parametrize(
+    "text", ["{u}\n", "{u}\r\n", "  {u}  \n", "{u}", "{u}\nignored\nlines"]
+)
+def test_a_good_first_line_on_stdin_reaches_the_enrollment_end_to_end(
+    text: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url = f"{REDIRECT}?code={SENTINEL}&state=x"
+    monkeypatch.setattr(
+        "zeo_core.integrations.revolut.local.__main__.LocalRevolutEnrollment",
+        _Recorder,
+    )
+    monkeypatch.setattr("sys.stdin", _Stdin(text.format(u=url), tty=False))
+    assert main(["complete"]) == 0
+    assert _Recorder.last is not None and _Recorder.last.url == url
+    seen = capsys.readouterr()
+    assert seen.out == "Enrolled.\n" and seen.err == ""
+
+
+def test_the_redirect_url_is_never_an_argument(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    url = f"{REDIRECT}?code={SENTINEL}&state=x"
+    assert main(["complete", url]) == 2
+    error = _refusal(capsys)
+    assert error.startswith("REDIRECT_URL: the redirect URL is never an argument;")
+    assert error.strip().endswith("run complete in a terminal")
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["{u}", "complete"],
+        ["--environment", "{u}", "complete"],
+        ["status", "{u}"],
+        ["accounts", "--flag", "{u}"],
+        ["{u}"],
+    ],
+)
+def test_no_usage_error_ever_quotes_the_command_line(
+    argv: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    url = f"{REDIRECT}?code={SENTINEL}&state=x"
+    with pytest.raises(SystemExit) as stopped:
+        main([item.format(u=url) for item in argv])
+    assert stopped.value.code == 2
+    error = _refusal(capsys)
+    assert "REDIRECT" not in error.replace("REDIRECT_URI", "")
+
+
+def test_a_silent_pipe_is_refused_after_a_bounded_wait(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Silent(_Stdin):
+        def fileno(self) -> int:
+            return 0
+
+    waited: list[float] = []
+
+    def nothing_ready(
+        read: list[int], write: list[int], error: list[int], timeout: float
+    ) -> tuple[list[int], list[int], list[int]]:
+        waited.append(timeout)
+        return [], [], []
+
+    monkeypatch.setattr("sys.stdin", Silent("", tty=False))
+    monkeypatch.setattr("select.select", nothing_ready)
+    assert main(["complete"]) == 2
+    assert waited == [30.0]
+    assert capsys.readouterr().err.startswith("REDIRECT_URL: nothing arrived on stdin;")
+
+
+@pytest.mark.parametrize(
+    "failure", [EOFError(), KeyboardInterrupt()], ids=["eof", "interrupt"]
+)
+def test_an_ended_or_interrupted_prompt_is_a_refusal_not_a_traceback(
+    failure: BaseException,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def broken(prompt: str) -> str:
+        raise failure
+
+    monkeypatch.setattr("sys.stdin", _Stdin("", tty=True))
+    monkeypatch.setattr("getpass.getpass", broken)
+    assert main(["complete"]) == 2
+    assert _refusal(capsys).startswith("REDIRECT_URL: no redirect URL could be read;")
+
+
+def test_undecodable_stdin_is_a_refusal_not_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Undecodable(_Stdin):
+        def readline(self, size: int | None = -1) -> str:  # type: ignore[override]
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr("sys.stdin", Undecodable("", tty=False))
+    assert main(["complete"]) == 2
+    assert _refusal(capsys).startswith("REDIRECT_URL: no redirect URL could be read;")
+
+
+def test_an_address_that_is_not_a_url_is_a_refusal_without_the_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("sys.stdin", _Stdin(f"http://[code={SENTINEL}\n", tty=False))
+    assert main(["complete"]) == 2
+    assert _refusal(capsys).startswith("REDIRECT_URL: that is not a redirect URL;")
