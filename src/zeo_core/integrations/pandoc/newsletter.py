@@ -1,0 +1,282 @@
+"""
+Newsletter conversion, stage 2 of the newsletter pipeline (ZEOCORE-SOW-33).
+
+Three functions, all taking text and returning typed data, with no network, no
+credential and no file read:
+
+* ``decode_raw_message`` (``_mime``): raw RFC 822 bytes, as ZEOconnect's fetch hands
+  them over, to a ``DecodedMessage``: the HTML and plain-text bodies, a few headers
+  and Gmail's verdict on the sender. Standard-library ``email`` only.
+* ``convert_newsletter``: one message's HTML to clean Markdown through pandoc,
+  keeping the links, source, sender and date, and stripping scripts, styles, hidden
+  elements, tracking pixels, tracking parameters and unsubscribe noise.
+* ``convert_decoded_message``: the two joined, for a decoded message.
+
+A fetched newsletter is data, never instructions. Nothing here follows, runs or acts
+on what a message says: its text comes out as Markdown inside a typed object, and
+every failure is a typed refusal whose message is fixed (see ``refusals``). The
+hidden-text filter is best effort; the guarantee is that the result is inert data.
+The reviewed list of tracker hosts and footer patterns is package data
+(``data/newsletter_noise.json``), never read from the caller's directory.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import html
+import re
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Final
+
+from zeo_core.integrations.pandoc import _cleaning, _noise
+from zeo_core.integrations.pandoc._cleaning import ConvertedLink
+from zeo_core.integrations.pandoc._mime import (
+    MAX_MIME_DEPTH,
+    MAX_MIME_PARTS,
+    RAW_MAX_BYTES,
+    DecodedMessage,
+    decode_raw_message,
+)
+from zeo_core.integrations.pandoc._runner import Deadline, find_pandoc, run_pandoc
+from zeo_core.integrations.pandoc.refusals import refusal
+
+__all__ = [
+    "MAX_MIME_DEPTH",
+    "MAX_MIME_PARTS",
+    "RAW_MAX_BYTES",
+    "ConvertedItem",
+    "ConvertedLink",
+    "DecodedMessage",
+    "convert_decoded_message",
+    "convert_newsletter",
+    "decode_raw_message",
+    "noise_data_version",
+]
+
+DEFAULT_MAX_BYTES: Final = 2_000_000
+DEFAULT_TIMEOUT_S: Final = 30.0
+
+#: The cleaner's own version; a change to what it strips is a new version.
+CLEANER_VERSION: Final = "newsletter-clean-1"
+
+#: The fixed pandoc flags for the conversion. Raw HTML is off in the reader and the
+#: writer, so no markup of the message survives into the Markdown.
+PANDOC_FLAGS: Final[tuple[str, ...]] = (
+    "--from=html-native_divs-native_spans-raw_html",
+    "--to=gfm-raw_html",
+    "--wrap=none",
+    "--eol=lf",
+)
+
+_CONTROL: Final = re.compile(r"[\x00-\x1f\x7f]")
+
+
+@dataclass(frozen=True, slots=True)
+class ConvertedItem:
+    """
+    One converted message. Every field is data; none is ever an instruction.
+
+    ``converter`` is the convert step's own tuple (pandoc version, binary digest,
+    flags, cleaner version, data-file version and digest), so a stored item says
+    exactly what produced it. ``sender_verified`` and ``authentication`` come only
+    from ``convert_decoded_message``.
+    """
+
+    markdown: str
+    links: tuple[ConvertedLink, ...]
+    title: str | None
+    source: str
+    sender: str
+    date: str
+    content_sha256: str
+    stripped: dict[str, int]
+    warnings: tuple[str, ...]
+    pandoc_version: str
+    noise_data_version: str
+    converter: dict[str, object] = field(default_factory=dict)
+    sender_verified: bool = False
+    authentication: dict[str, str] = field(default_factory=dict)
+
+
+def noise_data_version() -> str:
+    """The version label of the tracker and footer data this release ships."""
+    return _noise.load().version
+
+
+def _metadata(value: str | datetime, limit: int) -> str:
+    text = value.isoformat() if isinstance(value, datetime) else value
+    if not isinstance(text, str):
+        raise refusal("metadata_invalid")
+    text = text.strip()
+    if not text or len(text) > limit or _CONTROL.search(text):
+        raise refusal("metadata_invalid")
+    return text
+
+
+def _as_text(html_in: str | bytes, max_bytes: int) -> tuple[str, bytes, list[str]]:
+    warnings: list[str] = []
+    if isinstance(html_in, bytes):
+        data = html_in
+        text = data.decode("utf-8", "replace")
+        if "�" in text:
+            warnings.append("bytes that are not UTF-8 were replaced")
+    else:
+        text = html_in
+        data = text.encode("utf-8", "replace")
+    if len(data) > max_bytes:
+        raise refusal("input_too_large")
+    if not text.strip():
+        raise refusal("html_empty")
+    return text, data, warnings
+
+
+def _clean(
+    text: str, noise: _noise.Noise, deadline: Deadline
+) -> tuple[Any, dict[str, int], list[ConvertedLink], int, str | None]:  # noqa: ANN401
+    """Parse and clean; return the soup, counts, links, opaque count and title."""
+    bs4 = _cleaning.bs4_module()
+    counts = dict.fromkeys(_cleaning.COUNT_KEYS, 0)
+    try:
+        _cleaning.precheck(text)
+        soup = bs4.BeautifulSoup(text, "html.parser")
+        deadline.check()
+        _cleaning.check_bounds(text, soup)
+        title = _cleaning.title_of(soup)
+        rules = _cleaning.css_rules(soup, noise)
+        _cleaning.drop_comments(soup, bs4, counts)
+        _cleaning.drop_tags(soup, counts, noise)
+        _cleaning.drop_hidden(soup, noise, counts, rules, deadline)
+        _cleaning.drop_images(soup, noise, counts)
+        _cleaning.flatten_tables(soup, counts)
+        _cleaning.drop_footers(soup, noise, counts, deadline)
+        links, opaque = _cleaning.clean_links(soup, noise, counts)
+        deadline.check()
+    except RecursionError as error:
+        raise refusal("html_too_deep") from error
+    return soup, counts, links, opaque, title
+
+
+def _tidy(markdown: str) -> str:
+    lines = [line.rstrip() for line in markdown.replace("\r\n", "\n").split("\n")]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip() + "\n"
+
+
+def convert_newsletter(
+    html_in: str | bytes,
+    *,
+    source: str,
+    sender: str,
+    date: datetime | str,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+) -> ConvertedItem:
+    """
+    Convert one message's already-decoded HTML into clean Markdown.
+
+    ``source``, ``sender`` and ``date`` are explicit and kept on the result; the
+    sender is whatever the caller says it is (see ``DecodedMessage.sender_verified``).
+    The HTML is bounded (bytes, elements, nesting) and cleaned first (scripts,
+    styles, frames, forms, comments, hidden elements, tracking pixels, tracking
+    parameters, redirector wrappers whose target is in the address itself, unsafe
+    link schemes, and the footer lines the reviewed data file names), then converted
+    by pandoc through stdin and stdout with ``--sandbox``. ``timeout_s`` is ONE
+    budget for the cleaning and pandoc together. Nothing is fetched or run; the
+    message's text is returned as data. A failure is a typed ``NewsletterRefusalError``.
+    """
+    source_text = _metadata(source, 2000)
+    sender_text = _metadata(sender, 500)
+    date_text = _metadata(date, 100)
+    deadline = Deadline(timeout_s)
+    text, data, warnings = _as_text(html_in, max_bytes)
+    noise = _noise.load()
+    soup, counts, links, opaque, title = _clean(text, noise, deadline)
+    binary = find_pandoc()
+    out = run_pandoc(
+        binary,
+        list(PANDOC_FLAGS),
+        str(soup).encode("utf-8"),
+        timeout_s=deadline.remaining(),
+    )
+    if opaque:
+        warnings.append(
+            f"{opaque} tracked link(s) could not be unwrapped without fetching them"
+        )
+    return ConvertedItem(
+        markdown=_tidy(out.decode("utf-8", "replace")),
+        links=tuple(links),
+        title=title,
+        source=source_text,
+        sender=sender_text,
+        date=date_text,
+        content_sha256=hashlib.sha256(data).hexdigest(),
+        stripped=counts,
+        warnings=tuple(warnings),
+        pandoc_version=binary.version,
+        noise_data_version=noise.version,
+        converter={
+            "cleaner": CLEANER_VERSION,
+            "pandoc_version": binary.version,
+            "pandoc_binary_sha256": binary.sha256,
+            "flags": [*PANDOC_FLAGS, "--sandbox", "--data-dir=<empty>"],
+            "noise_data_version": noise.version,
+            "noise_data_sha256": noise.sha256,
+        },
+    )
+
+
+def _paragraphs(text: str) -> str:
+    parts = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    body = "".join(f"<p>{html.escape(p)}</p>" for p in parts)
+    return f"<html><body>{body}</body></html>"
+
+
+def convert_decoded_message(
+    decoded: DecodedMessage,
+    *,
+    source: str,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+) -> ConvertedItem:
+    """
+    Convert a decoded message: its HTML, or its plain text wrapped as paragraphs.
+
+    The sender and date come from the decoded headers; a missing one is replaced by
+    ``"unknown"`` and noted in the warnings. The authentication verdict and
+    ``sender_verified`` are passed through. A message with neither body is refused.
+    """
+    if decoded.html is not None and decoded.html.strip():
+        body = decoded.html
+    elif decoded.text is not None and decoded.text.strip():
+        body = _paragraphs(decoded.text)
+    else:
+        raise refusal("html_empty")
+    extra: list[str] = []
+    if not decoded.sender:
+        extra.append("the message has no From header")
+    if not decoded.date:
+        extra.append("the message has no Date header")
+    item = convert_newsletter(
+        body,
+        source=source,
+        sender=decoded.sender or "unknown",
+        date=decoded.date or "unknown",
+        max_bytes=max_bytes,
+        timeout_s=timeout_s,
+    )
+    return ConvertedItem(
+        markdown=item.markdown,
+        links=item.links,
+        title=item.title or (decoded.subject[:300] or None),
+        source=item.source,
+        sender=item.sender,
+        date=item.date,
+        content_sha256=item.content_sha256,
+        stripped=item.stripped,
+        warnings=(*decoded.warnings, *extra, *item.warnings),
+        pandoc_version=item.pandoc_version,
+        noise_data_version=item.noise_data_version,
+        converter=item.converter,
+        sender_verified=decoded.sender_verified,
+        authentication=dict(decoded.authentication),
+    )
