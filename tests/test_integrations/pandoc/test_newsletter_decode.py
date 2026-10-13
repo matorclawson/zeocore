@@ -290,13 +290,6 @@ def _gmail(results: str) -> str:
 @pytest.mark.parametrize(
     ("results", "sender", "expected_dmarc"),
     [
-        # a quoted local part carrying a forged result, before the real failure
-        (
-            'spf=pass smtp.mailfrom="x;dmarc=pass header.from=bank.com"@evil.com; '
-            "dmarc=fail header.from=bank.com",
-            "n@bank.com",
-            "fail",
-        ),
         # a comment that looks like a result
         (
             "dmarc=fail (dmarc=pass header.from=bank.com) header.from=evil.com",
@@ -337,7 +330,7 @@ def test_a_comment_is_not_a_result_and_a_clean_single_pass_still_verifies() -> N
     assert "dmarc" not in commented.authentication
     assert commented.sender_verified is False
     clean = decode_raw_message(
-        _raw(_gmail('dmarc=pass header.from="example.org"'), "n@example.org")
+        _raw(_gmail("dmarc=pass header.from=example.org"), "n@example.org")
     )
     assert clean.sender_verified is True
 
@@ -350,6 +343,91 @@ def test_an_unterminated_quote_or_comment_trusts_nothing(results: str) -> None:
     decoded = decode_raw_message(_raw(_gmail(results), "n@example.org"))
     assert decoded.authentication == {}
     assert decoded.sender_verified is False
+
+
+# --- the sender's own text inside the header is never structure (council N1, N2) --
+
+_FORGED_SPF_COMMENT = (
+    # Gmail copies the MAIL FROM into the spf comment; here a local part whose quote
+    # and backslash close the comment and open a forged dmarc result before the
+    # real dmarc=fail (the failure is written last, where Gmail puts it)
+    'spf=pass (google.com: domain of "\\");dmarc=pass header.from=bank.com(\\"" '
+    'designates 1.2.3.4 as permitted sender) smtp.mailfrom="\\");dmarc=pass '
+    'header.from=bank.com(\\""@evil.com; dmarc=fail header.from=bank.com'
+)
+
+
+@pytest.mark.parametrize(
+    "results",
+    [
+        pytest.param(_FORGED_SPF_COMMENT, id="spf-comment-shape"),
+        pytest.param(
+            'spf=pass smtp.mailfrom="x;dmarc=pass header.from=bank.com"@evil.com; '
+            "dmarc=fail header.from=bank.com",
+            id="smtp-mailfrom-quoted-string",
+        ),
+        pytest.param(
+            "spf=pass smtp.mailfrom==?utf-8?q?x=3Bdmarc=3Dpass?=@evil.com; "
+            "dmarc=pass header.from=bank.com",
+            id="rfc2047-encoded-word",
+        ),
+        pytest.param(
+            "dmarc=pass header.from=bank.com (a backslash \\) in a comment)",
+            id="backslash-in-a-comment",
+        ),
+        pytest.param('dmarc=pass header.from="bank.com"', id="a-quote-at-all"),
+    ],
+)
+def test_quoting_escapes_and_encoded_words_trust_nothing(results: str) -> None:
+    decoded = decode_raw_message(_raw(_gmail(results), "News <n@bank.com>"))
+    assert decoded.authentication == {}
+    assert decoded.sender_verified is False
+    assert any("not verified" in w for w in decoded.warnings)
+
+
+def test_a_header_over_the_length_bound_is_unverified_not_cut() -> None:
+    pad = "x" * (_mime.AUTH_MAX_CHARS + 10)
+    results = f"spf=pass smtp.mailfrom={pad}@e.com; dmarc=pass header.from=bank.com"
+    decoded = decode_raw_message(_raw(_gmail(results), "n@bank.com"))
+    assert decoded.authentication == {}
+    assert decoded.sender_verified is False
+
+
+def test_the_raw_value_is_read_not_the_decoded_string() -> None:
+    # the decoded string of this header would hold characters Gmail never wrote
+    raw = _raw(_gmail("dmarc=pass header.from=bank.com =?utf-8?q?=22?="), "n@bank.com")
+    assert decode_raw_message(raw).sender_verified is False
+
+
+def test_nested_comments_and_escapes_are_dropped_not_structure() -> None:
+    nested = _gmail("dmarc=pass (a (b dmarc=fail) c) header.from=example.org")
+    decoded = decode_raw_message(_raw(nested, "n@example.org"))
+    assert decoded.authentication["dmarc"] == "pass"
+    assert decoded.sender_verified is True
+    assert _mime._auth_tokens(r"a (b \( c) d") == [("atom", "a"), ("atom", "d")]
+    assert _mime._auth_tokens(r"a (b \) c") is None  # the comment never ends
+
+
+def test_a_dmarc_clause_carries_header_from_and_nothing_else() -> None:
+    results = "dmarc=pass header.from=example.org header.d=evil.com"
+    decoded = decode_raw_message(_raw(_gmail(results), "n@example.org"))
+    assert decoded.authentication["dmarc"] == "ambiguous"
+    assert decoded.sender_verified is False
+    extra = "dmarc=pass header.from=example.org smtp.mailfrom=x@evil.com"
+    other = decode_raw_message(_raw(_gmail(extra), "n@example.org"))
+    assert other.sender_verified is False
+
+
+def test_several_dkim_signatures_are_not_ambiguous_only_a_repeated_dmarc_is() -> None:
+    results = (
+        "dkim=pass header.i=@a.org; dkim=fail header.i=@b.org; "
+        "dmarc=pass header.from=example.org"
+    )
+    decoded = decode_raw_message(_raw(_gmail(results), "n@example.org"))
+    assert decoded.authentication["dkim"] == "pass"
+    assert decoded.sender_verified is True
+    repeated = _gmail("dmarc=pass header.from=a.org; dmarc=pass header.from=a.org")
+    assert decode_raw_message(_raw(repeated, "n@a.org")).sender_verified is False
 
 
 def test_the_tokeniser_keeps_quoted_text_as_one_token() -> None:
@@ -391,3 +469,35 @@ def test_header_lines_and_parts_are_counted_before_any_parsing(
     with pytest.raises(NewsletterRefusalError) as many:
         decode_raw_message(b"From: n@example.org\r\n\r\n" + parts)
     assert many.value.code == "message_too_complex"
+
+
+def test_headerless_parts_are_counted_by_their_boundary_lines() -> None:
+    # a part with no headers has no Content-Type, but each still costs a boundary line
+    parts = b"--b\r\n\r\nx\r\n" * (2 * MAX_MIME_PARTS + 5)
+    raw = (
+        b"From: n@example.org\r\n"
+        b'Content-Type: multipart/mixed; boundary="b"\r\n\r\n' + parts + b"--b--\r\n"
+    )
+    with pytest.raises(NewsletterRefusalError) as caught:
+        decode_raw_message(raw)
+    assert caught.value.code == "message_too_complex"
+
+
+def test_a_message_with_the_largest_allowed_parts_is_not_refused_by_the_prescan() -> (
+    None
+):
+    parts = b"--b\r\nContent-Type: text/plain\r\n\r\nx\r\n" * MAX_MIME_PARTS
+    raw = (
+        b"From: n@example.org\r\n"
+        b'Content-Type: multipart/mixed; boundary="b"\r\n\r\n' + parts + b"--b--\r\n"
+    )
+    _mime._bound(
+        raw, _mime.RAW_MAX_BYTES
+    )  # the pre-scan alone; the walk is tested above
+
+
+def test_a_flood_of_boundary_declarations_is_refused_before_parsing() -> None:
+    raw = b"From: n@example.org\r\n\r\n" + b"boundary=a\n" * (4 * MAX_MIME_PARTS + 2)
+    with pytest.raises(NewsletterRefusalError) as caught:
+        _mime._bound(raw, _mime.RAW_MAX_BYTES)
+    assert caught.value.code == "message_too_complex"

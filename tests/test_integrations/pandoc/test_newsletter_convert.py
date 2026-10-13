@@ -565,11 +565,93 @@ def test_a_pixel_declared_in_a_normal_style_is_still_dropped() -> None:
     assert item.stripped["pixels"] == 1
 
 
-def test_a_hidden_style_over_the_bound_is_counted_not_parsed() -> None:
+def test_a_style_over_the_bound_is_not_parsed_and_is_treated_as_hidden() -> None:
+    """Padding after ``display:none`` must not make hidden text visible (council N3)."""
     long_style = "display:none;" + "a:b;" * 2_000
-    item = _convert(f'<p style="{long_style}">text</p>')
+    item = _convert(f'<p>kept</p><p style="{long_style}">secret instruction</p>')
     assert item.stripped["style_oversize"] == 1
-    assert item.stripped.get("hidden", 0) == 0
+    assert item.stripped["hidden"] == 1
+    assert item.stripped["hidden_oversize"] == 1
+    assert "secret instruction" not in item.markdown
+    assert "kept" in item.markdown
+
+
+def test_a_style_rule_body_over_the_bound_hides_what_it_selects() -> None:
+    pad = "a:b;" * 2_000
+    page = (
+        f"<style>.h {{ display:none; {pad} }} .v {{ color:red }}</style>"
+        '<p class="h">secret instruction</p><p class="v">visible</p>'
+    )
+    item = _convert(page)
+    assert "secret instruction" not in item.markdown
+    assert "visible" in item.markdown
+    assert item.stripped["hidden_style_class"] == 1
+
+
+class _CountingDeadline(_runner.Deadline):
+    """A deadline that has room for ``room`` checks and refuses the next one."""
+
+    def __init__(self, room: int) -> None:
+        super().__init__(30.0)
+        self.room = room
+        self.checks = 0
+
+    def check(self) -> None:
+        self.checks += 1
+        if self.checks > self.room:
+            raise NewsletterRefusalError("convert_timeout")
+
+
+def _soup(html: str) -> Any:  # noqa: ANN401
+    return _cleaning.bs4_module().BeautifulSoup(html, "html.parser")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "drop_tags", "drop_comments", "css_rules", "drop_hidden", "drop_images",
+        "flatten_tables", "drop_footers", "clean_links",
+    ],
+)  # fmt: skip
+def test_each_pass_checks_the_deadline_per_element_not_just_once(name: str) -> None:
+    """Without the per-element checks these passes finish and never refuse."""
+    noise = _noise.load()
+    counts = dict.fromkeys(_cleaning.COUNT_KEYS, 0)
+    bs4 = _cleaning.bs4_module()
+    body = {
+        "drop_tags": "<script>x</script>" * 600,
+        "drop_comments": "<!-- c -->" * 600,
+        "css_rules": "<style>.a{color:red}</style>" * 600,
+        "drop_hidden": "<p>x</p>" * 600,
+        "drop_images": '<img src="https://example.org/a.png" alt="a">' * 600,
+        "flatten_tables": "<table><tr><td>x</td></tr></table>" * 600,
+        "drop_footers": "<p>text</p>" * 2000,
+        "clean_links": '<a href="https://example.org/">x</a>' * 600,
+    }[name]
+    soup = _soup(f"<html><body>{body}</body></html>")
+    room = _CountingDeadline(3)
+    args: tuple[Any, ...] = {
+        "drop_tags": (soup, counts, noise, room),
+        "drop_comments": (soup, bs4, counts, room),
+        "css_rules": (soup, noise, room),
+        "drop_hidden": (soup, noise, counts, ({}, {}), room),
+        "drop_images": (soup, noise, counts, room),
+        "flatten_tables": (soup, counts, room),
+        "drop_footers": (soup, noise, counts, room),
+        "clean_links": (soup, noise, counts, room),
+    }[name]
+    with pytest.raises(NewsletterRefusalError) as caught:
+        getattr(_cleaning, name)(*args)
+    assert caught.value.code == "convert_timeout"
+    assert room.checks > 3
+
+
+def test_the_bounds_pass_checks_the_deadline_while_it_walks() -> None:
+    soup = _soup("<div>" + "<p>x</p>" * 3000 + "</div>")
+    room = _CountingDeadline(3)
+    with pytest.raises(NewsletterRefusalError) as caught:
+        _cleaning.check_bounds("", soup, room)
+    assert caught.value.code == "convert_timeout"
 
 
 def test_every_pass_checks_the_deadline() -> None:

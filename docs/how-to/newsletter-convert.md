@@ -51,10 +51,17 @@ when Gmail's own mail server reported `dmarc=pass` for the same domain as the
 `From` address. It reads **only the topmost** `Authentication-Results` header, and only
 when its authserv-id is `mx.google.com`: Gmail adds its own header at the top, so any
 header below it was written by the sender or a hop on the way, and is ignored. The
-value is tokenised as RFC 8601 says: a quoted string is one token and a comment is
-dropped, so a `;` or `dmarc=pass` inside either can never start a result. A method
-that appears more than once is `ambiguous`, and so is not verified; `dmarc_header_from`
-is set only for a single `dmarc` result with exactly one `header.from`.
+raw value (never the decoded string, which would turn an RFC 2047 word into characters
+Gmail never wrote) is read, because Gmail copies the sender's own `MAIL FROM` text into
+a comment and into `smtp.mailfrom=`, where a quote or a backslash changes what is
+structure. So a header that contains a quote, a backslash or `=?`, or is longer than
+4000 characters, is **not trusted at all**: `authentication` is empty, `sender_verified`
+is `False`, and a warning says why. Otherwise the value is tokenised as RFC 8601 says
+(a comment is dropped, nested comments and escapes included). A method that appears
+more than once is `ambiguous`, and so is not verified (several `dkim` signatures are
+not: a message has one per signing domain); a `dmarc` clause with any property but
+`header.from` is `ambiguous`; `dmarc_header_from` is set only for a single `dmarc`
+result with exactly one `header.from`.
 `list_unsubscribe` is kept as text for the record and is never an action.
 
 ## Convert HTML to Markdown
@@ -81,8 +88,10 @@ What it does, in order:
    `hidden_mso`, `hidden_zero_size`, `hidden_offscreen`, `hidden_clip`,
    `hidden_color_match`, `hidden_style_class`, `hidden_attribute`). Rules inside
    `@media` are not applied, because they may hide content only on a small screen.
-   A `style` attribute or rule longer than 4096 characters is **not parsed** (padding
-   must not cost time) and is counted in `stripped["style_oversize"]`. Every pass
+   A `style` attribute or rule body longer than 4096 characters is **not parsed**
+   (padding must not cost time) and is **treated as hidden**: the element is dropped
+   and counted in `stripped["style_oversize"]` and `stripped["hidden_oversize"]`, so
+   padding after `display:none` cannot make hidden text visible. Every pass
    checks the deadline per element.
 4. Removes tracking pixels, and images whose source is not http(s) (`file:`, `data:`,
    `cid:`).
@@ -142,7 +151,8 @@ Anything else is a typed refusal that names the construct, never a silent rewrit
 - Markdown cannot carry an image's size once attributes are off, so you pass
   `image_sizes` by exact source; an image with no entry is refused. The reader keeps no
   list start number, so an ordered list that does not start at 1 is refused
-  (`ordered_list_start`): start it at 1.
+  (`ordered_list_start`): start it at 1. That holds for a list nested in another list
+  and for one inside a block quote.
 - GFM extras (footnotes, tables, task lists, emoji, bare addresses, math) are not
   features of this reader: they come out as plain text, or are refused by name.
 
@@ -154,8 +164,13 @@ copies**, so the tuple names the bytes that ran. The `pandoc` on `PATH` is only 
 and hashed, never executed: it is copied, the copy is hashed and must match, and only
 the copy is asked for its version and run (the convert step runs the same verified
 copy). The copy is made once per process and is checked before every run; a copy that
-was modified is refused. Pass `expected_renderer_digest` to
-refuse a different renderer before anything runs. The output is deterministic for a
+was modified is refused. Pass `expected_pandoc_sha256` to
+refuse a `PATH` pandoc whose copy hashes differently **before it is executed at all**.
+Pass `expected_renderer_digest` to refuse a different renderer before the conversion
+runs: that digest includes the pandoc version, which only the verified private copy can
+say, so that copy has run `--version` once by then. A caller that must not run an
+unknown binary even for that pins `expected_pandoc_sha256` too (it is a field of the
+tuple). The output is deterministic for a
 given tuple. A new pandoc, filter or flag is a new tuple, so a new artifact that
 voids earlier marks: expect the digest to change when pandoc is upgraded.
 

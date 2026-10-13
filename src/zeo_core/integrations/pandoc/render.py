@@ -86,7 +86,8 @@ _DECIMAL_HOST: Final = re.compile(r"^(0x[0-9a-f]+|\d+)(\.(0x[0-9a-f]+|\d+))*$", 
 _BLANK: Final = re.compile(
     "[\\s\u00a0\u200b-\u200d\u2060\ufeff\u00ad\u034f\u115f\u1160\u3164]*"
 )
-_ORDERED_ITEM: Final = re.compile(r"^ {0,3}(\d{1,9})[.)](?:[ \t]|$)")
+_ORDERED_ITEM: Final = re.compile(r"^[ \t]*(\d{1,9})[.)](?:[ \t]|$)")
+_QUOTE_PREFIX: Final = re.compile(r"^(?:[ \t]{0,3}>[ \t]?)+")
 _MAILBOX: Final = re.compile(r"^[^@,;\s]+@[^@,;\s]+$")
 
 
@@ -220,7 +221,9 @@ class _SubsetChecker(HTMLParser):
             self._anchors.append([])
         elif tag == "img":
             _check_image(values)
-            self._text(values["alt"])  # an image link's text is its alt text
+            # an image link's text is its alt text, and a ``<`` in an attribute value
+            # is already text (the parser has unescaped it), never a tag
+            self._text(values["alt"], literal=True)
         if tag not in _VOID:
             self._stack.append(tag)
 
@@ -286,45 +289,80 @@ def check_email_subset(html_text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+_MAX_IMAGE_SIZES: Final = 500
+_MAX_SRC_CHARS: Final = 2048
+
+
+def _size_pair(size: object) -> tuple[int, int]:
+    """One entry's ``(width, height)``: two real ints (never a bool) in bounds."""
+    if not isinstance(size, tuple | list) or len(size) != 2:
+        raise refusal("image_sizes_malformed")
+    width, height = size
+    # ``type(...) is int`` is deliberate: a bool is an int, and True is not a width
+    if not all(type(v) is int and _SIZE_MIN <= v <= _SIZE_MAX for v in (width, height)):
+        raise refusal("image_sizes_malformed")
+    return width, height
+
+
 def _sizes_argument(image_sizes: Mapping[str, tuple[int, int]] | None) -> str | None:
     """The image sizes as ``src<TAB>width<TAB>height`` lines, validated."""
-    if not image_sizes:
+    if image_sizes is None or (isinstance(image_sizes, Mapping) and not image_sizes):
         return None
-    lines = []
-    for src, size in sorted(image_sizes.items()):
+    if not isinstance(image_sizes, Mapping) or len(image_sizes) > _MAX_IMAGE_SIZES:
+        raise refusal("image_sizes_malformed")
+    entries: list[tuple[str, int, int]] = []
+    for src, size in image_sizes.items():
         if not isinstance(src, str) or not src.startswith("https://"):
+            raise refusal("image_sizes_malformed")
+        if len(src) > _MAX_SRC_CHARS:
             raise refusal("image_sizes_malformed")
         if re.search(r"[\x00-\x1f\x7f]", src):
             raise refusal("image_src_unsupported")
-        width, height = size
-        if not all(
-            isinstance(v, int) and _SIZE_MIN <= v <= _SIZE_MAX for v in (width, height)
-        ):
-            raise refusal("image_sizes_malformed")
-        lines.append(f"{src}\t{width}\t{height}")
-    return "\n".join(lines)
+        entries.append((src, *_size_pair(size)))
+    return "\n".join(f"{src}\t{w}\t{h}" for src, w, h in sorted(entries))
+
+
+def _quote_depth(line: str) -> tuple[int, str]:
+    """How many ``>`` open a line, and the line without them."""
+    found = _QUOTE_PREFIX.match(line)
+    if found is None:
+        return 0, line
+    return found.group(0).count(">"), line[found.end() :]
 
 
 def _check_ordered_lists(markdown: str) -> None:
     """
-    Refuse an ordered list that does not start at 1.
+    Refuse an ordered list that does not start at 1, at any nesting.
 
     ``markdown_strict`` keeps no start number, so ``3.`` would be silently renumbered
-    from 1. A line starts a list when it follows a blank line (or the start), or
-    continues a list already open; its number must then be 1.
+    from 1. This holds for a list nested in another list and for one inside a block
+    quote. A line starts a list when it follows a blank line, or opens a list inside
+    an open one, or sits deeper than the list open at that depth; its number must
+    then be 1. A change of block quote depth starts a fresh context.
     """
-    blank, open_list = True, False
-    for line in markdown.split("\n"):
+    blank, depth_now = True, 0
+    open_lists: list[int] = []  # the indent of each ordered list open at this depth
+    for raw in markdown.split("\n"):
+        depth, line = _quote_depth(raw)
+        if depth != depth_now:
+            depth_now, open_lists, blank = depth, [], True
         if not line.strip():
             blank = True
             continue
+        indent = len(line.expandtabs(4)) - len(line.expandtabs(4).lstrip())
         found = _ORDERED_ITEM.match(line)
-        if found is not None and (blank or open_list):
-            if not open_list and int(found.group(1)) != 1:
+        while open_lists and indent < open_lists[-1]:
+            open_lists.pop()  # a shallower line closes the deeper lists
+        if found is None:
+            if blank:
+                while open_lists and indent <= open_lists[-1]:
+                    open_lists.pop()  # a paragraph after a blank ends that list
+            blank = False
+            continue
+        if (not open_lists or indent > open_lists[-1]) and (blank or open_lists):
+            if int(found.group(1)) != 1:
                 raise refusal("ordered_list_start")
-            open_list = True
-        elif blank and not line.startswith((" ", "\t")):
-            open_list = False  # a paragraph after a blank line ends the list
+            open_lists.append(indent)
         blank = False
 
 
@@ -384,6 +422,7 @@ def render_email_html(
     *,
     image_sizes: Mapping[str, tuple[int, int]] | None = None,
     expected_renderer_digest: str | None = None,
+    expected_pandoc_sha256: str | None = None,
     max_bytes: int = DEFAULT_MAX_BYTES,
     timeout_s: float = DEFAULT_TIMEOUT_S,
 ) -> RenderedHtml:
@@ -400,12 +439,17 @@ def render_email_html(
     The result carries the renderer tuple: the pandoc version and binary digest, the
     filter digest and the exact flags. The binary and the filter are COPIED into a
     private directory and hashed and run as the copies, so the tuple names the bytes
-    that ran. With ``expected_renderer_digest``, a different renderer is refused
-    before anything runs.
+    that ran. With ``expected_pandoc_sha256``, a ``PATH`` pandoc whose copy hashes
+    differently is refused before it is executed at all. With
+    ``expected_renderer_digest``, a different renderer is refused before the
+    conversion runs; the digest includes the pandoc version, which only the verified
+    private copy can say, so that copy has run ``--version`` once by then. A caller
+    that must not run an unknown binary even for that pins ``expected_pandoc_sha256``
+    too (it is a field of the tuple).
     """
     data = _check_markdown(markdown, max_bytes)
     sizes = _sizes_argument(image_sizes)
-    binary = find_pandoc()
+    binary = find_pandoc(expected_pandoc_sha256)
     with tempfile.TemporaryDirectory(prefix="zeocore-filter-") as work:
         filter_path, filter_sha256 = _private_filter(Path(work))
         renderer = _tuple(binary.version, binary.sha256, filter_sha256)

@@ -53,6 +53,7 @@ HIDDEN_KINDS: Final = (
     "clip",
     "color_match",
     "style_class",
+    "oversize",
 )
 COUNT_KEYS: Final = (
     "scripts",

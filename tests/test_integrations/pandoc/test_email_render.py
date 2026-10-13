@@ -632,3 +632,115 @@ def test_the_reader_we_avoid_leaks_raw_html_which_is_why_it_is_avoided() -> None
             "so there is no leak to contrast with"
         )
     assert b"<script" in leaked
+
+
+# --- council N-round: sizes, nested lists, alt text, the binary pin -----------
+
+
+@pytest.mark.parametrize(
+    "sizes",
+    [
+        "https://example.org/i.png",  # not a mapping
+        [("https://example.org/i.png", (10, 10))],  # a list of pairs, not a mapping
+        {"https://example.org/i.png": 10},  # not a pair
+        {"https://example.org/i.png": (10,)},  # one number
+        {"https://example.org/i.png": (10, 10, 10)},  # three numbers
+        {"https://example.org/i.png": "ab"},  # a string is not a pair of ints
+        {"https://example.org/i.png": None},
+        {"https://example.org/i.png": (True, 10)},  # a bool is not a width
+        {"https://example.org/i.png": (10, False)},
+        {"https://example.org/i.png": (-5, 10)},
+        {"https://example.org/i.png": (10, 10**30)},
+        {"https://example.org/i.png": ("10", 10)},
+        {"https://example.org/i.png": (None, 10)},
+        {1: (10, 10)},  # a key that is not text
+        {None: (10, 10)},
+        {"https://example.org/" + "a" * 3000: (10, 10)},  # a huge source
+    ],
+)
+def test_every_malformed_image_sizes_value_is_a_typed_refusal(sizes: Any) -> None:  # noqa: ANN401
+    assert _code("text\n", image_sizes=sizes) == "image_sizes_malformed"
+
+
+def test_too_many_image_sizes_are_refused_and_a_good_mapping_is_accepted() -> None:
+    many = {f"https://example.org/{i}.png": (10, 10) for i in range(501)}
+    assert _code("text\n", image_sizes=many) == "image_sizes_malformed"
+    ok = {"https://example.org/i.png": (600, 300)}
+    html = render_email_html(
+        "![The cover](https://example.org/i.png)\n", image_sizes=ok
+    )
+    assert 'width="600"' in html.html and 'height="300"' in html.html
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "1. one\n    3. a nested list that starts at three\n",
+        "1. one\n\n    2. a nested list after a blank starts at two\n",
+        "- bullet\n\n    5. an ordered list inside a bullet\n",
+        "> 3. quoted and starting at three\n",
+        "> intro\n>\n> 2) a quoted list at two\n",
+        "1. one\n    1. fine\n    2. fine\n2. two\n\n- x\n  - y\n\n    4. nested\n",
+        "1. one\n2. two\n\n> 9. a list in a quote\n",
+    ],
+)
+def test_a_nested_or_quoted_list_that_does_not_start_at_one_is_refused(
+    markdown: str,
+) -> None:
+    assert _code(markdown) == "ordered_list_start"
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "1. one\n2. two\n",
+        "1. one\n    1. nested\n    2. nested\n2. two\n",
+        "> 1. quoted\n> 2. quoted\n",
+        "1. one\n2. two\n\n3. still the same list after a blank\n",
+        "para\n3. not a list start (it follows a paragraph)\n",
+    ],
+)
+def test_a_list_that_starts_at_one_is_not_refused(markdown: str) -> None:
+    render_email_html(markdown)
+
+
+def test_alt_text_with_a_less_than_sign_is_text_not_a_refusal() -> None:
+    html = '<img src="https://example.org/i.png" alt="a &lt; b" width="10" height="10">'
+    check_email_subset(html)
+    rendered = render_email_html(
+        "![a < b](https://example.org/i.png)\n",
+        image_sizes={"https://example.org/i.png": (10, 10)},
+    )
+    assert 'alt="a &lt; b"' in rendered.html or "a &lt; b" in rendered.html
+
+
+def test_a_binary_pin_refuses_before_the_binary_is_executed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real = shutil.which("pandoc") or ""
+    sha = _runner._sha256_of(os.path.realpath(real))
+    ran: list[str] = []
+    original = _runner._read_version
+
+    def spy(path: str) -> str:
+        ran.append(path)
+        return original(path)
+
+    monkeypatch.setattr(_runner, "_read_version", spy)
+    monkeypatch.setattr(_runner, "_PRIVATE", {})  # a cold start: nothing cached
+    with pytest.raises(NewsletterRefusalError) as caught:
+        _runner.find_pandoc("0" * 64)
+    assert caught.value.code == "renderer_mismatch"
+    assert ran == []  # not even the --version probe ran the mismatched copy
+    assert _runner.find_pandoc(sha).sha256 == sha  # the right pin is accepted
+    assert len(ran) == 1  # and only then is the verified copy run once
+    with pytest.raises(NewsletterRefusalError) as warm:  # now served from the cache
+        _runner.find_pandoc("0" * 64)
+    assert warm.value.code == "renderer_mismatch"
+    assert len(ran) == 1
+
+
+def test_render_passes_the_binary_pin_through() -> None:
+    sha = render_email_html("## Hi\n").renderer["pandoc_binary_sha256"]
+    assert render_email_html("## Hi\n", expected_pandoc_sha256=str(sha)).html
+    assert _code("## Hi\n", expected_pandoc_sha256="f" * 64) == "renderer_mismatch"

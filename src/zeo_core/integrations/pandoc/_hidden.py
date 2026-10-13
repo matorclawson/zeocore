@@ -6,6 +6,9 @@ the common ways: ``hidden``, ``display:none``, ``visibility``, ``opacity:0``,
 ``font-size:0``, ``max-height:0``, ``mso-hide``, zero size, off-screen positioning,
 text coloured like its own background, and the same declarations reached through a
 class or id in a ``<style>`` block. Each kind is counted.
+A style (an attribute or a rule body) longer than ``STYLE_MAX_CHARS`` is not parsed,
+because padding must not cost time; it is treated AS HIDDEN (kind ``oversize``), so
+padding after ``display:none`` cannot make hidden text visible.
 
 It is BEST EFFORT: CSS has more ways to hide than any list covers. The guarantee is
 not this filter; it is that nothing a message says is ever acted on (it comes out
@@ -24,7 +27,8 @@ from zeo_core.integrations.pandoc._noise import Noise
 _ANCESTORS: Final = 20
 
 #: The longest style attribute or style rule body that is examined. A longer one is
-#: not parsed at all (an attacker's padding must not cost time) and is counted.
+#: not parsed at all (an attacker's padding must not cost time), and it is treated AS
+#: HIDDEN: padding after ``display:none`` must not make hidden text visible.
 STYLE_MAX_CHARS: Final = 4096
 _SELECTOR_MAX_CHARS: Final = 256
 
@@ -136,7 +140,7 @@ def _record(
 ) -> None:
     if selector.startswith("@") or len(selector) > _SELECTOR_MAX_CHARS:
         return
-    kind = _style_kind(body, noise)
+    kind = "oversize" if len(body) > STYLE_MAX_CHARS else _style_kind(body, noise)
     if kind is None:
         return
     for part in (s.strip() for s in selector.split(",")):
@@ -154,7 +158,9 @@ def hidden_kind(
     if tag.has_attr("hidden"):
         return "attribute"
     style = str(tag.get("style", ""))
-    if style and len(style) <= STYLE_MAX_CHARS:
+    if len(style) > STYLE_MAX_CHARS:
+        return "oversize"  # not parsed, so not trusted: dropped, see STYLE_MAX_CHARS
+    if style:
         kind = _style_kind(style, noise)
         if kind is not None:
             return kind

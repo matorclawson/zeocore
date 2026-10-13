@@ -146,9 +146,14 @@ def _read_version(path: str) -> str:
 
 
 def _copy_and_verify(
-    real: str,
+    real: str, expected_sha256: str | None = None
 ) -> tuple[PandocBinary, tempfile.TemporaryDirectory[str]]:
-    """Hash the source, copy it, hash the copy, and only then run the copy."""
+    """
+    Hash the source, copy it, hash the copy, and only then run the copy.
+
+    With ``expected_sha256``, a copy whose digest differs is refused BEFORE it is run
+    even once (the ``--version`` probe is the first run).
+    """
     try:
         source_sha = _sha256_of(real)  # a read: the file on PATH is never executed
     except OSError as error:
@@ -162,6 +167,8 @@ def _copy_and_verify(
         copy_sha = _sha256_of(str(target))
         if copy_sha != source_sha:
             raise refusal("pandoc_failed")  # the file changed while it was copied
+        if expected_sha256 is not None and copy_sha != expected_sha256:
+            raise refusal("renderer_mismatch")  # nothing has been run
         version = _read_version(str(target))
         if _version_tuple(version)[:2] < MIN_PANDOC_VERSION:
             raise refusal("pandoc_too_old")
@@ -174,9 +181,13 @@ def _copy_and_verify(
     return PandocBinary(path=str(target), version=version, sha256=copy_sha), work
 
 
-def find_pandoc() -> PandocBinary:
+def find_pandoc(expected_sha256: str | None = None) -> PandocBinary:
     """
     A verified private copy of the pandoc on ``PATH``: its version and digest.
+
+    ``expected_sha256`` pins the binary: a ``PATH`` pandoc with another digest is
+    refused as ``renderer_mismatch`` before anything is executed, not after the
+    version probe has already run it.
 
     The ``PATH`` file is hashed and copied BEFORE anything is executed; the copy is
     hashed, must match, and is the only file ever run. Refuses when pandoc is missing,
@@ -196,10 +207,12 @@ def find_pandoc() -> PandocBinary:
     kept = _PRIVATE.get(key)
     if kept is not None:
         _check_unchanged(kept)
+        if expected_sha256 is not None and kept.binary.sha256 != expected_sha256:
+            raise refusal("renderer_mismatch")
         return kept.binary
     for stale in [k for k in _PRIVATE if k[0] == real]:  # the source was replaced
         _PRIVATE.pop(stale).directory.cleanup()
-    binary, work = _copy_and_verify(real)
+    binary, work = _copy_and_verify(real, expected_sha256)
     _PRIVATE[key] = _Verified(binary, _signature(binary.path), work)
     return binary
 
