@@ -79,10 +79,11 @@ normalized components and never used here for price arithmetic.
 
 Reservation, tariff estimate and remaining budget stay separate. The parser
 neither calculates prices nor settles or releases reservations. Unknown outcomes
-must keep their reservation held. Incomplete estimates also keep their hold. A malformed ambiguous receipt raises
-`AmbiguousModelReceiptError`: the call may have been dispatched and must not be
-retried until its outcome and reservation are settled. Other parsing failures
-also do not prove that no dispatch happened.
+must keep their reservation held. Incomplete estimates also keep their hold.
+Every receipt-validation failure raises `AmbiguousModelReceiptError`, regardless
+of the supplied response status: the call may have been dispatched. Replay with
+the same idempotency key or settle its outcome and reservation; never retry with
+a new key. The parser does not replay requests or settle reservations itself.
 
 Provider-reached receipts with known normalized usage and no incomplete cost
 components must include the tariff estimate; otherwise it must be absent.

@@ -461,7 +461,7 @@ def test_ambiguous_missing_reason_preserves_dispatch_uncertainty() -> None:
     }
     value["receipt"].pop("reason", None)
     with pytest.raises(
-        AmbiguousModelReceiptError, match="may have been dispatched; do not retry"
+        AmbiguousModelReceiptError, match="may have been dispatched; replay"
     ):
         parse(value)
 
@@ -948,6 +948,17 @@ def test_provider_stage_requires_explicit_replay_status() -> None:
     value["receipt"].pop("replayed")
     with pytest.raises(HostedClientError):
         parse(value)
+
+
+@pytest.mark.parametrize("confirmed", [True, False])
+def test_invalid_receipt_is_ambiguous_even_when_status_is_not(confirmed: bool) -> None:
+    value = live() if confirmed else early("model_not_allowed")
+    value["receipt"]["request_size_bytes"] = 1 << 53
+    with pytest.raises(AmbiguousModelReceiptError) as error:
+        parse(value)
+    assert "may have been dispatched" in str(error.value)
+    assert "same idempotency key" in str(error.value)
+    assert "never retry with a new key" in str(error.value)
 
 
 def test_integral_receipt_cost_budget_and_sizes_are_normalized() -> None:

@@ -489,7 +489,7 @@ _EARLY_REASONS = {
 
 
 class AmbiguousModelReceiptError(HostedClientError):
-    """Parsing failed after an ambiguous response; dispatch cannot be ruled out."""
+    """Receipt validation failed; dispatch cannot be ruled out."""
 
 
 @dataclass(frozen=True)
@@ -614,11 +614,7 @@ def parse_model_response(
     catalogued_reported_models: tuple[str, ...],
 ) -> ParsedModelResponse:
     """Refuse mismatched evidence without returning raw provider/input text."""
-    ambiguous = True
     try:
-        status = response.status
-        if isinstance(status, HostedOperationStatus):
-            ambiguous = status is HostedOperationStatus.AMBIGUOUS
         response = HostedOperationResponse.model_validate(response.model_dump())
         receipt = ModelReceipt.model_validate(response.receipt)
         if (
@@ -646,13 +642,9 @@ def parse_model_response(
             expired=expired,
         )
     except ValidationError, ValueError, TypeError, KeyError, AttributeError:
-        if ambiguous:
-            raise AmbiguousModelReceiptError(
-                "model operation receipt is invalid; "
-                "the call may have been dispatched; "
-                "do not retry until its outcome and reservation are settled"
-            ) from None
-        raise HostedClientError(
-            "model operation receipt is invalid; inspect the receiving contract and "
-            "retained evidence without assuming the call was not dispatched"
+        raise AmbiguousModelReceiptError(
+            "model operation receipt is invalid; "
+            "the call may have been dispatched; "
+            "replay with the same idempotency key or settle its outcome and "
+            "reservation; never retry with a new key"
         ) from None
