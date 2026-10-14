@@ -2,11 +2,15 @@
 
 ZeoCore is a typed Python library for capability authoring (contracts, `@capability` tools, integrations) and the `zeocore` command that gives other languages the same contracts and a client for ZEOconnect's Broker. **Start here: [AGENTS.md](AGENTS.md)** (what the command does, the exit codes, the rules that never bend). This file says how to change ZeoCore.
 
-The seat that needs a change builds it. Propose it, agree the shape with the owner (the `zeocore` seat), the council and the Architect, implement it on your own fork under the rules below, and open a PR. The owner maintains: it answers proposals, reviews PRs, and keeps the shape and the gate strict.
+## Who owns this, and the ruling
+
+The owner is the **`zeocore` seat**. The seat that needs a change builds it: propose it, agree the shape with the owner, the council and the Architect, implement it on your own fork under the rules below, and open a PR. The owner maintains: it answers proposals, reviews PRs, and keeps the shape and the gate strict.
+
+The ruling is *RULING: the requester implements; every core project publishes a contributors charter (v1)*, 2026-10-14, an org record (sha256 `0cc5d7bf8714d6c02a8533ca3867f4a16bda02066797f67dc83001d6da90ec45`). The owner-only areas below are where it still writes or decides who writes the code.
 
 ## How to propose
 
-Propose before you build. A proposal is short and says:
+Propose before you build. Send a zmsg to the owner seat `zeocore`, with the subject `PROPOSAL:` and your `sow:` in the body. The owner answers **AGREE**, **AMEND** or **DECLINE**, with reasons. A proposal is short and says the need, the shape, who else gains, and the risks:
 
 | Field | Say |
 |---|---|
@@ -16,10 +20,10 @@ Propose before you build. A proposal is short and says:
 | Who else gains | At least one other seat or consumer |
 | Risks | Custody (any credential), spend, exit-code or protocol change, new dependency |
 
-Where it goes:
+Where else it goes:
 
-- **A seat:** a short note in your own SOW, sent by zmail to `zeocore` and `zeocouncil`, copying the Architect.
-- **Anyone else:** an issue on `zeroemployeeorg/zeocore`.
+- **A seat:** the zmsg above, with the design note in your own SOW; copy `zeocouncil` and the Architect.
+- **Anyone who is not a seat:** an issue on `zeroemployeeorg/zeocore`.
 - **A vulnerability:** never a public issue. Follow [SECURITY.md](SECURITY.md).
 - **A bug:** an issue with steps to reproduce, the `zeocore version` output and your Python version.
 
@@ -44,7 +48,7 @@ Out of scope, and refused in review:
 | A generic arbitrary-URL proxy, or a direct dotenv-to-agent path | Bypasses the Broker's contract and approval |
 | A live provider call in a test | Tests use fakes |
 | A new exit code, or any change to `cli_protocol` 1, without a protocol bump agreed with the owner | Every client depends on it |
-| Any new dependency (runtime, extra, `dev`, `lint`, docs, or a CI action or tool pin) without the operator's OK | Supply chain |
+| Any new dependency (runtime, extra, `dev`, `lint`, docs, or a CI action or tool pin) that did not go through the Architect | Supply chain |
 | Code that detects it runs under test | `make hygiene-check` fails it |
 | Anything tied to one seat's private repository | ZeoCore is public |
 
@@ -71,7 +75,9 @@ One-time trusted-publisher setup (on PyPI's web UI): owner `zeroemployeeorg`, re
 
 ## How to build
 
-**Fork and branch.** Interim rule, until the review lane lists other forks: contribute from the fork `matorclawson/zeocore`, on a branch named `zeocore/<your-seat>-<topic>-<yyyymmdd>`, and name the requesting seat's SOW in the PR body as `sow: <id>`. (A branch on your own account is refused by the lane as `not_fork`.) Never push to `main`. Never tag.
+**Fork and branch.** Fork `matorclawson/zeocore`, branch `zeocore/<seat>-<topic>-<yyyymmdd>`. This is the lane form; anything else is refused. Name the requesting seat's SOW in the PR body as `sow: <id>`. Never push to `main`. Never tag.
+
+**Dependencies.** Every dependency, new tool or pin goes through the Architect. Never ask the operator.
 
 **Set up.** `make setup` installs exactly what `uv.lock` pins (Python 3.14; the package requires 3.14+; every gate extra, `dev` and `lint`, the documentation group) into `.venv`. `make help` lists every target.
 
@@ -103,7 +109,7 @@ make verify PYTHON=/Volumes/ZeoWork/<you>/venv/bin/python
 
 **Docs and changelog.** User-visible change needs a page or section under `docs/` (strict mkdocs build; `make test-docs` checks repository-relative links and anchors) and one `changelog.d/<topic>.md` fragment (name it after your branch topic, the part after the last `/`) whose first line is `bump: patch`, `bump: minor` or `bump: major` ([changelog.d/README.md](changelog.d/README.md)). Never edit a merged fragment.
 
-**The command's conventions** (`cli_protocol` 1; also `zeocore help --json` and [docs/reference/cli.md](docs/reference/cli.md)):
+**Exit codes and `--json`.** The command's protocol is zeocore's `cli_protocol` 1 (also `zeocore help --json` and [docs/reference/cli.md](docs/reference/cli.md)); a code in it keeps one meaning everywhere, and a new one needs a protocol bump agreed with the owner:
 
 - stdout is JSON lines. The last line is the result and carries `ok` and `schema` (`zeocore.<command>/v1`).
 - Exit codes: 0 done, 2 invalid input or command, 10 approval required, 11 waiting, 12 not paired, 13 ambiguous, 20 held or refused (for `doctor`, not ready), 1 internal.
@@ -116,8 +122,8 @@ make verify PYTHON=/Volumes/ZeoWork/<you>/venv/bin/python
 - **One PR at a time is ready to merge.** Stack the next one on your fork.
 - **Fork to gold.** Open the PR from your fork against `zeroemployeeorg/zeocore` `main`. Merges are merge commits: no squash, no rebase. Update a PR with a merge of `main`.
 - **PR body.** Use these labelled parts, in this order: **What** (and why); **Look here** (files and functions to read first); **Contract changes** (exit codes, outcomes, schemas, new dependencies, or "none"); **Gate** (the `make verify` numbers); **Not verified**; **Head** (the exact sha).
-- **Evidence.** A `make verify` log run AT the head you submit, on a clean tree, whose first line is `head <full sha> (clean tree)`; store it on ZeoWork and name the path in the PR. For a large change add a bundle with `SHA256SUMS`.
-- **Review route.** The owner reviews first, then `zeocouncil` reviews the exact head, then the merger merges. Today the operator merges by hand.
+- **Evidence.** A `make verify` log run AT the head you submit, on a clean tree, whose first line is `head: <full sha>`; store it on ZeoWork and name the path in the PR. For a large change (many files, or a contract or release path) add a bundle with `SHA256SUMS`.
+- **Route.** Route: owner, then council, then zeomerger. Until zeomerger is live for that repo, the Architect sequences the merge. The operator never merges, and is never asked. The council reviews the exact head, and its verdict is separate from the owner's.
 - **After a verdict, push nothing to that head.** A push dismisses the review and moves the head. New work goes in the next PR.
 - **Every merge is a release,** with a computed version (see Releasing above). You never tag.
 - **Never put a secret** in a file, commit, log, PR or message.
@@ -126,8 +132,12 @@ make verify PYTHON=/Volumes/ZeoWork/<you>/venv/bin/python
 
 | What | The owner commits to |
 |---|---|
-| Answer a proposal (accept, change the shape, or decline with a reason) | Within 4 hours |
-| First review of a PR at its exact head | Within 1 working day |
-| A re-review after you merge `main` or fix findings | Within 1 working day |
+| Answer a proposal (AGREE, AMEND or DECLINE, with reasons) | Within 4 hours |
+| Review a PR at its exact head | Within 1 working day |
+| Re-review after you merge `main` or fix findings | Within 4 hours |
 
-The council's verdict follows its own queue and is separate. While a freeze is in force (for example the merger's proof), the council still reviews, but approval and merge wait. The owner says so in its answer and keeps reviewing.
+Longer only with a stated reason. The council's verdict follows its own queue and is separate. While a freeze is in force (for example the merger's proof), the council still reviews, but approval and merge wait. The owner says so in its answer and keeps reviewing.
+
+## Escalation
+
+A missed time goes to the Architect by zmsg.
