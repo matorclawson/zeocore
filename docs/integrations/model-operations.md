@@ -7,20 +7,19 @@ not an authentic provider call, settlement or permission to retry.
 
 ## Draft inputs
 
-The contribution binds **model-ops draft 3 plus draft 4**, not a frozen Broker contract.
+The contribution binds **model-ops draft 5**, not a frozen Broker contract.
 These are owner drafts, **not in this repository**. A public checkout cannot
 reproduce their contents; an adopted contract needs the project's normal
 contract distribution.
 
 | Owner draft, not in this repo | SHA256 |
 |---|---|
-| SCHEMA-draft-3.md | `753d8b1ca692f7b579ff340544d4e2321525464919ecf1a0ac418bc1598449d9` |
-| SCHEMA-draft-4.md | `1a7ef8645fdfcad9050af9b9cce1c39d391a50ef67fbacb0a1864fe0833a1965` |
-| DESIGN-NOTE-rev-e.md | `ed5882c4abf96706c418d2f6b9645f5609e35092111e7587abe46a5488bcb92d` |
+| SCHEMA-draft-5.md | `9d4e5be93af364f08ce1f7413f4369b9d5edb6230ad7d66a46299e5fff5a6399` |
+| DESIGN-NOTE-rev-f.md | `541f2f41bd052e65ccda5e5c6a955e36dfa7aefb54a5de81da1f16cc0b4ce6f3` |
 
-Read draft 3 with its draft 4 amendment. They replace the earlier schemas. Its recording
+Draft 5 is self-contained and replaces the earlier schemas. Its recording
 double stamps the schema hash into `draft_schema`; the parser requires that
-exact labelled `model-ops-draft-4 sha256:<draft-4 hash>` stamp. This does not qualify an installed receiver or freeze its contract.
+exact labelled `model-ops-draft-5 sha256:<draft-5 hash>` stamp. This does not qualify an installed receiver or freeze its contract.
 Proposed operations are `anthropic.messages.create`, `openai.responses.create`
 and `google.gemini.generate`.
 
@@ -43,11 +42,14 @@ This binds a supplied receipt to a retained copy; it does not prove dispatch.
 Use `parse_model_request_json()` for untrusted raw input: it rejects duplicate
 keys, invalid UTF-8, nonfinite numbers, exponents and excess decimal digits
 before typed validation. Generic JSON loaders can discard that lexical evidence.
-The raw input bound is 512 KiB; canonical arguments remain bounded to 256 KiB.
+The raw input bound is 512 KiB; canonical arguments remain bounded to 256 KiB. Optional keys are absent or
+valid, never explicit null.
 The owner's synthetic request vectors are retained at
 `tests/test_integrations/model_ops/fixtures/request-vectors-draft4.json`
 for byte/digest and refusal tests, SHA256
 `0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a`.
+The extended refusal set is `request-vectors-draft5.json` in the same directory,
+SHA256 `c62cbd12387dbecd59fbb3fc221f9beed92b8c6b7f75e44bc02acab8911abc80`.
 
 `DraftModelOperationClient.prepare()` retains the connection fence and caller's
 idempotency key in an existing `HostedOperationRequest`. Constructor inputs and
@@ -64,7 +66,7 @@ patterns; the owner must pin real snapshot IDs.
 
 A refusal before the budget is read carries no cost, budget, usage or completion.
 A bad-request refusal has no validated fingerprint; other validated refusals
-require it, with lifecycle fingerprints optional. A missing cap or unpriced request refuses without inventing cost or budget
+require it, with lifecycle fingerprints optional. A missing cap, unpriced request or inconsistent ledger projection refuses without inventing cost or budget
 fields. Other budget details carry the refused worst case that did not fit, `held` is false:
 that amount was neither held nor spent. Provider-reached receipts carry cost and
 budget context, including provider, UTC reservation day and accounting scope.

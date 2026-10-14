@@ -42,6 +42,15 @@ class TextCompletionRequest(BaseModel):
         default=None, strict=True, ge=0, le=1, allow_inf_nan=False
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _optional_keys_not_null(cls, value: object) -> object:
+        if isinstance(value, dict) and any(
+            key in value and value[key] is None for key in ("system", "temperature")
+        ):
+            raise ValueError("optional request keys are absent or valid, never null")
+        return value
+
     @model_validator(mode="after")
     def _temperature_precision(self) -> TextCompletionRequest:
         if (

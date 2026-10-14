@@ -19,8 +19,8 @@ from zeo_core.integrations.model_ops import (
 def receipt() -> dict[str, Any]:
     return {
         "draft_schema": (
-            "model-ops-draft-4 sha256:"
-            "1a7ef8645fdfcad9050af9b9cce1c39d391a50ef67fbacb0a1864fe0833a1965"
+            "model-ops-draft-5 sha256:"
+            "9d4e5be93af364f08ce1f7413f4369b9d5edb6230ad7d66a46299e5fff5a6399"
         ),
         "capability": "text_completion",
         "model_requested": "test-model-20261014",
@@ -626,7 +626,7 @@ def test_validated_request_size_is_capped_to_canonical_limit() -> None:
         parse(value)
 
 
-@pytest.mark.parametrize("detail", ["caps_missing", "unpriced"])
+@pytest.mark.parametrize("detail", ["caps_missing", "unpriced", "ledger_inconsistent"])
 def test_unread_budget_has_no_invented_cost_or_balance(detail: str) -> None:
     value = early("budget_exhausted")
     value["receipt"]["detail"] = detail
@@ -650,5 +650,13 @@ def test_confirmed_without_usage_stays_held() -> None:
     value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
     assert parse(value).receipt.cost is not None
     value["receipt"]["cost"]["held"] = False
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("detail", [None, "authority"])
+def test_budget_detail_is_absent_on_other_outcomes(detail: object) -> None:
+    value = live()
+    value["receipt"]["detail"] = detail
     with pytest.raises(HostedClientError):
         parse(value)

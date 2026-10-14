@@ -308,13 +308,25 @@ def test_connection_ceiling_and_temperature_catalogue_flag() -> None:
         client.prepare(request, idempotency_key="synthetic")
 
 
-def test_owner_request_vectors_match_canonical_bytes_and_refusals() -> None:
-    path = Path(__file__).parent / "fixtures/request-vectors-draft4.json"
+@pytest.mark.parametrize(
+    "filename,digest",
+    [
+        (
+            "request-vectors-draft4.json",
+            "0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a",
+        ),
+        (
+            "request-vectors-draft5.json",
+            "c62cbd12387dbecd59fbb3fc221f9beed92b8c6b7f75e44bc02acab8911abc80",
+        ),
+    ],
+)
+def test_owner_request_vectors_match_canonical_bytes_and_refusals(
+    filename: str, digest: str
+) -> None:
+    path = Path(__file__).parent / "fixtures" / filename
     raw = path.read_bytes()
-    assert (
-        hashlib.sha256(raw).hexdigest()
-        == "0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a"
-    )
+    assert hashlib.sha256(raw).hexdigest() == digest
     vectors = json.loads(raw)
     for item in vectors["valid"]:
         request = parse_model_request_json(json.dumps(item["request"]))
@@ -324,8 +336,10 @@ def test_owner_request_vectors_match_canonical_bytes_and_refusals() -> None:
         ]
         assert request.request_sha256() == item["request_sha256"], item["name"]
     for item in vectors["refused"]:
+        text = item["raw"]
+        rejected = bytes.fromhex(text[4:]) if text.startswith("hex:") else text
         with pytest.raises(HostedClientError):
-            parse_model_request_json(item["raw"])
+            parse_model_request_json(rejected)
 
 
 @pytest.mark.parametrize(
@@ -341,3 +355,15 @@ def test_raw_json_refusal_does_not_echo_input(raw: bytes) -> None:
     with pytest.raises(HostedClientError) as error:
         parse_model_request_json(raw)
     assert "synthetic-private" not in str(error.value)
+
+
+@pytest.mark.parametrize("field", ["system", "temperature"])
+def test_explicit_null_optional_request_is_not_silently_dropped(field: str) -> None:
+    values = {
+        "model": "synthetic",
+        "messages": [{"role": "user", "text": "test"}],
+        "max_output_tokens": 1,
+        field: None,
+    }
+    with pytest.raises(ValidationError):
+        TextCompletionRequest.model_validate(values)

@@ -69,7 +69,9 @@ class DraftModelOperationClient:
         self, request: TextCompletionRequest, *, idempotency_key: str
     ) -> HostedOperationRequest:
         """Validate a selected model and preserve the caller's exact replay key."""
-        request = TextCompletionRequest.model_validate(request.model_dump())
+        request = TextCompletionRequest.model_validate(
+            request.model_dump(exclude_unset=True)
+        )
         if request.model not in self._catalogue.model_ids:
             raise HostedClientError(
                 "model is not allowed by this catalogue; "

@@ -154,8 +154,8 @@ class ModelReceipt(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="ignore", hide_input_in_errors=True)
     draft_schema: Literal[
-        "model-ops-draft-4 sha256:"
-        "1a7ef8645fdfcad9050af9b9cce1c39d391a50ef67fbacb0a1864fe0833a1965"
+        "model-ops-draft-5 sha256:"
+        "9d4e5be93af364f08ce1f7413f4369b9d5edb6230ad7d66a46299e5fff5a6399"
     ]
     capability: Literal["text_completion"]
     reason: Reason | None = None
@@ -167,6 +167,7 @@ class ModelReceipt(BaseModel):
             "daily_spend",
             "overshoot",
             "unpriced",
+            "ledger_inconsistent",
         ]
         | None
     ) = None
@@ -233,6 +234,7 @@ class ModelReceipt(BaseModel):
         return self.reason == "budget_exhausted" and self.detail in {
             "caps_missing",
             "unpriced",
+            "ledger_inconsistent",
         }
 
     def _fingerprint_requiredness(self) -> None:
@@ -293,7 +295,7 @@ class ModelReceipt(BaseModel):
                 "overshoot_micro_usd",
             } & self.cost.model_fields_set:
                 raise ValueError("budget refusal carries no usage estimate")
-        elif self.detail is not None:
+        elif "detail" in self.model_fields_set:
             raise ValueError("budget detail belongs only to a budget refusal")
         return self
 
