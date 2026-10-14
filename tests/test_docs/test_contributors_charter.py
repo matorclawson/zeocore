@@ -28,8 +28,11 @@ SECTIONS = (
 
 #: Lines the skeleton gives verbatim.
 SHARED_LINES = (
-    "Fork `matorclawson/zeocore`, branch `zeocore/<seat>-<topic>-<yyyymmdd>`. "
-    "This is the lane form; anything else is refused.",
+    "Fork `matorclawson/zeocore`, branch `<your-seat>/<topic>-<yyyymmdd>`, where "
+    "`<your-seat>` is the authoring seat's zmsg name",
+    "this is the lane form; anything else is refused.",
+    "Until the A1 seat-list install, only the owner seat's PRs are admitted on this "
+    "repository",
     "Route: owner, then council, then zeomerger. Until zeomerger is live for that "
     "repo, the Architect sequences the merge. The operator never merges, and is "
     "never asked.",

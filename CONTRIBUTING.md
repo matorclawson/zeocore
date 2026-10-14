@@ -75,7 +75,7 @@ One-time trusted-publisher setup (on PyPI's web UI): owner `zeroemployeeorg`, re
 
 ## How to build
 
-**Fork and branch.** Fork `matorclawson/zeocore`, branch `zeocore/<seat>-<topic>-<yyyymmdd>`. This is the lane form; anything else is refused. Name the requesting seat's SOW in the PR body as `sow: <id>`. Never push to `main`. Never tag.
+**Fork and branch.** Fork `matorclawson/zeocore`, branch `<your-seat>/<topic>-<yyyymmdd>`, where `<your-seat>` is the authoring seat's zmsg name (for example `zeo-rt/…`, `rasa-bench/…`, `zeroemployee/…`). The lane reads the seat from the text before the first `/` of the branch, so this is the lane form; anything else is refused. Until the A1 seat-list install, only the owner seat's PRs are admitted on this repository; after it, every stream seat is admitted. Name the requesting seat's SOW in the PR body as `sow: <id>`. Never push to `main`. Never tag.
 
 **Dependencies.** Every dependency, new tool or pin goes through the Architect. Never ask the operator.
 
