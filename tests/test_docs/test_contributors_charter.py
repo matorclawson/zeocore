@@ -1,4 +1,8 @@
-"""The contributors charter keeps one shape, and AGENTS.md points to it."""
+"""Zeocore's contributors charter keeps the shared shape, and AGENTS.md links it.
+
+These tests check headings and strings only, not facts: the facts in the charter
+(paths, commands, job names) are checked by review against the repository.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CHARTER = REPO_ROOT / "CONTRIBUTING.md"
 AGENTS = REPO_ROOT / "AGENTS.md"
 
-#: The same six sections, in this order, in every core project's charter.
+#: The six sections of the shared charter shape, in order.
 SECTIONS = (
     "How to propose",
     "What is welcome",
