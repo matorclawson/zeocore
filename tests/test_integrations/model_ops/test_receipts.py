@@ -22,10 +22,11 @@ from zeo_core.integrations.model_ops.receipts import ModelReceipt
 def receipt() -> dict[str, Any]:
     return {
         "draft_schema": (
-            "model-ops-draft-9 sha256:"
-            "29c1e9479dad8ece26b768f5dae4f8f120f423629d004d5c61986bb798648a70"
+            "model-ops-draft-11 sha256:"
+            "38fe80e0ac6e35f045d1dd518da9ca31dab19c2c33c26f1d5a042643c8cdff11"
         ),
         "capability": "text_completion",
+        "replayed": False,
         "model_requested": "test-model-20261014",
         "model_reported": "test-model-20261014",
         "model_mismatch": False,
@@ -764,7 +765,7 @@ def test_native_usage_total_keys_count_both_nested_objects() -> None:
 
 
 @pytest.mark.parametrize(
-    "number", [-(2**53 - 1), 2**53 - 1, 0.5, 1.0, 1e80, True, False]
+    "number", [-(2**53 - 1), 2**53 - 1, 0.5, 1.0, 1e2, True, False]
 )
 def test_native_numbers_preserve_type_and_signed_boundary(number: int | float) -> None:
     value = live()
@@ -879,6 +880,102 @@ def test_unknown_outcome_with_complete_usage_keeps_tariff_and_hold() -> None:
     value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
     with pytest.raises(AmbiguousModelReceiptError):
         parse(value)
+
+
+@pytest.mark.parametrize("number", [float(1 << 53), -float(1 << 53), 1e80])
+def test_native_integral_values_outside_safe_domain_are_refused(number: float) -> None:
+    value = live()
+    value["receipt"]["usage_provider"] = {"number": number}
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("number", [1.0, 1e2])
+def test_normalized_receipt_counts_accept_integral_values(number: float) -> None:
+    value = live()
+    value["receipt"]["usage"]["cache_read_tokens"] = number
+    parsed = parse(value).receipt.usage.cache_read_tokens
+    assert parsed == int(number) and type(parsed) is int
+
+
+@pytest.mark.parametrize(
+    "number", [1.5, True, float("nan"), float("inf"), float(1 << 53)]
+)
+def test_normalized_counts_still_refuse_nonintegral_or_invalid_values(
+    number: object,
+) -> None:
+    value = live()
+    value["receipt"]["usage"]["cache_read_tokens"] = number
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_native_omission_marker_retains_missing_data() -> None:
+    value = live()
+    value["receipt"].pop("usage_provider")
+    value["receipt"]["usage_provider_omitted"] = True
+    parsed = parse(value).receipt
+    assert parsed.usage_provider_omitted is True
+    assert "usage_provider" not in parsed.model_fields_set
+
+
+@pytest.mark.parametrize("marker", [False, None, 1])
+def test_native_omission_marker_is_only_true(marker: object) -> None:
+    value = live()
+    value["receipt"].pop("usage_provider")
+    value["receipt"]["usage_provider_omitted"] = marker
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_native_omission_marker_cannot_coexist_with_data() -> None:
+    value = live()
+    value["receipt"]["usage_provider_omitted"] = True
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("field", ["replayed", "usage_provider_omitted"])
+def test_pre_reservation_flags_are_forbidden(field: str) -> None:
+    value = early()
+    value["receipt"][field] = True
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_provider_stage_requires_explicit_replay_status() -> None:
+    value = live()
+    value["receipt"].pop("replayed")
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_integral_receipt_cost_budget_and_sizes_are_normalized() -> None:
+    value = live()
+    value["artifact"]["size_bytes"] = 32.0
+    value["receipt"]["completion"]["size_bytes"] = 32.0
+    value["receipt"]["request_size_bytes"] = 32.0
+    value["receipt"]["cost"].update(
+        reservation_micro_usd=100.0, tariff_estimate_micro_usd=10.0
+    )
+    value["receipt"]["budget"]["day_calls_remaining"] = 4.0
+    parsed = parse(value).receipt
+    assert (
+        parsed.cost is not None and type(parsed.cost.tariff_estimate_micro_usd) is int
+    )
+    assert parsed.budget is not None and type(parsed.budget.day_calls_remaining) is int
+    assert type(parsed.request_size_bytes) is int
+
+
+def test_incomplete_usage_can_remain_held_with_native_omission() -> None:
+    value = live()
+    value["receipt"].pop("usage_provider")
+    value["receipt"].pop("usage")
+    value["receipt"]["usage_provider_omitted"] = True
+    value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    value["receipt"]["cost"].update(incomplete=["usage"], held=True)
+    cost = parse(value).receipt.cost
+    assert cost is not None and cost.held and cost.tariff_estimate_micro_usd is None
 
 
 @pytest.mark.parametrize("detail", [None, "authority"])

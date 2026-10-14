@@ -7,8 +7,8 @@ not an authentic provider call, settlement or permission to retry.
 
 ## Draft inputs
 
-This contribution binds model-ops draft 9
-`29c1e9479dad8ece26b768f5dae4f8f120f423629d004d5c61986bb798648a70`,
+This contribution binds model-ops draft 11
+`38fe80e0ac6e35f045d1dd518da9ca31dab19c2c33c26f1d5a042643c8cdff11`,
 not the contract.
 These are owner drafts, **not in this repository**. A public checkout cannot
 reproduce their contents; an adopted contract needs the project's normal
@@ -16,14 +16,14 @@ contract distribution.
 
 | Owner draft, not in this repo | SHA256 |
 |---|---|
-| SCHEMA-draft-9.md | `29c1e9479dad8ece26b768f5dae4f8f120f423629d004d5c61986bb798648a70` |
+| SCHEMA-draft-11.md | `38fe80e0ac6e35f045d1dd518da9ca31dab19c2c33c26f1d5a042643c8cdff11` |
 | DESIGN-NOTE-rev-h.md | `e3ffee1cbc91f92218966bbfa9ccfc5a4a7631c7447bfd21a148376b43393f19` |
 | request-vectors.json | `0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a` |
-| request-vectors-4.json | `5eb520927d6b68cc6688adcb081cb428d2c0f24cc9cc03e47f69cde74c391746` |
+| request-vectors-5.json | `1af60fe28860848bc5f24427face7ee749c5c7ba222ab4779e2053b7f6de1f98` |
 
-Draft 9 is self-contained and replaces the earlier schemas. Its recording
+Draft 11 is self-contained and replaces the earlier schemas. Its recording
 double stamps the schema hash into `draft_schema`; the parser requires that
-exact labelled `model-ops-draft-9 sha256:<draft-9 hash>` stamp. This does not qualify an installed receiver or freeze its contract.
+exact labelled `model-ops-draft-11 sha256:<draft-11 hash>` stamp. This does not qualify an installed receiver or freeze its contract.
 Proposed operations are `anthropic.messages.create`, `openai.responses.create`
 and `google.gemini.generate`.
 
@@ -53,7 +53,7 @@ The owner's synthetic request vectors are retained at
 for byte/digest and refusal tests, SHA256
 `0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a`.
 The extended refusal set is `request-vectors-extra.json` in the same directory,
-SHA256 `5eb520927d6b68cc6688adcb081cb428d2c0f24cc9cc03e47f69cde74c391746`.
+SHA256 `1af60fe28860848bc5f24427face7ee749c5c7ba222ab4779e2053b7f6de1f98`.
 
 `DraftModelOperationClient.prepare()` retains the connection fence and caller's
 idempotency key in an existing `HostedOperationRequest`. Constructor inputs and
@@ -89,11 +89,13 @@ components must include the tariff estimate; otherwise it must be absent.
 Native usage retains JSON scalars, objects and lists without coercing their
 values. Its root object counts as the first of two container levels, with at
 most 32 total object keys. Sensitive field names and nonfinite numbers are
-refused. Draft 9 sets no additional key-length, string-length or list-length
-limits for this native block; empty JSON keys are valid. Native integers must fit the signed RFC8785 safe range, from -(2^53-1) to
-2^53-1. Finite native fractions and exponent-form values are retained as floats;
-booleans stay booleans. Broker-normalized counts and money require nonnegative
-integer values, so even an integral float such as 1.0 is refused there.
+refused. Draft 11 sets no additional key-length, string-length or list-length
+limits for this native block; empty JSON keys are valid. Native integral numeric values must fit the signed RFC8785 safe range,
+from -(2^53-1) to 2^53-1, regardless of their original spelling. Other finite
+native fractions remain valid; booleans stay booleans. Broker-normalized counts
+and money are nonnegative integral values in the safe range. The consumer
+accepts 1.0 or 1e2 as integral values and represents them internally as integers;
+it refuses fractions, booleans, nonfinite values and out-of-domain values.
 Optional receipt keys and normalized usage components are absent or valid,
 never explicit null. These rules do not forbid JSON nulls inside native data.
 The parser receives already-decoded values and cannot preserve lexical number
@@ -141,3 +143,14 @@ Undeterminable response status raises `AmbiguousModelReceiptError`, preserving
 dispatch uncertainty. The raw request reader checks string length before
 encoding and rejects a BOM, trailing JSON and excessive nesting; valid -0.0
 temperature canonicalises to 0.
+
+Provider-stage receipts require an explicit `replayed` boolean;
+pre-reservation refusals forbid it. `usage_provider_omitted: true` means the
+Broker omitted native usage because it could not emit an in-domain block.
+The marker requires absent native data and is forbidden before reservation.
+The parser checks the supplied flag; it cannot authenticate stored-record
+provenance or reconstruct omitted data.
+
+Message whitespace follows the draft's exact Unicode White_Space set, rather
+than Python's broader default stripping. U+001C through U+001F remain valid
+message text. String bounds count Unicode code points.

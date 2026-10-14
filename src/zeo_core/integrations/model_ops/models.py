@@ -11,6 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 Provider = Literal["anthropic", "openai", "google"]
 MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
 MAX_REQUEST_BYTES = 256 * 1024
+_MESSAGE_WHITE_SPACE = (
+    "\u0009\u000a\u000b\u000c\u000d\u0020\u0085\u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000"
+)
 
 
 class ModelMessage(BaseModel):
@@ -23,7 +28,7 @@ class ModelMessage(BaseModel):
 
     @model_validator(mode="after")
     def _nonempty_text(self) -> ModelMessage:
-        if not self.text.strip():
+        if not self.text.strip(_MESSAGE_WHITE_SPACE):
             raise ValueError("message must contain text")
         return self
 

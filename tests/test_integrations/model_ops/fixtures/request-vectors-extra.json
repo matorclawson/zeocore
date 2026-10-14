@@ -1,5 +1,5 @@
 {
-  "about": "Vectors for model-ops draft 8: everything in request-vectors-3.json plus the refused cases below (whitespace-only text, a model id outside the pattern, an alias, max_output_tokens above 2^53-1). request-vectors.json still applies. `raw` is the exact body text; `hex:` means those raw bytes.",
+  "about": "Vectors for model-ops draft 10: everything in request-vectors-4.json plus a catalogue-refused alias, valid edges (a 200-character model id, max_output_tokens 2^53-1). request-vectors.json still applies. `raw` is the exact body text; `hex:` means those raw bytes. A 262144-character text or system cannot be isolated from the 256 KiB canonical cap (262144 vs 262145 bytes of canonical request), so no vector claims to. `expected` is bad_request unless it says otherwise.",
   "valid": [
     {
       "name": "minimal",
@@ -110,6 +110,40 @@
       "request_size_bytes": 113,
       "request_sha256": "sha256:0f1d6f04698d7c40e263416b1bfc1e80ef6fc294073a9b570cb924deb8b9265c",
       "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"line\\nquote\\\" back\\\\slash\"}],\"max_output_tokens\":8}"
+    },
+    {
+      "name": "model id of exactly 200 characters",
+      "request": {
+        "model": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "messages": [
+          {
+            "role": "user",
+            "text": "x"
+          }
+        ],
+        "max_output_tokens": 1
+      },
+      "raw": "{\"model\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "canonical": "{\"max_output_tokens\":1,\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"model\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "request_size_bytes": 274,
+      "request_sha256": "sha256:fc85c518efdf93203ba616d1f3cae326d89eac63b80939693b665d7a1f6f2c6f"
+    },
+    {
+      "name": "max_output_tokens 2^53-1",
+      "request": {
+        "model": "m",
+        "messages": [
+          {
+            "role": "user",
+            "text": "x"
+          }
+        ],
+        "max_output_tokens": 9007199254740991
+      },
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":9007199254740991}",
+      "canonical": "{\"max_output_tokens\":9007199254740991,\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"model\":\"m\"}",
+      "request_size_bytes": 90,
+      "request_sha256": "sha256:5ff0fd08b21029760dc5d03a3cf901aba888b16a9b69bd60fe71148b405f2a89"
     }
   ],
   "refused": [
@@ -227,6 +261,16 @@
       "name": "max_output_tokens above 2^53-1",
       "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":9007199254740992}",
       "expected": "bad_request"
+    },
+    {
+      "name": "alias model id latest (passes the pattern; the catalogue refuses it)",
+      "raw": "{\"model\":\"latest\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "model_not_allowed"
+    },
+    {
+      "name": "alias model id ending -latest",
+      "raw": "{\"model\":\"example-model-latest\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "model_not_allowed"
     }
   ]
 }

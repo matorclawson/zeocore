@@ -317,7 +317,7 @@ def test_connection_ceiling_and_temperature_catalogue_flag() -> None:
         ),
         (
             "request-vectors-extra.json",
-            "5eb520927d6b68cc6688adcb081cb428d2c0f24cc9cc03e47f69cde74c391746",
+            "1af60fe28860848bc5f24427face7ee749c5c7ba222ab4779e2053b7f6de1f98",
         ),
     ],
 )
@@ -338,8 +338,27 @@ def test_owner_request_vectors_match_canonical_bytes_and_refusals(
     for item in vectors["refused"]:
         text = item["raw"]
         rejected = bytes.fromhex(text[4:]) if text.startswith("hex:") else text
-        with pytest.raises(HostedClientError):
-            parse_model_request_json(rejected)
+        if item.get("expected") == "model_not_allowed":
+            request = parse_model_request_json(rejected)
+            catalogue = ModelCatalogue(
+                provider="anthropic",
+                models=(CataloguedModel(model="synthetic", max_output_tokens=128),),
+                connector_revision="synthetic",
+                proposed_contract_sha256="a" * 64,
+            )
+            client = DraftModelOperationClient(
+                catalogue=catalogue,
+                connection_id="synthetic",
+                connection_output_token_limit=128,
+                expected_binding=HostedExpectedBinding(
+                    external_identity="synthetic", connection_revision="1"
+                ),
+            )
+            with pytest.raises(HostedClientError):
+                client.prepare(request, idempotency_key="synthetic")
+        else:
+            with pytest.raises(HostedClientError):
+                parse_model_request_json(rejected)
 
 
 @pytest.mark.parametrize(
@@ -373,6 +392,17 @@ def test_negative_zero_temperature_is_valid_and_canonicalises_to_zero() -> None:
     request = parse_model_request_json(raw)
     assert request.temperature == 0.0
     assert b'"temperature":0' in request.canonical_bytes()
+
+
+@pytest.mark.parametrize("codepoint", range(0x1C, 0x20))
+def test_python_extra_whitespace_is_valid_message_text(codepoint: int) -> None:
+    assert ModelMessage(role="user", text=chr(codepoint)).text == chr(codepoint)
+
+
+@pytest.mark.parametrize("text", ["\u0085\u00a0", "\u2000\u200a\u3000", "\u0009\u2028"])
+def test_contract_unicode_whitespace_only_text_is_refused(text: str) -> None:
+    with pytest.raises(ValidationError):
+        ModelMessage(role="user", text=text)
 
 
 @pytest.mark.parametrize(

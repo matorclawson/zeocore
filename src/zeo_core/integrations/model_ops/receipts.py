@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     HttpUrl,
@@ -29,7 +30,18 @@ from zeo_core.integrations.hosted.client import (
 
 from .models import MAX_REQUEST_BYTES, MAX_SAFE_JSON_INTEGER
 
-Count = Annotated[int, Field(strict=True, ge=0, le=MAX_SAFE_JSON_INTEGER)]
+
+def _integral_count(value: object) -> object:
+    if isinstance(value, float) and isfinite(value) and value.is_integer():
+        return int(value)
+    return value
+
+
+Count = Annotated[
+    int,
+    Field(strict=True, ge=0, le=MAX_SAFE_JSON_INTEGER),
+    BeforeValidator(_integral_count),
+]
 NativeKey = Annotated[str, Field(min_length=1, max_length=128)]
 Reason = Literal[
     "model_not_allowed",
@@ -93,6 +105,8 @@ def _native_scalar(item: object) -> None:
     if isinstance(item, float):
         if not isfinite(item):
             raise ValueError("native usage number must be finite")
+        if item.is_integer() and abs(item) > MAX_SAFE_JSON_INTEGER:
+            raise ValueError("native integral value exceeds interoperable domain")
     elif isinstance(item, int):
         if abs(item) > MAX_SAFE_JSON_INTEGER:
             raise ValueError("native usage integer exceeds interoperable domain")
@@ -215,8 +229,8 @@ class ModelReceipt(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="ignore", hide_input_in_errors=True)
     draft_schema: Literal[
-        "model-ops-draft-9 sha256:"
-        "29c1e9479dad8ece26b768f5dae4f8f120f423629d004d5c61986bb798648a70"
+        "model-ops-draft-11 sha256:"
+        "38fe80e0ac6e35f045d1dd518da9ca31dab19c2c33c26f1d5a042643c8cdff11"
     ]
     capability: Literal["text_completion"]
     reason: Reason | None = None
@@ -236,6 +250,7 @@ class ModelReceipt(BaseModel):
     model_reported: str | None = Field(default=None, min_length=1, max_length=200)
     usage: UsageComponents = Field(default_factory=UsageComponents)
     usage_provider: dict[str, JsonValue] = Field(default_factory=dict, max_length=32)
+    usage_provider_omitted: bool | None = Field(default=None, strict=True)
     cost: ModelCost | None = None
     budget: BudgetRemaining | None = None
     request_sha256: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
@@ -265,6 +280,7 @@ class ModelReceipt(BaseModel):
     @model_validator(mode="after")
     def _stage_fields(self) -> ModelReceipt:
         self._fingerprint_requiredness()
+        self._provider_projection_flags()
         early = self.reason in _EARLY_REASONS or self._budget_unread()
         if early:
             forbidden = {
@@ -292,6 +308,19 @@ class ModelReceipt(BaseModel):
         ):
             raise ValueError("unknown outcome must retain the reservation")
         return self
+
+    def _provider_projection_flags(self) -> None:
+        if self.reason in _EARLY_REASONS or self.reason == "budget_exhausted":
+            if {"replayed", "usage_provider_omitted"} & self.model_fields_set:
+                raise ValueError("pre-reservation refusal has no stored replay flags")
+            return
+        if "replayed" not in self.model_fields_set:
+            raise ValueError("provider-stage receipt requires replay status")
+        if "usage_provider_omitted" in self.model_fields_set and (
+            self.usage_provider_omitted is not True
+            or "usage_provider" in self.model_fields_set
+        ):
+            raise ValueError("native omission marker requires absent native data")
 
     def _budget_unread(self) -> bool:
         return self.reason == "budget_exhausted" and self.detail in {
