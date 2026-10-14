@@ -177,6 +177,22 @@ Development origins also need `ZEOCONNECT_DEVELOPMENT=1`.
   events prints exactly one line. Diagnostics go to stderr.
 - **Input is strict JSON:** no duplicate keys, no `NaN` or infinities, at most
   1 MiB.
+- **A failing message ends with the next action.** A failing answer's `message`
+  names what failed, then, after a `;`, what to do next: a command to run, a
+  flag to set, or who has to act (for example `this device is not paired with
+  ZEOconnect; run zeocore login`). Where a layer below gave no next step, the
+  answer adds one chosen by outcome, so every refusal, held and waiting answer
+  carries one. The next action is fixed text and never quotes the input. Only a
+  message zeocore wrote itself, ending in its own action, skips the added one;
+  a message built from an error's text always gets it, however it ends.
+- **`ZEOCORE_DEBUG=1` explains an internal error.** An internal error's
+  message says to rerun the same command with `ZEOCORE_DEBUG=1` and report the
+  command, the zeocore version and that output. With the variable set to `1`,
+  stderr gets the exception's type and where it happened (file, line and
+  function of each frame). Never its text, arguments, locals or the input.
+  The file paths are absolute, so they can include the installing user's home
+  directory: that is why it is an explicit opt-in, and stderr only. stdout
+  stays one JSON line.
 - **Errors never echo input.** A validation error is its location and type only.
   A location keeps declared field names and list positions; any other key (inside
   a free-form object such as `arguments`, or an unknown extra) shows as `*`.
@@ -192,7 +208,7 @@ Development origins also need `ZEOCONNECT_DEVELOPMENT=1`.
   | 12 | not paired: run `zeocore login` |
   | 13 | ambiguous; never retried by the command |
   | 20 | held or refused, including a value that doesn't match its schema; for `doctor`, not ready |
-  | 1 | internal error in zeocore: `{"ok": false, "outcome": "internal"}`, no detail. For an operation, treat it like 13 |
+  | 1 | internal error in zeocore: `{"ok": false, "outcome": "internal", "message": …}`, with no detail of the input. For an operation, treat it like 13 |
 
 A change to these rules is a new `cli_protocol`, announced like a contract change.
 

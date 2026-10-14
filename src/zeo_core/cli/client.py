@@ -81,6 +81,7 @@ from .protocol import (
     Emit,
     emit,
     invalid,
+    own_action,
 )
 
 PROFILE_ENV: Final = "ZEOCORE_PROFILE"
@@ -133,19 +134,23 @@ now: Callable[[], datetime] = lambda: datetime.now(UTC)  # noqa: E731
 class _NotPairedError(Exception):
     def __init__(self, outcome: str, message: str) -> None:
         self.outcome = outcome
+        # Kept as given, so a message zeocore marked as its own survives.
+        self.message = message
         super().__init__(message)
 
 
 def _not_paired(error: Exception) -> Answer | None:
     """Exit 12: no usable grant on this machine, for this profile."""
-    text = str(error)
+    text = error.message if isinstance(error, _NotPairedError) else str(error)
     if isinstance(error, _NotPairedError):
         return EXIT_NOT_PAIRED, {"ok": False, "outcome": error.outcome, "message": text}
     if isinstance(error, HostedSessionError):
         return EXIT_NOT_PAIRED, {
             "ok": False,
             "outcome": "not_paired",
-            "message": "this device is not paired with ZEOconnect; run zeocore login",
+            "message": own_action(
+                "this device is not paired with ZEOconnect; run zeocore login"
+            ),
         }
     if isinstance(error, SecureStoreError):
         return EXIT_NOT_PAIRED, {
@@ -304,7 +309,8 @@ def whoami(args: Sequence[str], _stdin: bytes) -> Answer:
         session = store.load()
         if session is None:
             raise _NotPairedError(
-                "not_paired", "this profile is not paired; run zeocore login"
+                "not_paired",
+                own_action("this profile is not paired; run zeocore login"),
             )
         return EXIT_DONE, {
             "ok": True,
@@ -504,7 +510,10 @@ def _unknown(key: str) -> dict[str, Any]:
     return {
         "ok": False,
         "outcome": "ambiguous",
-        "message": "ZEOconnect did not answer; the same request replays its outcome",
+        "message": own_action(
+            "ZEOconnect did not answer; ask the same request again, which "
+            "replays its outcome"
+        ),
         "retry": "same_request",
         "request_key": key,
     }
