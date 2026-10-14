@@ -37,11 +37,21 @@ REPO_ROOT := $(shell pwd)
 # Where this checkout's environment, caches and build output live.
 # ZEO_WORK_DIR set (the org's machines, where repositories live on one volume
 # and runs on another; the operator, 2026-10-12): all of it goes under
-# $(ZEO_WORK_DIR)/<checkout directory name>/, and the checkout holds only the
-# repository. Unset, everything stays inside the checkout, as for any
-# contributor.
+# $(ZEO_WORK_DIR)/<checkout directory name>-<hash of its path>/ (two checkouts
+# with one name, such as worktrees, never share an environment), and the
+# checkout holds only the repository, bar .import_linter_cache. Unset,
+# everything stays inside the checkout, as for any contributor.
 ifdef ZEO_WORK_DIR
-WORK_DIR := $(ZEO_WORK_DIR)/$(notdir $(REPO_ROOT))
+ifneq ($(words $(ZEO_WORK_DIR)),1)
+$(error ZEO_WORK_DIR must be one path without spaces)
+endif
+ifneq ($(patsubst /%,/,$(ZEO_WORK_DIR)),/)
+$(error ZEO_WORK_DIR must be an absolute path, got '$(ZEO_WORK_DIR)')
+endif
+ifneq ($(filter $(REPO_ROOT) $(REPO_ROOT)/%,$(abspath $(ZEO_WORK_DIR))),)
+$(error ZEO_WORK_DIR must be outside the checkout, got '$(ZEO_WORK_DIR)')
+endif
+WORK_DIR := $(abspath $(ZEO_WORK_DIR))/$(notdir $(REPO_ROOT))-$(shell printf %s '$(REPO_ROOT)' | cksum | cut -d' ' -f1)
 VENV_DIR := $(WORK_DIR)/venv
 SITE_DIR := $(WORK_DIR)/site
 DIST_DIR := $(WORK_DIR)/dist
@@ -51,6 +61,7 @@ export COVERAGE_FILE := $(WORK_DIR)/coverage/.coverage
 export MYPY_CACHE_DIR := $(WORK_DIR)/cache/mypy
 export RUFF_CACHE_DIR := $(WORK_DIR)/cache/ruff
 export PYTHONPYCACHEPREFIX := $(WORK_DIR)/cache/pycache
+export HYPOTHESIS_STORAGE_DIRECTORY := $(WORK_DIR)/cache/hypothesis
 else
 WORK_DIR := $(REPO_ROOT)
 VENV_DIR := $(REPO_ROOT)/$(VENV_NAME)
@@ -191,7 +202,7 @@ check-env: ## Check that the virtual environment is active and working
 # audience is someone who has never debugged a Python environment before.
 .PHONY: doctor
 doctor: ## Check this machine is ready to develop/release zeocore (never stops at the first problem)
-	@bash tools/doctor.sh "$(REPO_ROOT)" "$(PYTHON)" "$(VENV_NAME)"
+	@bash tools/doctor.sh "$(REPO_ROOT)" "$(PYTHON)" "$(VENV_DIR)"
 
 # ============================================================
 # THE GATE — verify / verify-full
