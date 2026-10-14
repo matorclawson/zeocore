@@ -19,6 +19,7 @@ from zeo_core.integrations.google.youtube.transfer import (
 )
 from zeo_core.integrations.hosted.client import (
     HostedClientError,
+    HostedResponseUnreadableError,
     HostedStoppedError,
     HostedUnavailableError,
     HostedUnreachableError,
@@ -269,7 +270,7 @@ def test_transport_refusals_and_limits() -> None:
             json=[1],
         )
 
-    with pytest.raises(HostedClientError, match="shape"):
+    with pytest.raises(HostedResponseUnreadableError, match="could not be read"):
         _device(httpx.MockTransport(bad_shape)).relay_youtube_chunk(
             connection_id="c",
             link=LINK,

@@ -461,3 +461,54 @@ def test_an_unreadable_refusal_stays_a_refusal_not_an_unknown_outcome() -> None:
     with pytest.raises(HostedClientError) as caught:
         hosted.invoke(request("bluesky.post.create"))
     assert not isinstance(caught.value, HostedResponseUnreadableError)
+
+
+_WRONG_SHAPES = {
+    "not an object": [1, 2],
+    "missing execution id": {"status": "confirmed"},
+    "unknown status": {"status": "banana", "execution_id": "exec-1"},
+    "wrong type": {"status": "confirmed", "execution_id": 7},
+    "empty execution id": {"status": "confirmed", "execution_id": ""},
+}
+
+
+@pytest.mark.parametrize("payload", _WRONG_SHAPES.values(), ids=list(_WRONG_SHAPES))
+def test_a_wrong_shaped_success_for_an_effect_is_an_unknown_outcome(
+    payload: object,
+) -> None:
+    body = json.dumps(payload).encode()
+    with pytest.raises(HostedResponseUnreadableError) as caught:
+        _invoke_answering(body, "bluesky.post.create")
+    message = str(caught.value)
+    assert message.endswith("and never use a new key")
+    assert "banana" not in message
+    assert "exec-1" not in message
+    assert "validation" not in message
+
+
+@pytest.mark.parametrize("payload", _WRONG_SHAPES.values(), ids=list(_WRONG_SHAPES))
+def test_a_wrong_shaped_success_for_a_read_keeps_the_plain_error(
+    payload: object,
+) -> None:
+    with pytest.raises(HostedClientError, match="response is invalid") as caught:
+        _invoke_answering(json.dumps(payload).encode(), "google.drive.file.download")
+    assert not isinstance(caught.value, HostedResponseUnreadableError)
+
+
+def test_an_extra_field_in_a_success_is_ignored_not_unknown() -> None:
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        return response(
+            200,
+            {
+                "status": "confirmed",
+                "execution_id": "exec-1",
+                "result": "ok",
+                "added": "later",
+            },
+            request=http_request,
+        )
+
+    hosted, store = transport(httpx.MockTransport(handler))
+    store.save(session(NOW))
+    answer = hosted.invoke(request("bluesky.post.create"))
+    assert answer.status is HostedOperationStatus.CONFIRMED

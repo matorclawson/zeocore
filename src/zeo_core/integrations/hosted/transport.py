@@ -165,6 +165,13 @@ class HostedConnectionWire(BaseModel):
     )
 
 
+_RELAY_UNREADABLE = (
+    "the Broker answered the relayed chunk but its answer could not be read;"
+    " YouTube may have taken the bytes: ask the same upload again, which"
+    " probes the byte YouTube holds and resumes from there"
+)
+
+
 def _decode_json(response: httpx.Response, *, effectful: bool) -> JsonValue:
     """The JSON body of a success answer.
 
@@ -336,6 +343,10 @@ class ZEOconnectHTTPTransport:
             try:
                 return HostedOperationResponse.model_validate(payload)
             except ValidationError:
+                # A 2xx that decoded but fits no response shape says nothing
+                # about the effect: for an effectful call the outcome is unknown.
+                if not safe_read:
+                    raise HostedResponseUnreadableError() from None
                 raise HostedClientError(
                     "hosted operation response is invalid"
                 ) from None
@@ -442,14 +453,16 @@ class ZEOconnectHTTPTransport:
             # transient, so the transfer probes again and resumes.
             raise HostedUnavailableError()
         self._validate_response(response)
+        # A relayed chunk is an effect: a 2xx whose body cannot be read leaves
+        # it unknown whether YouTube took the bytes.
         if len(response.content) > _MAX_JSON_BYTES:
-            raise HostedClientError("hosted response exceeds the client limit")
+            raise HostedResponseUnreadableError(_RELAY_UNREADABLE)
         try:
             payload = response.json()
         except Exception:
-            raise HostedClientError("hosted response shape is invalid") from None
+            raise HostedResponseUnreadableError(_RELAY_UNREADABLE) from None
         if not isinstance(payload, dict) or not isinstance(payload.get("status"), int):
-            raise HostedClientError("hosted response shape is invalid")
+            raise HostedResponseUnreadableError(_RELAY_UNREADABLE)
         return cast(dict[str, JsonValue], payload)
 
     def revoke_device(self, session: DeviceSession) -> None:

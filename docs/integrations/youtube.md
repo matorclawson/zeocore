@@ -120,6 +120,12 @@ switches that job to the **custody relay** (`relay.RelayByteHttp`), records
   chunk, and answers with only YouTube's status, `Range`, and on completion the video's
   id and privacy.
 - The device still never holds the token, and ZEOconnect still stores no link.
+- A relay answer with a success status whose body cannot be read (truncated, not UTF-8,
+  over the client limit, or without an integer `status`) is **unknown**: YouTube may have
+  taken the chunk. The relay raises `HostedResponseUnreadableError`, and the transfer
+  treats it like a broken connection: it backs off, probes the byte YouTube holds and
+  resumes from there, and when its retries run out the job is paused to resume later. It
+  never becomes a terminal `relay_failed`, which would let a caller upload again.
 
 Later steps and runs of that job go straight to the relay. If the relay is unavailable
 too, the job is held as `session_link_refused`. The first trial on a test channel shows

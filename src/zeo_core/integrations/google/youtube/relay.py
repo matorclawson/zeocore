@@ -24,6 +24,7 @@ from pydantic import JsonValue
 
 from zeo_core.integrations.hosted.client import (
     HostedClientError,
+    HostedResponseUnreadableError,
     HostedStoppedError,
     HostedUnavailableError,
 )
@@ -87,6 +88,11 @@ class RelayByteHttp:
                 content_type=headers.get("Content-Type", self._mime),
                 body=content,
             )
+        except HostedResponseUnreadableError:
+            # The chunk may have landed. Treated as a broken connection: the
+            # transfer probes the byte YouTube holds and resumes from it, and a
+            # finish it cannot confirm is held as ambiguous_upload.
+            raise httpx.ConnectError("relay answer unreadable") from None
         except HostedClientError as error:
             message = str(error)
             if isinstance(error, HostedUnavailableError) or message == _PENDING:

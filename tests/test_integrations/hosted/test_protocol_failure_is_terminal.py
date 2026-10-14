@@ -32,6 +32,7 @@ from zeo_core.integrations.google.youtube.transfer import (
 )
 from zeo_core.integrations.hosted import (
     ZEOCONNECT_PROTOCOL_HEADER,
+    ZEOCONNECT_PROTOCOL_VERSION,
     HostedClientError,
     HostedStoppedError,
     InMemorySecureSessionStore,
@@ -243,5 +244,38 @@ def test_a_broker_outage_with_the_header_is_still_retried(tmp_path: Path) -> Non
     outcome, sent, sleeps = _relayed_upload(tmp_path, outage, 503)
 
     assert outcome.state is TransferState.PAUSED
+    assert len(sent) > 1
+    assert len(sleeps) == len(sent) - 1
+
+
+_UNREADABLE_RELAY = {
+    "truncated": b'{"status": 200, "re',
+    "invalid utf-8": b"\xff\xfe\xc3",
+    "no status": b'{"range": "bytes=0-3"}',
+    "status of the wrong type": b'{"status": "200"}',
+}
+
+
+@pytest.mark.parametrize(
+    "body", _UNREADABLE_RELAY.values(), ids=list(_UNREADABLE_RELAY)
+)
+def test_an_unreadable_relay_success_is_unknown_so_the_transfer_probes_again(
+    tmp_path: Path, body: bytes
+) -> None:
+    def unreadable(
+        status: int, payload: object, http_request: httpx.Request
+    ) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={ZEOCONNECT_PROTOCOL_HEADER: ZEOCONNECT_PROTOCOL_VERSION},
+            content=body,
+            request=http_request,
+        )
+
+    outcome, sent, sleeps = _relayed_upload(tmp_path, unreadable, 200)
+
+    # Like a broken connection: backed off and probed, never a terminal failure.
+    assert outcome.state is TransferState.PAUSED
+    assert outcome.state is not TransferState.REJECTED
     assert len(sent) > 1
     assert len(sleeps) == len(sent) - 1
