@@ -232,11 +232,13 @@ def test_an_internal_error_still_answers_one_line(
         main(["version"])
     assert exited.value.code == 1
     out = capsys.readouterr().out
-    assert json.loads(out) == {
+    answer = json.loads(out)
+    assert {key: answer[key] for key in ("ok", "outcome", "schema")} == {
         "ok": False,
         "outcome": "internal",
         "schema": "zeocore.internal/v1",
     }
+    assert "ZEOCORE_DEBUG=1" in answer["message"]
     assert "secret-canary" not in out
 
 
