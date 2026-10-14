@@ -463,10 +463,70 @@ def test_wait_gives_up_at_its_deadline_with_the_last_answer(
 ) -> None:
     _paired(broker)
     broker.answers = answers
-    clock = iter([0.0, 0.0, 30.0, 61.0, 61.0])
+    clock = iter([0.0, 0.0, 30.0, 61.0])
     monkeypatch.setattr(client.time, "monotonic", lambda: next(clock))
-    got, _ = _invoke("--wait", "60")
+    seen, emit = _events()
+    got, _ = client.invoke(
+        ["google.drive.file.download", "--connection", CONNECTION, "--wait", "60"],
+        b'{"file_id": "f"}',
+        out=emit,
+    )
     assert got == status
+    # It really waited: asked at 0, 30 and 61, announced the wait once.
+    assert len(broker.requests) == 3
+    assert len(seen) == 1
+
+
+def test_wait_cuts_its_last_sleep_to_the_time_left(
+    broker: Broker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _paired(broker)
+    broker.answers = [IN_FLIGHT]
+    naps: list[float] = []
+    monkeypatch.setattr(client, "sleep", naps.append)
+    clock = iter([0.0, 0.0, 1.0, 1.0])
+    monkeypatch.setattr(client.time, "monotonic", lambda: next(clock))
+    status, _ = _invoke("--wait", "1")
+    assert status == 11
+    assert naps == [1.0]
+
+
+@pytest.mark.parametrize(
+    ("answers", "words"),
+    [([IN_FLIGHT], "still in flight after waiting 60s"), ([APPROVAL], "awaiting")],
+)
+def test_wait_out_of_time_says_what_to_do_next(
+    broker: Broker,
+    monkeypatch: pytest.MonkeyPatch,
+    answers: list[Any],
+    words: str,
+) -> None:
+    _paired(broker)
+    broker.answers = answers
+    clock = iter([0.0, 0.0, 61.0])
+    monkeypatch.setattr(client.time, "monotonic", lambda: next(clock))
+    _, answer = _invoke("--wait", "60")
+    assert words in answer["message"]
+    assert "ask the same request again" in answer["message"]
+
+
+def test_wait_interrupted_is_json_with_the_key_not_a_traceback(
+    broker: Broker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _paired(broker)
+    broker.answers = [IN_FLIGHT]
+
+    def interrupt(seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(client, "sleep", interrupt)
+    status, answer = _invoke("--wait", "60")
+    assert (status, answer["outcome"], answer["retry"]) == (
+        13,
+        "interrupted",
+        "same_request",
+    )
+    assert answer["request_key"]
 
 
 def test_wait_approval_still_returns_an_in_flight_answer_at_once(
@@ -485,6 +545,9 @@ def test_wait_approval_still_returns_an_in_flight_answer_at_once(
     [
         (["x.y", "--connection", CONNECTION, "--wait", "0"], b"{}"),
         (["x.y", "--connection", CONNECTION, "--wait", "3601"], b"{}"),
+        (["x.y", "--connection", CONNECTION, "--wait", "-1"], b"{}"),
+        (["x.y", "--connection", CONNECTION, "--wait", "abc"], b"{}"),
+        (["x.y", "--connection", CONNECTION, "--wait", "1.5"], b"{}"),
         (
             ["x.y", "--connection", CONNECTION, "--wait", "5", "--wait-approval", "5"],
             b"{}",

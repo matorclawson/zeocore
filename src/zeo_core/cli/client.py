@@ -421,6 +421,7 @@ def invoke(args: Sequence[str], stdin: bytes, *, out: Emit = emit) -> Answer:
                 key,
                 out,
                 deadline=time.monotonic() + seconds if seconds else None,
+                seconds=seconds,
                 full=options.wait is not None,
             )
         finally:
@@ -448,6 +449,7 @@ def _invoke_until_final(
     out: Emit,
     *,
     deadline: float | None,
+    seconds: int | None,
     full: bool,
 ) -> Answer:
     """Ask the same request again until its answer is final, or the deadline.
@@ -455,31 +457,66 @@ def _invoke_until_final(
     --wait-approval (``full`` False) waits through approval only. --wait also
     waits through an answer still in flight and through ZEOconnect being
     unavailable: the states that ask for the same request again. Never
-    through ambiguous (13), which this command never retries.
+    through ambiguous (13), which this command never retries. The last sleep
+    is cut to the time left, so the deadline is not overshot by a poll.
     """
     announced: set[str] = set()
-    while True:
-        open_ = deadline is not None and time.monotonic() < deadline
-        try:
-            response = client.invoke(request)
-        except HostedUnreachableError:
-            return EXIT_AMBIGUOUS, _unknown(key)
-        except HostedUnavailableError:
-            if not (full and open_):
-                raise
-            _announce(out, announced, "waiting", key, reason="unavailable")
-            sleep(_APPROVAL_POLL_SECONDS)
-            continue
-        waiting = _waits_on(response, include_in_flight=full)
-        if not waiting or not open_:
-            return _answer(response, key)
-        if waiting == "approval":
-            _announce(
-                out, announced, "approval", key, approval_url=str(response.approval_url)
-            )
-        else:
-            _announce(out, announced, "waiting", key, reason="in_flight")
-        sleep(_APPROVAL_POLL_SECONDS)
+    try:
+        while True:
+            left = deadline - time.monotonic() if deadline is not None else 0.0
+            open_ = left > 0
+            nap = min(_APPROVAL_POLL_SECONDS, left)
+            try:
+                response = client.invoke(request)
+            except HostedUnreachableError:
+                return EXIT_AMBIGUOUS, _unknown(key)
+            except HostedUnavailableError:
+                if not (full and open_):
+                    raise
+                _announce(out, announced, "waiting", key, reason="unavailable")
+                sleep(nap)
+                continue
+            waiting = _waits_on(response, include_in_flight=full)
+            if not waiting:
+                return _answer(response, key)
+            if not open_:
+                status, answer = _answer(response, key)
+                if response.normalized_error is None:
+                    answer["message"] = own_action(
+                        f"still {_STILL[waiting]} after waiting {seconds}s; "
+                        "ask the same request again, which replays its outcome"
+                    )
+                return status, answer
+            if waiting == "approval":
+                _announce(
+                    out,
+                    announced,
+                    "approval",
+                    key,
+                    approval_url=str(response.approval_url),
+                )
+            else:
+                _announce(out, announced, "waiting", key, reason="in_flight")
+            sleep(nap)
+    except KeyboardInterrupt:
+        return EXIT_AMBIGUOUS, _interrupted(key)
+
+
+#: What a wait that ran out of time says it was still doing.
+_STILL: Final = {"approval": "awaiting approval", "in_flight": "in flight"}
+
+
+def _interrupted(key: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "outcome": "interrupted",
+        "message": own_action(
+            "interrupted while waiting; the request may have been sent, so ask "
+            "the same request again, which replays its outcome"
+        ),
+        "retry": "same_request",
+        "request_key": key,
+    }
 
 
 def _waits_on(

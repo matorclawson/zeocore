@@ -5,3 +5,4 @@ bump: minor
 - An ambiguous answer (13), or a Broker that didn't answer, is never retried.
 - `--wait-approval` keeps its meaning (approval only), and the two can't be combined.
 - `zeocore help` and `AGENTS.md` describe it.
+- The last sleep is cut to the time left, so `--wait 1` ends at about 1 s. At the deadline an approval or in-flight answer says in words to ask the same request again. Ctrl-C mid-wait answers JSON (`outcome: interrupted`, exit 13, `retry: same_request`, the key), not a traceback.
