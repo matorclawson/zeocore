@@ -19,8 +19,8 @@ from zeo_core.integrations.model_ops import (
 def receipt() -> dict[str, Any]:
     return {
         "draft_schema": (
-            "model-ops-draft-3 sha256:"
-            "753d8b1ca692f7b579ff340544d4e2321525464919ecf1a0ac418bc1598449d9"
+            "model-ops-draft-4 sha256:"
+            "1a7ef8645fdfcad9050af9b9cce1c39d391a50ef67fbacb0a1864fe0833a1965"
         ),
         "capability": "text_completion",
         "model_requested": "test-model-20261014",
@@ -147,6 +147,8 @@ def test_expired_replay_has_no_fetchable_completion() -> None:
 def test_fixed_error_mapping(reason: str | None, status: str, code: str) -> None:
     r = receipt()
     r["reason"] = reason
+    if reason == "budget_exhausted":
+        r["detail"] = "authority"
     r.pop("completion")
     r["cost"]["tariff_estimate_micro_usd"] = None
     if reason in {
@@ -164,6 +166,7 @@ def test_fixed_error_mapping(reason: str | None, status: str, code: str) -> None
                 "draft_schema",
                 "capability",
                 "reason",
+                "detail",
                 "model_requested",
                 "cost",
                 "budget",
@@ -288,7 +291,7 @@ def test_incomplete_estimate_preserves_missing_rate() -> None:
 
 
 def early(reason: str = "bad_request") -> dict[str, Any]:
-    value = {
+    value: dict[str, Any] = {
         "status": "refused",
         "execution_id": "synthetic",
         "normalized_error": {
@@ -305,6 +308,8 @@ def early(reason: str = "bad_request") -> dict[str, Any]:
         },
     }
 
+    if reason == "budget_exhausted":
+        value["receipt"]["detail"] = "authority"
     if reason == "bad_request":
         value["receipt"].pop("request_sha256")
         value["receipt"].pop("request_size_bytes")
@@ -617,5 +622,33 @@ def test_budget_refusal_forbids_provider_outcome_fields(field: str) -> None:
 def test_validated_request_size_is_capped_to_canonical_limit() -> None:
     value = live()
     value["receipt"]["request_size_bytes"] = 256 * 1024 + 1
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("detail", ["caps_missing", "unpriced"])
+def test_unread_budget_has_no_invented_cost_or_balance(detail: str) -> None:
+    value = early("budget_exhausted")
+    value["receipt"]["detail"] = detail
+    parsed = parse(value)
+    assert parsed.receipt.cost is None and parsed.receipt.budget is None
+    value["receipt"]["cost"] = None
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_budget_refusal_requires_fixed_detail() -> None:
+    value = early("budget_exhausted")
+    value["receipt"].pop("detail")
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_confirmed_without_usage_stays_held() -> None:
+    value = live()
+    value["receipt"].pop("usage")
+    value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    assert parse(value).receipt.cost is not None
+    value["receipt"]["cost"]["held"] = False
     with pytest.raises(HostedClientError):
         parse(value)

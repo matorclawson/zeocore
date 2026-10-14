@@ -7,6 +7,7 @@ from .receipts import (
     ParsedModelResponse,
     parse_model_response,
 )
+from .requests import parse_model_request_json
 from .service import DraftModelOperationClient
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     "ModelReceipt",
     "ParsedModelResponse",
     "parse_model_response",
+    "parse_model_request_json",
     "TextCompletionRequest",
 ]

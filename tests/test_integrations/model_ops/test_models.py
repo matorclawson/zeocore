@@ -1,6 +1,9 @@
 """Inputs are closed and bounded, with no credential or dispatch surface."""
 
+import hashlib
+import json
 import unittest
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -12,6 +15,7 @@ from zeo_core.integrations.model_ops import (
     ModelCatalogue,
     ModelMessage,
     TextCompletionRequest,
+    parse_model_request_json,
 )
 from zeo_core.integrations.model_ops.models import Provider
 
@@ -252,8 +256,6 @@ def test_configuration_is_validated_before_preparation() -> None:
 
 
 def test_caller_retains_rfc8785_bytes_and_digest() -> None:
-    import hashlib
-
     request = TextCompletionRequest(
         model="synthetic",
         messages=(ModelMessage(role="user", text="é"),),
@@ -304,3 +306,38 @@ def test_connection_ceiling_and_temperature_catalogue_flag() -> None:
     request = request.model_copy(update={"max_output_tokens": 5, "temperature": 0.5})
     with pytest.raises(HostedClientError, match="omit temperature"):
         client.prepare(request, idempotency_key="synthetic")
+
+
+def test_owner_request_vectors_match_canonical_bytes_and_refusals() -> None:
+    path = Path(__file__).parent / "fixtures/request-vectors-draft4.json"
+    raw = path.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a"
+    )
+    vectors = json.loads(raw)
+    for item in vectors["valid"]:
+        request = parse_model_request_json(json.dumps(item["request"]))
+        assert request.canonical_bytes().decode() == item["canonical"], item["name"]
+        assert len(request.canonical_bytes()) == item["request_size_bytes"], item[
+            "name"
+        ]
+        assert request.request_sha256() == item["request_sha256"], item["name"]
+    for item in vectors["refused"]:
+        with pytest.raises(HostedClientError):
+            parse_model_request_json(item["raw"])
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"model":"synthetic","messages":[{"role":"user","text":"synthetic-private"}],"max_output_tokens":1,"temperature":1e-2}',
+        b'{"model":"synthetic","messages":[{"role":"user","text":"synthetic-private"}],"max_output_tokens":1,"temperature":NaN}',
+        b"\xff",
+        b" " * (512 * 1024 + 1),
+    ],
+)
+def test_raw_json_refusal_does_not_echo_input(raw: bytes) -> None:
+    with pytest.raises(HostedClientError) as error:
+        parse_model_request_json(raw)
+    assert "synthetic-private" not in str(error.value)

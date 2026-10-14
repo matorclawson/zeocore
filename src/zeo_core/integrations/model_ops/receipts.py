@@ -154,11 +154,22 @@ class ModelReceipt(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="ignore", hide_input_in_errors=True)
     draft_schema: Literal[
-        "model-ops-draft-3 sha256:"
-        "753d8b1ca692f7b579ff340544d4e2321525464919ecf1a0ac418bc1598449d9"
+        "model-ops-draft-4 sha256:"
+        "1a7ef8645fdfcad9050af9b9cce1c39d391a50ef67fbacb0a1864fe0833a1965"
     ]
     capability: Literal["text_completion"]
     reason: Reason | None = None
+    detail: (
+        Literal[
+            "caps_missing",
+            "authority",
+            "daily_calls",
+            "daily_spend",
+            "overshoot",
+            "unpriced",
+        ]
+        | None
+    ) = None
     model_requested: str | None = Field(default=None, min_length=1, max_length=200)
     model_reported: str | None = Field(default=None, min_length=1, max_length=200)
     usage: UsageComponents = Field(default_factory=UsageComponents)
@@ -190,7 +201,7 @@ class ModelReceipt(BaseModel):
     @model_validator(mode="after")
     def _stage_fields(self) -> ModelReceipt:
         self._fingerprint_requiredness()
-        early = self.reason in _EARLY_REASONS
+        early = self.reason in _EARLY_REASONS or self._budget_unread()
         if early:
             forbidden = {
                 "cost",
@@ -217,6 +228,12 @@ class ModelReceipt(BaseModel):
         ):
             raise ValueError("unknown outcome must retain the reservation")
         return self
+
+    def _budget_unread(self) -> bool:
+        return self.reason == "budget_exhausted" and self.detail in {
+            "caps_missing",
+            "unpriced",
+        }
 
     def _fingerprint_requiredness(self) -> None:
         present = {"request_sha256", "request_size_bytes"} & self.model_fields_set
@@ -249,6 +266,10 @@ class ModelReceipt(BaseModel):
     @model_validator(mode="after")
     def _budget_refusal(self) -> ModelReceipt:
         if self.reason == "budget_exhausted":
+            if self.detail is None:
+                raise ValueError("budget refusal requires a fixed detail")
+            if self._budget_unread():
+                return self
             forbidden = {
                 "request_artifact",
                 "completion",
@@ -272,6 +293,8 @@ class ModelReceipt(BaseModel):
                 "overshoot_micro_usd",
             } & self.cost.model_fields_set:
                 raise ValueError("budget refusal carries no usage estimate")
+        elif self.detail is not None:
+            raise ValueError("budget detail belongs only to a budget refusal")
         return self
 
     @model_validator(mode="after")
@@ -375,6 +398,7 @@ def _confirmed(response: HostedOperationResponse, receipt: ModelReceipt) -> bool
         raise ValueError("completed receipt requires reported outcome")
     if receipt.completion is None:
         raise ValueError("completed receipt requires completion metadata")
+    _confirmed_usage(receipt)
     if response.artifact is not None:
         ReceiptArtifact.model_validate(
             response.artifact.model_dump() | {"state": "available"}
@@ -405,6 +429,18 @@ def _confirmed(response: HostedOperationResponse, receipt: ModelReceipt) -> bool
             raise ValueError("expired replay metadata mismatch")
         return True
     return False
+
+
+def _confirmed_usage(receipt: ModelReceipt) -> None:
+    usage = receipt.usage.model_dump(exclude={"other"})
+    reported = bool(receipt.usage.other) or any(
+        value is not None for value in usage.values()
+    )
+    if not reported and receipt.cost is not None:
+        if not receipt.cost.held or receipt.cost.tariff_estimate_micro_usd is not None:
+            raise ValueError(
+                "confirmed without usage retains its reservation without an estimate"
+            )
 
 
 def _not_confirmed(response: HostedOperationResponse, receipt: ModelReceipt) -> None:
