@@ -4,6 +4,8 @@ from copy import deepcopy
 from typing import Any
 
 import pytest
+import rfc8785
+from pydantic import ValidationError
 
 from zeo_core.integrations.hosted.client import (
     HostedClientError,
@@ -14,6 +16,7 @@ from zeo_core.integrations.model_ops import (
     ParsedModelResponse,
     parse_model_response,
 )
+from zeo_core.integrations.model_ops.receipts import ModelReceipt
 
 
 def receipt() -> dict[str, Any]:
@@ -708,9 +711,6 @@ def test_native_usage_preserves_json_types(native: dict[str, object]) -> None:
         {"details": {"items": [1]}},
         {"items": [{"value": 1}]},
         {"items": [[1]]},
-        {"items": list(range(33))},
-        {"text": "x" * 201},
-        {"items": ["x" * 201]},
         {"apiKey": "synthetic-private"},
     ],
 )
@@ -722,6 +722,63 @@ def test_native_json_values_keep_bounds_and_secret_screen(
     with pytest.raises(HostedClientError) as error:
         parse(value)
     assert "synthetic-private" not in str(error.value)
+
+
+def test_native_usage_contract_has_no_extra_scalar_or_list_bounds() -> None:
+    native = {"": None, "k" * 129: "x" * 201, "items": list(range(33))}
+    value = live()
+    value["receipt"]["usage_provider"] = native
+    assert parse(value).receipt.usage_provider == native
+
+
+@pytest.mark.parametrize("number", [float("nan"), float("inf"), -float("inf")])
+def test_native_usage_nonfinite_numbers_are_refused(number: float) -> None:
+    value = receipt()
+    value["usage_provider"] = {"number": number}
+    with pytest.raises(ValidationError):
+        ModelReceipt.model_validate(value)
+
+
+@pytest.mark.parametrize("number", [1 << 80, -(1 << 80)])
+def test_large_native_integer_is_preserved_but_not_canonicalisable(number: int) -> None:
+    value = live()
+    value["receipt"]["usage_provider"] = {"number": number}
+    native = parse(value).receipt.usage_provider
+    assert native["number"] == number
+    with pytest.raises(rfc8785.IntegerDomainError):
+        rfc8785.dumps(native)
+
+
+def test_native_usage_total_keys_count_both_nested_objects() -> None:
+    value = live()
+    native = {
+        "left": {str(n): n for n in range(15)},
+        "right": {str(n): n for n in range(15)},
+    }
+    value["receipt"]["usage_provider"] = native
+    assert parse(value).receipt.usage_provider == native
+    native["right"]["extra"] = 0
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_unknown_outcome_with_complete_usage_keeps_tariff_and_hold() -> None:
+    value = live()
+    value.pop("artifact")
+    value["status"] = "ambiguous"
+    value["normalized_error"] = {
+        "code": "RESULT_AMBIGUOUS",
+        "message": "Synthetic unknown.",
+    }
+    value["receipt"].update(reason="unknown_outcome")
+    value["receipt"]["cost"]["held"] = True
+    for field in ("completion", "stop_reason", "stop_reason_provider", "truncated"):
+        value["receipt"].pop(field)
+    cost = parse(value).receipt.cost
+    assert cost is not None and cost.held and cost.tariff_estimate_micro_usd == 10
+    value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    with pytest.raises(AmbiguousModelReceiptError):
+        parse(value)
 
 
 @pytest.mark.parametrize("detail", [None, "authority"])

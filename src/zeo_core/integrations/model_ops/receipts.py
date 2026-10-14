@@ -77,26 +77,23 @@ def _native_children(item: object, depth: int) -> list[object] | None:
         if depth > 2:
             raise ValueError("native usage exceeds two container levels")
         for name in item:
-            if not isinstance(name, str) or not 1 <= len(name) <= 128:
+            if not isinstance(name, str):
                 raise ValueError("native usage key is invalid")
             if _secret_usage_name(name):
                 raise ValueError("secret-bearing native usage field")
         return list(item.values())
     if isinstance(item, list):
-        if depth > 2 or len(item) > 32:
-            raise ValueError("native usage list exceeds bounds")
+        if depth > 2:
+            raise ValueError("native usage exceeds two container levels")
         return item
     return None
 
 
 def _native_scalar(item: object) -> None:
-    if isinstance(item, str):
-        if len(item) > 200:
-            raise ValueError("native usage string exceeds bounds")
-    elif isinstance(item, float):
+    if isinstance(item, float):
         if not isfinite(item):
             raise ValueError("native usage number must be finite")
-    elif item is not None and not isinstance(item, int):
+    elif item is not None and not isinstance(item, (int, str)):
         raise ValueError("native usage value must be JSON")
 
 
@@ -226,9 +223,7 @@ class ModelReceipt(BaseModel):
     model_requested: str | None = Field(default=None, min_length=1, max_length=200)
     model_reported: str | None = Field(default=None, min_length=1, max_length=200)
     usage: UsageComponents = Field(default_factory=UsageComponents)
-    usage_provider: dict[NativeKey, JsonValue] = Field(
-        default_factory=dict, max_length=32
-    )
+    usage_provider: dict[str, JsonValue] = Field(default_factory=dict, max_length=32)
     cost: ModelCost | None = None
     budget: BudgetRemaining | None = None
     request_sha256: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
@@ -537,12 +532,6 @@ def _not_confirmed(response: HostedOperationResponse, receipt: ModelReceipt) -> 
             raise ValueError("reason mapping mismatch")
     else:
         raise ValueError("missing refusal reason")
-    if (
-        response.status is HostedOperationStatus.AMBIGUOUS
-        and receipt.cost is not None
-        and receipt.cost.tariff_estimate_micro_usd is not None
-    ):
-        raise ValueError("unknown outcome cannot carry a usage estimate")
 
 
 def _request_evidence(receipt: ModelReceipt, digest: str, size: int) -> None:

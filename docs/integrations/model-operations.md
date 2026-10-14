@@ -7,7 +7,9 @@ not an authentic provider call, settlement or permission to retry.
 
 ## Draft inputs
 
-The contribution "binds model-ops draft 7 1793c97b6eed5d1e3cc09a861b5d594d99ea7697134df4c0f14154acccfea186, not the contract."
+This contribution binds model-ops draft 7
+`1793c97b6eed5d1e3cc09a861b5d594d99ea7697134df4c0f14154acccfea186`,
+not the contract.
 These are owner drafts, **not in this repository**. A public checkout cannot
 reproduce their contents; an adopted contract needs the project's normal
 contract distribution.
@@ -86,8 +88,18 @@ Provider-reached receipts with known normalized usage and no incomplete cost
 components must include the tariff estimate; otherwise it must be absent.
 Native usage retains JSON scalars, objects and lists without coercing their
 values. Its root object counts as the first of two container levels, with at
-most 32 total object keys. Existing defensive limits also bound lists to 32
-items and strings to 200 characters, and exclude sensitive field names.
+most 32 total object keys. Sensitive field names and nonfinite numbers are
+refused. Draft 7 sets no additional key-length, string-length or list-length
+limits for this native block; empty JSON keys are valid. Native integers are
+retained verbatim, including values outside the RFC8785 interoperable range.
+Such a receipt cannot be canonicalised with zeocore's RFC8785 digest: retain
+the received bytes rather than rounding, truncating or silently hashing a
+modified projection. Request, normalized usage and monetary counters retain
+their explicit safe-integer bounds.
+
+An unknown outcome always retains its reservation. If its usage is known and
+complete, its tariff estimate is still required by the draft; that estimate
+does not settle the hold, establish successful delivery or permit a retry.
 
 A confirmed completion requires matching outer and receipt artifact metadata.
 Expired replay requires a matching digest/size marker and expired receipt
