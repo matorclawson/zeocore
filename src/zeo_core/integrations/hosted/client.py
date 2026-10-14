@@ -237,6 +237,27 @@ class HostedUnreachableError(HostedUnavailableError):
     """No Broker response arrived: the connection failed or broke off."""
 
 
+class HostedResponseUnreadableError(HostedClientError):
+    """The Broker answered an effectful call with a body this client cannot read.
+
+    The answer is a success status, so the Broker accepted the request, but its
+    body is unreadable: truncated, not UTF-8, not JSON, an integer literal over
+    CPython's digit limit, or over the client's size limit. The outcome is
+    unknown and the call may have been dispatched. A caller replays the SAME
+    idempotency key, which returns the stored outcome, and never uses a new
+    key: a new key would act or spend again. Reads say nothing about an effect
+    and keep the plain shape error.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "the Broker answered but its answer could not be read; the call"
+            " may have been dispatched: ask the same request again with the"
+            " same idempotency key, which replays its outcome, and never use"
+            " a new key"
+        )
+
+
 class HostedStoppedError(HostedClientError):
     """The Broker positively reported an operational stop (contract 1.0.0 §9).
 
@@ -505,6 +526,7 @@ __all__ = [
     "HostedRequestChangedError",
     "HostedStoppedError",
     "HostedUnavailableError",
+    "HostedResponseUnreadableError",
     "HostedUnreachableError",
     "HostedUpgradeRequiredError",
     "access_refusal_of",

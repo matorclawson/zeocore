@@ -43,6 +43,7 @@ from zeo_core.integrations.hosted.client import (
     HostedOperationRequest,
     HostedOperationResponse,
     HostedOperationStatus,
+    HostedResponseUnreadableError,
     HostedSessionError,
     HostedStoppedError,
     HostedUnavailableError,
@@ -425,8 +426,8 @@ def invoke(args: Sequence[str], stdin: bytes, *, out: Emit = emit) -> Answer:
             while True:
                 try:
                     response = client.invoke(request)
-                except HostedUnreachableError:
-                    return EXIT_AMBIGUOUS, _unknown(key)
+                except (HostedUnreachableError, HostedResponseUnreadableError) as error:
+                    return EXIT_AMBIGUOUS, _unknown(key, error)
                 waiting = response.status is HostedOperationStatus.APPROVAL_REQUIRED
                 if not waiting or deadline is None or time.monotonic() >= deadline:
                     return _answer(response, key)
@@ -446,14 +447,22 @@ def invoke(args: Sequence[str], stdin: bytes, *, out: Emit = emit) -> Answer:
     return _guarded(body)
 
 
-def _unknown(key: str) -> dict[str, Any]:
+def _unknown(key: str, error: HostedClientError) -> dict[str, Any]:
+    if isinstance(error, HostedResponseUnreadableError):
+        message = (
+            "ZEOconnect answered, but its answer could not be read, so the call"
+            " may have been dispatched; ask the same request again, which"
+            " replays its outcome, and never use a new --occurrence"
+        )
+    else:
+        message = (
+            "ZEOconnect did not answer; ask the same request again, which "
+            "replays its outcome"
+        )
     return {
         "ok": False,
         "outcome": "ambiguous",
-        "message": own_action(
-            "ZEOconnect did not answer; ask the same request again, which "
-            "replays its outcome"
-        ),
+        "message": own_action(message),
         "retry": "same_request",
         "request_key": key,
     }

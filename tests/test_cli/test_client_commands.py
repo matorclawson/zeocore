@@ -34,6 +34,7 @@ from zeo_core.integrations.hosted.client import (
     ACCESS_REFUSALS,
     HostedAccessRefusedError,
     HostedClientError,
+    HostedResponseUnreadableError,
     HostedSessionError,
     HostedStoppedError,
     HostedUnavailableError,
@@ -316,6 +317,7 @@ def test_each_broker_answer_has_its_exit_and_retry(
     ("error", "status", "outcome"),
     [
         (HostedUnreachableError(), 13, "ambiguous"),
+        (HostedResponseUnreadableError(), 13, "ambiguous"),
         (HostedUnavailableError(), 11, "unavailable"),
         (HostedStoppedError(control="dispatch", scope="global"), 20, "stopped"),
         (HostedSessionError("paired device session is expired"), 12, "not_paired"),
@@ -586,3 +588,16 @@ def test_a_session_file_with_a_profile_is_refused(
     monkeypatch.setenv("ZEOCORE_SESSION_FILE", str(tmp_path / "grant.json"))
     with pytest.raises(SecureStoreError, match="drop --profile"):
         client.make_store("ducktyper")
+
+
+def test_an_unreadable_answer_to_an_effect_is_ambiguous_with_same_key_guidance(
+    broker: Broker,
+) -> None:
+    _paired(broker)
+    broker.answers = [HostedResponseUnreadableError()]
+    got, result = _invoke()
+    assert got == 13
+    assert result["outcome"] == "ambiguous"
+    assert result["retry"] == "same_request"
+    assert result["request_key"] == broker.requests[0].idempotency_key
+    assert "never use a new --occurrence" in result["message"]

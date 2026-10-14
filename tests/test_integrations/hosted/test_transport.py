@@ -18,6 +18,7 @@ from zeo_core.integrations.hosted import (
     HostedConnectionStatus,
     HostedOperationRequest,
     HostedOperationStatus,
+    HostedResponseUnreadableError,
     HostedUnreachableError,
     InMemorySecureSessionStore,
     PairingPendingError,
@@ -383,3 +384,80 @@ def test_session_and_response_shape_failures_are_sanitized() -> None:
     )
     with pytest.raises(HostedClientError, match="session is expired"):
         expired.invoke(request())
+
+
+_UNREADABLE_BODIES = {
+    "integer over the digit limit": b'{"status": "confirmed", "result": '
+    + b"9" * 5000
+    + b"}",
+    "truncated json": b'{"status": "confirmed", "execution_id": "exec',
+    "invalid utf-8": b'{"status": "confirmed", "result": "\xff\xfe\xc3"}',
+    "over the size limit": b"x" * (1024 * 1024 + 1),
+}
+
+
+def _invoke_answering(body: bytes, operation: str) -> None:
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={ZEOCONNECT_PROTOCOL_HEADER: ZEOCONNECT_PROTOCOL_VERSION},
+            content=body,
+            request=http_request,
+        )
+
+    hosted, store = transport(httpx.MockTransport(handler))
+    store.save(session(NOW))
+    hosted.invoke(request(operation))
+
+
+@pytest.mark.parametrize(
+    "body", _UNREADABLE_BODIES.values(), ids=list(_UNREADABLE_BODIES)
+)
+def test_an_unreadable_success_for_an_effect_is_an_unknown_outcome(body: bytes) -> None:
+    with pytest.raises(HostedResponseUnreadableError) as caught:
+        _invoke_answering(body, "bluesky.post.create")
+    message = str(caught.value)
+    assert "same idempotency key" in message
+    assert message.endswith("and never use a new key")
+    assert "9999" not in message
+    assert "confirmed" not in message
+    assert "exec" not in message
+
+
+@pytest.mark.parametrize(
+    "body", _UNREADABLE_BODIES.values(), ids=list(_UNREADABLE_BODIES)
+)
+def test_an_unreadable_success_for_a_read_keeps_the_plain_error(body: bytes) -> None:
+    with pytest.raises(HostedClientError) as caught:
+        _invoke_answering(body, "google.drive.file.download")
+    assert not isinstance(caught.value, HostedResponseUnreadableError)
+
+
+def test_a_readable_success_for_an_effect_is_unchanged() -> None:
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        return response(
+            200,
+            {"status": "confirmed", "execution_id": "execution-effect", "result": "ok"},
+            request=http_request,
+        )
+
+    hosted, store = transport(httpx.MockTransport(handler))
+    store.save(session(NOW))
+    result = hosted.invoke(request("bluesky.post.create"))
+    assert result.status is HostedOperationStatus.CONFIRMED
+
+
+def test_an_unreadable_refusal_stays_a_refusal_not_an_unknown_outcome() -> None:
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            headers={ZEOCONNECT_PROTOCOL_HEADER: ZEOCONNECT_PROTOCOL_VERSION},
+            content=b"\xff" * 10 + b"9" * 5000,
+            request=http_request,
+        )
+
+    hosted, store = transport(httpx.MockTransport(handler))
+    store.save(session(NOW))
+    with pytest.raises(HostedClientError) as caught:
+        hosted.invoke(request("bluesky.post.create"))
+    assert not isinstance(caught.value, HostedResponseUnreadableError)

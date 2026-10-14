@@ -154,8 +154,11 @@ Development origins also need `ZEOCONNECT_DEVELOPMENT=1`.
   - 10 `approval_required`;
   - 11 still in flight, or ZEOconnect is unavailable;
   - 12 not paired, or no session store;
-  - 13 `ambiguous`, or no answer arrived (asking again with the same request is
-    safe);
+  - 13 `ambiguous`, or no answer arrived, or the answer to an effect could not be
+    read (an oversized or truncated body, bytes that are not UTF-8, or an
+    integer over 4300 digits). The call may have been dispatched: ask the same
+    request again, which replays its outcome, and never use a new `--occurrence`.
+    The answer carries `"retry": "same_request"` and the `request_key`;
   - 20 refused, `failed_safe` or stopped.
 
 ## Rules every command keeps (`cli_protocol` 1)

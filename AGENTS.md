@@ -29,7 +29,7 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 - 10 approval required;
 - 11 still in flight, so ask the same again;
 - 12 not paired: run `zeocore login`;
-- 13 ambiguous, never retried automatically;
+- 13 ambiguous, never retried automatically (no answer, or an answer that could not be read: ask the same request again, never a new `--occurrence`);
 - 20 refused or held (for `doctor`: not ready, some check failed);
 - 1 internal, which for an effect counts as ambiguous.
 

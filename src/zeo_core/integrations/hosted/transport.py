@@ -25,6 +25,7 @@ from zeo_core.integrations.hosted.client import (
     HostedOperationRequest,
     HostedOperationResponse,
     HostedRequestChangedError,
+    HostedResponseUnreadableError,
     HostedSessionError,
     HostedStoppedError,
     HostedUnavailableError,
@@ -164,6 +165,26 @@ class HostedConnectionWire(BaseModel):
     )
 
 
+def _decode_json(response: httpx.Response, *, effectful: bool) -> JsonValue:
+    """The JSON body of a success answer.
+
+    For an effectful call an unreadable body is an unknown outcome, not a
+    shape error. Truncated JSON, bytes that are not UTF-8, and an integer
+    literal over CPython's digit limit all land here; the limit stays, as a
+    guard against a denial of service.
+    """
+    if len(response.content) > _MAX_JSON_BYTES:
+        if effectful:
+            raise HostedResponseUnreadableError() from None
+        raise HostedClientError("hosted response exceeds the client limit")
+    try:
+        return cast(JsonValue, response.json())
+    except Exception:
+        if effectful:
+            raise HostedResponseUnreadableError() from None
+        raise HostedClientError("hosted response shape is invalid") from None
+
+
 class ZEOconnectHTTPTransport:
     """Authenticated member-API transport with no Supabase-facing surface."""
 
@@ -293,7 +314,8 @@ class ZEOconnectHTTPTransport:
         # response arrived. A Broker 503 is an outage, never retried by status
         # (contract §9), and an effectful operation is sent at most once per
         # session (a 401 is refused before anything runs).
-        attempts = 2 if request.operation_id in _SAFE_RETRY_OPERATIONS else 1
+        safe_read = request.operation_id in _SAFE_RETRY_OPERATIONS
+        attempts = 2 if safe_read else 1
         for attempt in range(attempts):
             try:
                 payload = self._authorized(
@@ -304,6 +326,7 @@ class ZEOconnectHTTPTransport:
                         session=current,
                         authenticated=True,
                         fenced=request.expect is not None,
+                        effectful=not safe_read,
                     )
                 )
             except HostedUnreachableError:
@@ -519,7 +542,15 @@ class ZEOconnectHTTPTransport:
         authenticated: bool,
         expect_empty: bool = False,
         fenced: bool = False,
+        effectful: bool = False,
     ) -> JsonValue | None:
+        """Send one request and return its JSON answer.
+
+        ``effectful`` is set for an invocation that may have acted: a success
+        status whose body cannot be read then says the outcome is unknown
+        (``HostedResponseUnreadableError``), never a plain shape error that a
+        caller might retry under a new key.
+        """
         if is_managed_execution():
             raise HostedClientError("managed execution forbids member API fallback")
         headers = self._headers(session) if authenticated else self._headers(None)
@@ -550,12 +581,7 @@ class ZEOconnectHTTPTransport:
             if response.content:
                 raise HostedClientError("hosted response shape is invalid")
             return None
-        if len(response.content) > _MAX_JSON_BYTES:
-            raise HostedClientError("hosted response exceeds the client limit")
-        try:
-            return cast(JsonValue, response.json())
-        except Exception:
-            raise HostedClientError("hosted response shape is invalid") from None
+        return _decode_json(response, effectful=effectful)
 
     def _validate_response(
         self, response: httpx.Response, *, fenced: bool = False
