@@ -36,7 +36,7 @@ def receipt() -> dict[str, Any]:
         "usage_provider": {"input_tokens": 30, "details": {"cached": 20}},
         "cost": {
             "reservation_micro_usd": 100,
-            "held": True,
+            "held": False,
             "tariff_estimate_micro_usd": 10,
             "rates_source": {
                 "revision": "draft-test",
@@ -152,6 +152,9 @@ def test_fixed_error_mapping(reason: str | None, status: str, code: str) -> None
     for field in ("completion", "stop_reason", "stop_reason_provider", "truncated"):
         r.pop(field)
     r["cost"].pop("tariff_estimate_micro_usd")
+    r.pop("usage")
+    if reason == "unknown_outcome":
+        r["cost"]["held"] = True
     if reason in {
         "model_not_allowed",
         "bad_request",
@@ -286,6 +289,7 @@ def test_incomplete_estimate_preserves_missing_rate() -> None:
     value = live()
     value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
     value["receipt"]["cost"]["incomplete"] = ["price"]
+    value["receipt"]["cost"]["held"] = True
     cost = parse(value).receipt.cost
     assert cost is not None and cost.tariff_estimate_micro_usd is None
 
@@ -557,6 +561,7 @@ def test_uncatalogued_reported_model_requires_incomplete_estimate() -> None:
         parse(response)
     response["receipt"]["cost"].pop("tariff_estimate_micro_usd")
     response["receipt"]["cost"]["incomplete"] = ["model"]
+    response["receipt"]["cost"]["held"] = True
     assert parse(response).receipt.model_mismatch is True
 
 
@@ -649,10 +654,74 @@ def test_confirmed_without_usage_stays_held() -> None:
     value = live()
     value["receipt"].pop("usage")
     value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    value["receipt"]["cost"]["held"] = True
     assert parse(value).receipt.cost is not None
     value["receipt"]["cost"]["held"] = False
     with pytest.raises(HostedClientError):
         parse(value)
+
+
+@pytest.mark.parametrize("usage", [{"output_tokens": 0}, {"other": {"units": 1}}])
+@pytest.mark.parametrize("blocked", [False, True])
+def test_complete_usage_requires_tariff_even_for_zero_or_failed_safe(
+    usage: dict[str, object], blocked: bool
+) -> None:
+    value = live()
+    value["receipt"]["usage"] = usage
+    if blocked:
+        value.pop("artifact")
+        value["status"] = "failed_safe"
+        value["normalized_error"] = {
+            "code": "REQUEST_REFUSED",
+            "message": "Synthetic policy decline.",
+        }
+        value["receipt"]["reason"] = "blocked"
+        for field in ("completion", "stop_reason", "stop_reason_provider", "truncated"):
+            value["receipt"].pop(field)
+    assert parse(value).receipt.cost is not None
+    value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize(
+    "native",
+    [
+        {
+            "optional": None,
+            "enabled": True,
+            "fraction": 0.5,
+            "items": [None, False, 1, 0.5, "text"],
+        },
+        {"details": {"optional": None, "enabled": False, "fraction": 0.25}},
+    ],
+)
+def test_native_usage_preserves_json_types(native: dict[str, object]) -> None:
+    value = live()
+    value["receipt"]["usage_provider"] = native
+    assert parse(value).receipt.usage_provider == native
+
+
+@pytest.mark.parametrize(
+    "native",
+    [
+        {"details": {"items": [1]}},
+        {"items": [{"value": 1}]},
+        {"items": [[1]]},
+        {"items": list(range(33))},
+        {"text": "x" * 201},
+        {"items": ["x" * 201]},
+        {"apiKey": "synthetic-private"},
+    ],
+)
+def test_native_json_values_keep_bounds_and_secret_screen(
+    native: dict[str, object],
+) -> None:
+    value = live()
+    value["receipt"]["usage_provider"] = native
+    with pytest.raises(HostedClientError) as error:
+        parse(value)
+    assert "synthetic-private" not in str(error.value)
 
 
 @pytest.mark.parametrize("detail", [None, "authority"])

@@ -7,7 +7,7 @@ not an authentic provider call, settlement or permission to retry.
 
 ## Draft inputs
 
-The contribution binds **model-ops draft 7**, not a frozen Broker contract.
+The contribution "binds model-ops draft 7 1793c97b6eed5d1e3cc09a861b5d594d99ea7697134df4c0f14154acccfea186, not the contract."
 These are owner drafts, **not in this repository**. A public checkout cannot
 reproduce their contents; an adopted contract needs the project's normal
 contract distribution.
@@ -16,6 +16,8 @@ contract distribution.
 |---|---|
 | SCHEMA-draft-7.md | `1793c97b6eed5d1e3cc09a861b5d594d99ea7697134df4c0f14154acccfea186` |
 | DESIGN-NOTE-rev-h.md | `e3ffee1cbc91f92218966bbfa9ccfc5a4a7631c7447bfd21a148376b43393f19` |
+| request-vectors.json | `0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a` |
+| request-vectors-3.json | `e06cfb6fe42b3eea15afec950dbcfc9a4f901713a09c16b75a1730f134de9592` |
 
 Draft 7 is self-contained and replaces the earlier schemas. Its recording
 double stamps the schema hash into `draft_schema`; the parser requires that
@@ -80,6 +82,13 @@ must keep their reservation held. Incomplete estimates also keep their hold. A m
 retried until its outcome and reservation are settled. Other parsing failures
 also do not prove that no dispatch happened.
 
+Provider-reached receipts with known normalized usage and no incomplete cost
+components must include the tariff estimate; otherwise it must be absent.
+Native usage retains JSON scalars, objects and lists without coercing their
+values. Its root object counts as the first of two container levels, with at
+most 32 total object keys. Existing defensive limits also bound lists to 32
+items and strings to 200 characters, and exclude sensitive field names.
+
 A confirmed completion requires matching outer and receipt artifact metadata.
 Expired replay requires a matching digest/size marker and expired receipt
 metadata, and supplies no fetchable completion. The caller must retain fetched
@@ -103,8 +112,9 @@ coding-agent tool loop or any new AX benchmark result.
 
 The incomplete-component vocabulary is closed: usage, cache_write, reasoning,
 model, price and blocks. Rate-source pages are bounded to eight, and provider
-request IDs to 128 characters. Lifecycle and key-conflict refusals may omit
+request IDs to 128 characters. Lifecycle refusals may omit
 identity/fingerprint evidence when no validated request was available.
+Key-conflict refusals require the requested identity and validated fingerprint.
 
 The draft's model_mismatch flag is true for every reported/requested ID
 difference, whether the reported ID is catalogued or not. An uncatalogued

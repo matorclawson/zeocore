@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from math import isfinite
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -11,8 +12,10 @@ from pydantic import (
     ConfigDict,
     Field,
     HttpUrl,
+    JsonValue,
     TypeAdapter,
     ValidationError,
+    field_validator,
     model_validator,
 )
 
@@ -27,7 +30,6 @@ from zeo_core.integrations.hosted.client import (
 from .models import MAX_REQUEST_BYTES, MAX_SAFE_JSON_INTEGER
 
 Count = Annotated[int, Field(strict=True, ge=0, le=MAX_SAFE_JSON_INTEGER)]
-NativeValue = Count | Annotated[str, Field(strict=True, max_length=200)]
 NativeKey = Annotated[str, Field(min_length=1, max_length=128)]
 Reason = Literal[
     "model_not_allowed",
@@ -68,6 +70,34 @@ def _secret_usage_name(name: str) -> bool:
 
 class _Closed(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+
+
+def _native_children(item: object, depth: int) -> list[object] | None:
+    if isinstance(item, dict):
+        if depth > 2:
+            raise ValueError("native usage exceeds two container levels")
+        for name in item:
+            if not isinstance(name, str) or not 1 <= len(name) <= 128:
+                raise ValueError("native usage key is invalid")
+            if _secret_usage_name(name):
+                raise ValueError("secret-bearing native usage field")
+        return list(item.values())
+    if isinstance(item, list):
+        if depth > 2 or len(item) > 32:
+            raise ValueError("native usage list exceeds bounds")
+        return item
+    return None
+
+
+def _native_scalar(item: object) -> None:
+    if isinstance(item, str):
+        if len(item) > 200:
+            raise ValueError("native usage string exceeds bounds")
+    elif isinstance(item, float):
+        if not isfinite(item):
+            raise ValueError("native usage number must be finite")
+    elif item is not None and not isinstance(item, int):
+        raise ValueError("native usage value must be JSON")
 
 
 class UsageComponents(_Closed):
@@ -196,7 +226,7 @@ class ModelReceipt(BaseModel):
     model_requested: str | None = Field(default=None, min_length=1, max_length=200)
     model_reported: str | None = Field(default=None, min_length=1, max_length=200)
     usage: UsageComponents = Field(default_factory=UsageComponents)
-    usage_provider: dict[NativeKey, NativeValue | dict[NativeKey, NativeValue]] = Field(
+    usage_provider: dict[NativeKey, JsonValue] = Field(
         default_factory=dict, max_length=32
     )
     cost: ModelCost | None = None
@@ -324,18 +354,38 @@ class ModelReceipt(BaseModel):
             raise ValueError("budget detail belongs only to a budget refusal")
         return self
 
+    @field_validator("usage_provider", mode="before")
+    @classmethod
+    def _native_usage_bounded(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            raise ValueError("native usage must be a JSON object")
+        pending: list[tuple[object, int]] = [(value, 1)]
+        keys = 0
+        while pending:
+            item, depth = pending.pop()
+            if isinstance(item, dict):
+                keys += len(item)
+                if keys > 32:
+                    raise ValueError("native usage exceeds total key limit")
+            children = _native_children(item, depth)
+            if children is None:
+                _native_scalar(item)
+            else:
+                pending.extend((child, depth + 1) for child in children)
+        return value
+
     @model_validator(mode="after")
-    def _native_usage_bounded(self) -> ModelReceipt:
-        keys = len(self.usage_provider)
-        for key, value in self.usage_provider.items():
-            if _secret_usage_name(key):
-                raise ValueError("secret-bearing native usage field")
-            if isinstance(value, dict):
-                keys += len(value)
-                if any(_secret_usage_name(name) for name in value):
-                    raise ValueError("secret-bearing native usage field")
-        if keys > 32:
-            raise ValueError("native usage exceeds total key limit")
+    def _usage_estimate_presence(self) -> ModelReceipt:
+        if self.reason in _EARLY_REASONS or self.reason == "budget_exhausted":
+            return self
+        reported = bool(self.usage.other) or any(
+            value is not None
+            for value in self.usage.model_dump(exclude={"other"}).values()
+        )
+        if self.cost is not None:
+            required = reported and not self.cost.incomplete
+            if required != (self.cost.tariff_estimate_micro_usd is not None):
+                raise ValueError("tariff estimate requires known complete usage")
         return self
 
 
