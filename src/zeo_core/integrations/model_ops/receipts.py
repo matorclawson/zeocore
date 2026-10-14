@@ -16,7 +16,7 @@ from zeo_core.integrations.hosted.client import (
     HostedOperationStatus,
 )
 
-from .models import MAX_SAFE_JSON_INTEGER
+from .models import MAX_REQUEST_BYTES, MAX_SAFE_JSON_INTEGER
 
 Count = Annotated[int, Field(strict=True, ge=0, le=MAX_SAFE_JSON_INTEGER)]
 NativeValue = Count | Annotated[str, Field(strict=True, max_length=200)]
@@ -94,6 +94,8 @@ class ModelCost(_Closed):
 
     @model_validator(mode="after")
     def _incomplete_estimate_not_claimed(self) -> ModelCost:
+        if "incomplete" in self.model_fields_set and not self.held:
+            raise ValueError("incomplete estimates must retain the reservation")
         if self.incomplete and self.tariff_estimate_micro_usd is not None:
             raise ValueError("incomplete rates cannot yield a complete estimate")
         return self
@@ -152,7 +154,8 @@ class ModelReceipt(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="ignore", hide_input_in_errors=True)
     draft_schema: Literal[
-        "2ae60f8cdca42a325bc4d3bbb22b5c58deb300258ed9e2cb5dc62d778f5fe901"
+        "model-ops-draft-3 sha256:"
+        "753d8b1ca692f7b579ff340544d4e2321525464919ecf1a0ac418bc1598449d9"
     ]
     capability: Literal["text_completion"]
     reason: Reason | None = None
@@ -165,8 +168,9 @@ class ModelReceipt(BaseModel):
     cost: ModelCost | None = None
     budget: BudgetRemaining | None = None
     request_sha256: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
-    request_size_bytes: Count | None = None
+    request_size_bytes: Count | None = Field(default=None, le=MAX_REQUEST_BYTES)
     completion: ReceiptArtifact | None = None
+    excluded_blocks: dict[NativeKey, Count] = Field(default_factory=dict, max_length=32)
     provider_request_id: str | None = Field(default=None, min_length=1, max_length=500)
     replayed: bool = Field(default=False, strict=True)
     stop_reason: (
@@ -185,6 +189,7 @@ class ModelReceipt(BaseModel):
 
     @model_validator(mode="after")
     def _stage_fields(self) -> ModelReceipt:
+        self._fingerprint_requiredness()
         early = self.reason in _EARLY_REASONS
         if early:
             forbidden = {
@@ -199,17 +204,12 @@ class ModelReceipt(BaseModel):
                 "stop_reason_provider",
                 "truncated",
                 "model_mismatch",
+                "excluded_blocks",
             }
             if forbidden & self.model_fields_set:
                 raise ValueError("pre-budget refusal carries uncomputed fields")
         elif self.cost is None or self.budget is None:
             raise ValueError("budget-read receipt requires cost and budget")
-        if (
-            not early
-            or {"request_sha256", "request_size_bytes"} & self.model_fields_set
-        ):
-            if self.request_sha256 is None or self.request_size_bytes is None:
-                raise ValueError("request fingerprint is required")
         if (
             self.reason == "unknown_outcome"
             and self.cost is not None
@@ -218,11 +218,26 @@ class ModelReceipt(BaseModel):
             raise ValueError("unknown outcome must retain the reservation")
         return self
 
+    def _fingerprint_requiredness(self) -> None:
+        present = {"request_sha256", "request_size_bytes"} & self.model_fields_set
+        if self.reason == "bad_request":
+            if present:
+                raise ValueError("bad request carries no validated fingerprint")
+            return
+        if self.model_requested is None:
+            raise ValueError("requested model is required after validation")
+        if self.reason not in _LIFECYCLE_REASONS or present:
+            if self.request_sha256 is None or self.request_size_bytes is None:
+                raise ValueError("validated request fingerprint is required")
+
     @model_validator(mode="after")
     def _reported_outcome(self) -> ModelReceipt:
         if "model_requested" in self.model_fields_set and self.model_requested is None:
             raise ValueError("requested model is absent unless it is a string")
-        if self.stop_reason == "max_tokens" and self.truncated is not True:
+        if (
+            self.stop_reason in {"max_tokens", "content_filter"}
+            and self.truncated is not True
+        ):
             raise ValueError("max-token completion must report truncation")
         if self.model_reported is not None:
             if self.model_requested is None or self.model_mismatch != (
@@ -241,6 +256,11 @@ class ModelReceipt(BaseModel):
                 "usage_provider",
                 "provider_request_id",
                 "model_reported",
+                "stop_reason",
+                "stop_reason_provider",
+                "truncated",
+                "model_mismatch",
+                "excluded_blocks",
             }
             if forbidden & self.model_fields_set or self.cost is None or self.cost.held:
                 raise ValueError(
@@ -349,6 +369,7 @@ def _confirmed(response: HostedOperationResponse, receipt: ModelReceipt) -> bool
     if (
         receipt.model_reported is None
         or receipt.stop_reason is None
+        or receipt.stop_reason_provider is None
         or receipt.truncated is None
     ):
         raise ValueError("completed receipt requires reported outcome")

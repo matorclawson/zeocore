@@ -43,6 +43,15 @@ class TextCompletionRequest(BaseModel):
     )
 
     @model_validator(mode="after")
+    def _temperature_precision(self) -> TextCompletionRequest:
+        if (
+            self.temperature is not None
+            and round(self.temperature, 2) != self.temperature
+        ):
+            raise ValueError("temperature has at most two decimal places")
+        return self
+
+    @model_validator(mode="after")
     def _bounded_utf8(self) -> TextCompletionRequest:
         try:
             encoded = self.canonical_bytes()
@@ -68,6 +77,8 @@ class CataloguedModel(BaseModel):
 
     model: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
     max_output_tokens: int = Field(strict=True, gt=0, le=MAX_SAFE_JSON_INTEGER)
+
+    accepts_temperature: bool = Field(default=False, strict=True)
 
     @model_validator(mode="after")
     def _known_aliases_refused(self) -> CataloguedModel:

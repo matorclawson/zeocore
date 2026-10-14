@@ -12,10 +12,14 @@ from zeo_core.integrations.hosted.client import (
     HostedOperationRequest,
 )
 
-from .models import ModelCatalogue, TextCompletionRequest
+from .models import MAX_SAFE_JSON_INTEGER, ModelCatalogue, TextCompletionRequest
 
 _CONNECTION_ID: TypeAdapter[str] = TypeAdapter(
     Annotated[str, Field(strict=True, min_length=1, max_length=200)]
+)
+
+_OUTPUT_LIMIT: TypeAdapter[int] = TypeAdapter(
+    Annotated[int, Field(strict=True, gt=0, le=MAX_SAFE_JSON_INTEGER)]
 )
 
 _PROPOSED_OPERATIONS: Final = {
@@ -39,9 +43,13 @@ class DraftModelOperationClient:
         *,
         catalogue: ModelCatalogue,
         connection_id: str,
+        connection_output_token_limit: int,
         expected_binding: HostedExpectedBinding,
     ) -> None:
         try:
+            self._connection_limit = _OUTPUT_LIMIT.validate_python(
+                connection_output_token_limit
+            )
             self._catalogue = ModelCatalogue.model_validate(catalogue.model_dump())
             self._connection_id = _CONNECTION_ID.validate_python(connection_id)
             self._expected_binding = HostedExpectedBinding.model_validate(
@@ -67,14 +75,17 @@ class DraftModelOperationClient:
                 "model is not allowed by this catalogue; "
                 "select an owner-pinned catalogue model"
             )
-        limit = next(
-            item.max_output_tokens
-            for item in self._catalogue.models
-            if item.model == request.model
+        model = next(
+            item for item in self._catalogue.models if item.model == request.model
         )
+        limit = min(model.max_output_tokens, self._connection_limit)
+        if request.temperature is not None and not model.accepts_temperature:
+            raise HostedClientError(
+                "catalogued model does not accept temperature; omit temperature"
+            )
         if request.max_output_tokens > limit:
             raise HostedClientError(
-                "output-token limit exceeds the catalogue ceiling; "
+                "output-token limit exceeds the model or connection ceiling; "
                 "reduce max_output_tokens"
             )
         arguments: dict[str, JsonValue] = {

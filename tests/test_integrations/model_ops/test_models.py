@@ -22,7 +22,9 @@ class ModelOperationTests(unittest.TestCase):
             provider=provider,
             models=(
                 CataloguedModel(
-                    model="synthetic-snapshot-20261013", max_output_tokens=128
+                    model="synthetic-snapshot-20261013",
+                    max_output_tokens=128,
+                    accepts_temperature=True,
                 ),
             ),
             connector_revision="synthetic-connector-v1",
@@ -92,6 +94,7 @@ class ModelOperationTests(unittest.TestCase):
                     external_identity="synthetic-project", connection_revision="1"
                 )
                 client = DraftModelOperationClient(
+                    connection_output_token_limit=128,
                     catalogue=self.catalogue(provider),
                     connection_id="synthetic-connection",
                     expected_binding=binding,
@@ -107,6 +110,7 @@ class ModelOperationTests(unittest.TestCase):
 
     def test_unknown_model_fails_without_echoing_input(self) -> None:
         client = DraftModelOperationClient(
+            connection_output_token_limit=128,
             catalogue=self.catalogue(),
             connection_id="synthetic-connection",
             expected_binding=HostedExpectedBinding(
@@ -124,6 +128,7 @@ class ModelOperationTests(unittest.TestCase):
 
     def test_prepare_revalidates_a_model_copy_before_output(self) -> None:
         client = DraftModelOperationClient(
+            connection_output_token_limit=128,
             catalogue=self.catalogue(),
             connection_id="synthetic-connection",
             expected_binding=HostedExpectedBinding(
@@ -149,6 +154,7 @@ class ModelOperationTests(unittest.TestCase):
 
     def test_system_and_temperature_survive_preparation(self) -> None:
         client = DraftModelOperationClient(
+            connection_output_token_limit=128,
             catalogue=self.catalogue(),
             connection_id="synthetic-connection",
             expected_binding=HostedExpectedBinding(
@@ -172,6 +178,7 @@ class ModelOperationTests(unittest.TestCase):
 
     def test_catalogue_output_ceiling_is_model_specific(self) -> None:
         client = DraftModelOperationClient(
+            connection_output_token_limit=128,
             catalogue=self.catalogue(),
             connection_id="synthetic-connection",
             expected_binding=HostedExpectedBinding(
@@ -229,12 +236,18 @@ def test_configuration_is_validated_before_preparation() -> None:
     )
     with pytest.raises(HostedClientError, match="fresh connection binding"):
         DraftModelOperationClient(
-            catalogue=catalogue, connection_id="", expected_binding=binding
+            connection_output_token_limit=128,
+            catalogue=catalogue,
+            connection_id="",
+            expected_binding=binding,
         )
     invalid = binding.model_copy(update={"connection_revision": "0"})
     with pytest.raises(HostedClientError, match="fresh connection binding"):
         DraftModelOperationClient(
-            catalogue=catalogue, connection_id="synthetic", expected_binding=invalid
+            connection_output_token_limit=128,
+            catalogue=catalogue,
+            connection_id="synthetic",
+            expected_binding=invalid,
         )
 
 
@@ -253,3 +266,41 @@ def test_caller_retains_rfc8785_bytes_and_digest() -> None:
     ).encode()
     assert request.canonical_bytes() == expected
     assert request.request_sha256() == "sha256:" + hashlib.sha256(expected).hexdigest()
+
+
+@pytest.mark.parametrize("temperature", [0.001, 0.555])
+def test_temperature_precision_is_limited(temperature: float) -> None:
+    with pytest.raises(ValidationError):
+        TextCompletionRequest(
+            model="synthetic",
+            messages=(ModelMessage(role="user", text="test"),),
+            max_output_tokens=1,
+            temperature=temperature,
+        )
+
+
+def test_connection_ceiling_and_temperature_catalogue_flag() -> None:
+    catalogue = ModelCatalogue(
+        provider="anthropic",
+        models=(CataloguedModel(model="synthetic", max_output_tokens=10),),
+        connector_revision="draft-test",
+        proposed_contract_sha256="a" * 64,
+    )
+    client = DraftModelOperationClient(
+        catalogue=catalogue,
+        connection_id="synthetic",
+        connection_output_token_limit=5,
+        expected_binding=HostedExpectedBinding(
+            external_identity="synthetic", connection_revision="1"
+        ),
+    )
+    request = TextCompletionRequest(
+        model="synthetic",
+        messages=(ModelMessage(role="user", text="test"),),
+        max_output_tokens=6,
+    )
+    with pytest.raises(HostedClientError, match="reduce max_output_tokens"):
+        client.prepare(request, idempotency_key="synthetic")
+    request = request.model_copy(update={"max_output_tokens": 5, "temperature": 0.5})
+    with pytest.raises(HostedClientError, match="omit temperature"):
+        client.prepare(request, idempotency_key="synthetic")
