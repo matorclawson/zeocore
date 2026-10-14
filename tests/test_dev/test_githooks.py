@@ -29,7 +29,8 @@ MAKE = shutil.which("make")
 
 NO_GIT = pytest.mark.skipif(GIT is None or SH is None, reason="needs git and sh")
 
-SHA = "1" * 40
+#: Stands for the throwaway repository's HEAD in a push line; `_push` swaps it in.
+SHA = "@HEAD@"
 ZEROS = "0" * 40
 
 
@@ -59,18 +60,30 @@ def _run(
     )
 
 
-def _repo(tmp_path: Path) -> Path:
-    """A throwaway repository holding copies of the committed hooks."""
+def _repo(tmp_path: Path, *, commit: bool = True) -> Path:
+    """A throwaway repository holding copies of the committed hooks, committed."""
     assert GIT is not None
     repo = tmp_path / "repo"
     repo.mkdir()
-    _run([GIT, "init", "-q"], cwd=repo, env=_clean_env())
+    env = _clean_env()
+    _run([GIT, "init", "-q"], cwd=repo, env=env)
     hooks = repo / ".githooks"
     hooks.mkdir()
     for source in (PRE_PUSH, PRE_COMMIT):
         target = hooks / source.name
         shutil.copy2(source, target)
+    if commit:
+        for key, value in (("user.name", "t"), ("user.email", "t@example.com")):
+            _run([GIT, "config", key, value], cwd=repo, env=env)
+        _run([GIT, "add", "."], cwd=repo, env=env)
+        _run([GIT, "commit", "-q", "-m", "hooks"], cwd=repo, env=env)
     return repo
+
+
+def _head(repo: Path) -> str:
+    assert GIT is not None
+    done = _run([GIT, "rev-parse", "HEAD"], cwd=repo, env=_clean_env())
+    return done.stdout.strip()
 
 
 def _fake_make(tmp_path: Path, exit_code: int) -> tuple[Path, Path]:
@@ -140,7 +153,7 @@ class TestTheCommittedFiles:
 
     def test_the_failure_messages_end_with_an_action(self) -> None:
         errors = re.findall(r'echo "(pre-push: [^"]*)" >&2', PRE_PUSH.read_text())
-        assert len(errors) == 2
+        assert len(errors) == 6
         assert all(message.endswith("push again.") for message in errors)
 
 
@@ -199,7 +212,7 @@ class TestThePrePushHook:
             [str(repo / ".githooks" / "pre-push")],
             cwd=repo,
             env=_env_with(bin_dir, **extra),
-            stdin=stdin,
+            stdin=stdin.replace(SHA, _head(repo)),
         )
         return done, record
 
@@ -269,10 +282,73 @@ class TestThePrePushHook:
             [str(repo / ".githooks" / "pre-push")],
             cwd=repo,
             env=env,
-            stdin=f"refs/heads/x {SHA} refs/heads/x {ZEROS}\n",
+            stdin=f"refs/heads/x {_head(repo)} refs/heads/x {ZEROS}\n",
         )
         assert done.returncode == 1
         assert done.stderr.strip().endswith("then push again.")
+
+    def test_pushing_something_that_is_not_head_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        stdin = f"refs/heads/other {'2' * 40} refs/heads/other {ZEROS}\n"
+        done, record = self._push(tmp_path, exit_code=0, stdin=stdin)
+        assert done.returncode == 1
+        assert not record.exists()
+        assert "refs/heads/other is not HEAD" in done.stderr
+        assert done.stderr.strip().endswith("then push again.")
+
+    def test_one_ref_that_is_not_head_refuses_a_push_of_several(
+        self, tmp_path: Path
+    ) -> None:
+        stdin = (
+            f"refs/heads/x {SHA} refs/heads/x {ZEROS}\n"
+            f"refs/heads/y {'2' * 40} refs/heads/y {ZEROS}\n"
+        )
+        done, record = self._push(tmp_path, exit_code=0, stdin=stdin)
+        assert done.returncode == 1
+        assert not record.exists()
+        assert "refs/heads/y is not HEAD" in done.stderr
+
+    def test_uncommitted_changes_refuse_the_push(self, tmp_path: Path) -> None:
+        repo = _repo(tmp_path)
+        bin_dir, record = _fake_make(tmp_path, 0)
+        (repo / ".githooks" / "pre-commit").write_text("#!/bin/sh\n# edited\n")
+        done = _run(
+            [str(repo / ".githooks" / "pre-push")],
+            cwd=repo,
+            env=_env_with(bin_dir),
+            stdin=f"refs/heads/x {_head(repo)} refs/heads/x {ZEROS}\n",
+        )
+        assert done.returncode == 1
+        assert not record.exists()
+        assert "uncommitted changes" in done.stderr
+        assert done.stderr.strip().endswith("then push again.")
+
+    def test_an_untracked_file_does_not_refuse_the_push(self, tmp_path: Path) -> None:
+        repo = _repo(tmp_path)
+        bin_dir, record = _fake_make(tmp_path, 0)
+        (repo / "scratch.txt").write_text("notes\n")
+        done = _run(
+            [str(repo / ".githooks" / "pre-push")],
+            cwd=repo,
+            env=_env_with(bin_dir),
+            stdin=f"refs/heads/x {_head(repo)} refs/heads/x {ZEROS}\n",
+        )
+        assert done.returncode == 0, done.stderr
+        assert record.read_text().strip() == "args: verify"
+
+    def test_a_checkout_with_no_commit_says_so(self, tmp_path: Path) -> None:
+        repo = _repo(tmp_path, commit=False)
+        bin_dir, record = _fake_make(tmp_path, 0)
+        done = _run(
+            [str(repo / ".githooks" / "pre-push")],
+            cwd=repo,
+            env=_env_with(bin_dir),
+            stdin=f"refs/heads/x {'2' * 40} refs/heads/x {ZEROS}\n",
+        )
+        assert done.returncode == 1
+        assert not record.exists()
+        assert "no commit" in done.stderr
 
 
 @NO_GIT
