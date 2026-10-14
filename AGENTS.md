@@ -33,6 +33,8 @@ Every `zeocore` answer is JSON lines on stdout. Events carry `event`, and the la
 - 20 refused or held (for `doctor`: not ready, some check failed);
 - 1 internal, which for an effect counts as ambiguous.
 
+**Errors end with what to do.** A failing answer's `message` is `what failed; the next action`. For an internal error (exit 1), rerun the same command with `ZEOCORE_DEBUG=1` (diagnostics go to stderr, never the input; frame paths are absolute and can include the installing user's home directory, so it is an explicit opt-in), and report the command, the zeocore version and that output.
+
 `invoke` is idempotent. The same connection, operation, arguments and `--occurrence` replay the stored outcome, and a new `--occurrence` is a deliberate new act.
 
 ## Working on zeocore itself
