@@ -93,6 +93,9 @@ def _native_scalar(item: object) -> None:
     if isinstance(item, float):
         if not isfinite(item):
             raise ValueError("native usage number must be finite")
+    elif isinstance(item, int):
+        if abs(item) > MAX_SAFE_JSON_INTEGER:
+            raise ValueError("native usage integer exceeds interoperable domain")
     elif item is not None and not isinstance(item, (int, str)):
         raise ValueError("native usage value must be JSON")
 
@@ -104,6 +107,15 @@ class UsageComponents(_Closed):
     output_tokens: Count | None = None
     reasoning_tokens: Count | None = None
     other: dict[NativeKey, Count] = Field(default_factory=dict, max_length=32)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _components_not_null(cls, value: object) -> object:
+        if isinstance(value, dict) and any(
+            name in cls.model_fields and child is None for name, child in value.items()
+        ):
+            raise ValueError("usage components are absent or valid, never null")
+        return value
 
 
 class RateSources(_Closed):
@@ -203,8 +215,8 @@ class ModelReceipt(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="ignore", hide_input_in_errors=True)
     draft_schema: Literal[
-        "model-ops-draft-7 sha256:"
-        "1793c97b6eed5d1e3cc09a861b5d594d99ea7697134df4c0f14154acccfea186"
+        "model-ops-draft-9 sha256:"
+        "29c1e9479dad8ece26b768f5dae4f8f120f423629d004d5c61986bb798648a70"
     ]
     capability: Literal["text_completion"]
     reason: Reason | None = None
@@ -235,7 +247,7 @@ class ModelReceipt(BaseModel):
     stop_reason: (
         Literal["end", "max_tokens", "stop_sequence", "content_filter", "other"] | None
     ) = None
-    stop_reason_provider: str | None = Field(default=None, max_length=200)
+    stop_reason_provider: str | None = Field(default=None, min_length=1, max_length=200)
     truncated: bool | None = Field(default=None, strict=True)
     model_mismatch: bool | None = Field(default=None, strict=True)
 
@@ -244,6 +256,10 @@ class ModelReceipt(BaseModel):
     def _no_request_artifact(cls, value: object) -> object:
         if isinstance(value, dict) and "request_artifact" in value:
             raise ValueError("request artifacts are withdrawn in this draft")
+        if isinstance(value, dict) and any(
+            name in cls.model_fields and child is None for name, child in value.items()
+        ):
+            raise ValueError("receipt fields are absent or valid, never null")
         return value
 
     @model_validator(mode="after")
@@ -544,23 +560,19 @@ def _request_evidence(receipt: ModelReceipt, digest: str, size: int) -> None:
 def _reported_model_evidence(
     receipt: ModelReceipt, catalogued: tuple[str, ...]
 ) -> None:
-    if receipt.model_reported is None:
-        return
-    mismatch = receipt.model_reported != receipt.model_requested
-    if receipt.model_mismatch != mismatch:
-        raise ValueError("catalogue-aware mismatch flag is inconsistent")
-    if (
-        mismatch
-        and receipt.model_reported not in catalogued
-        and receipt.cost is not None
+    mismatch = (
+        receipt.model_reported is not None
+        and receipt.model_reported != receipt.model_requested
+    )
+    if receipt.model_reported is not None and receipt.model_mismatch != mismatch:
+        raise ValueError("reported/requested mismatch flag is inconsistent")
+    uncatalogued = mismatch and receipt.model_reported not in catalogued
+    if receipt.cost is not None and (
+        ("model" in receipt.cost.incomplete) != uncatalogued
     ):
-        if (
-            "model" not in receipt.cost.incomplete
-            or receipt.cost.tariff_estimate_micro_usd is not None
-        ):
-            raise ValueError(
-                "uncatalogued reported model requires incomplete model component"
-            )
+        raise ValueError(
+            "incomplete model component must match uncatalogued difference"
+        )
 
 
 def parse_model_response(
@@ -570,11 +582,14 @@ def parse_model_response(
     catalogue_revision: str,
     expected_request_sha256: str,
     expected_request_size_bytes: int,
-    catalogued_reported_models: tuple[str, ...] = (),
+    catalogued_reported_models: tuple[str, ...],
 ) -> ParsedModelResponse:
     """Refuse mismatched evidence without returning raw provider/input text."""
-    ambiguous = response.status == HostedOperationStatus.AMBIGUOUS
+    ambiguous = True
     try:
+        status = response.status
+        if isinstance(status, HostedOperationStatus):
+            ambiguous = status is HostedOperationStatus.AMBIGUOUS
         response = HostedOperationResponse.model_validate(response.model_dump())
         receipt = ModelReceipt.model_validate(response.receipt)
         if (
@@ -601,7 +616,7 @@ def parse_model_response(
             completion=response.artifact,
             expired=expired,
         )
-    except ValidationError, ValueError, TypeError, KeyError:
+    except ValidationError, ValueError, TypeError, KeyError, AttributeError:
         if ambiguous:
             raise AmbiguousModelReceiptError(
                 "model operation receipt is invalid; "

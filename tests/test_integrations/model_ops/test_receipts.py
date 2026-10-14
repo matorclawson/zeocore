@@ -1,15 +1,15 @@
 """Synthetic draft receipts: no transport, provider or authentic usage evidence."""
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 
 import pytest
-import rfc8785
 from pydantic import ValidationError
 
 from zeo_core.integrations.hosted.client import (
     HostedClientError,
     HostedOperationResponse,
+    HostedOperationStatus,
 )
 from zeo_core.integrations.model_ops import (
     AmbiguousModelReceiptError,
@@ -22,8 +22,8 @@ from zeo_core.integrations.model_ops.receipts import ModelReceipt
 def receipt() -> dict[str, Any]:
     return {
         "draft_schema": (
-            "model-ops-draft-7 sha256:"
-            "1793c97b6eed5d1e3cc09a861b5d594d99ea7697134df4c0f14154acccfea186"
+            "model-ops-draft-9 sha256:"
+            "29c1e9479dad8ece26b768f5dae4f8f120f423629d004d5c61986bb798648a70"
         ),
         "capability": "text_completion",
         "model_requested": "test-model-20261014",
@@ -77,6 +77,7 @@ def parse(value: dict[str, Any]) -> ParsedModelResponse:
         catalogue_revision="draft-test",
         expected_request_sha256="sha256:" + "a" * 64,
         expected_request_size_bytes=32,
+        catalogued_reported_models=(),
     )
 
 
@@ -270,6 +271,7 @@ def test_copied_response_cannot_bypass_outer_shape_validation() -> None:
             catalogue_revision="draft-test",
             expected_request_sha256="sha256:" + "a" * 64,
             expected_request_size_bytes=32,
+            catalogued_reported_models=(),
         )
 
 
@@ -284,6 +286,7 @@ def test_missing_receipt_does_not_leak_supplied_text() -> None:
             catalogue_revision="draft-test",
             expected_request_sha256="sha256:" + "a" * 64,
             expected_request_size_bytes=32,
+            catalogued_reported_models=(),
         )
     assert "synthetic-private-text" not in str(error.value)
 
@@ -523,6 +526,7 @@ def test_money_and_size_canonical_json_boundary(path: tuple[str, ...]) -> None:
             catalogue_revision="draft-test",
             expected_request_sha256="sha256:" + "a" * 64,
             expected_request_size_bytes=expected_size,
+            catalogued_reported_models=(),
         ).completion
         is not None
     )
@@ -599,9 +603,8 @@ def test_content_filter_delivery_is_explicitly_truncated() -> None:
 
 def test_incomplete_estimate_cannot_release_hold() -> None:
     value = live()
-    value["receipt"]["cost"].update(
-        tariff_estimate_micro_usd=None, incomplete=["price"], held=False
-    )
+    value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    value["receipt"]["cost"].update(incomplete=["price"], held=False)
     with pytest.raises(HostedClientError):
         parse(value)
 
@@ -740,13 +743,11 @@ def test_native_usage_nonfinite_numbers_are_refused(number: float) -> None:
 
 
 @pytest.mark.parametrize("number", [1 << 80, -(1 << 80)])
-def test_large_native_integer_is_preserved_but_not_canonicalisable(number: int) -> None:
+def test_large_native_integer_is_refused_by_draft9(number: int) -> None:
     value = live()
     value["receipt"]["usage_provider"] = {"number": number}
-    native = parse(value).receipt.usage_provider
-    assert native["number"] == number
-    with pytest.raises(rfc8785.IntegerDomainError):
-        rfc8785.dumps(native)
+    with pytest.raises(HostedClientError):
+        parse(value)
 
 
 def test_native_usage_total_keys_count_both_nested_objects() -> None:
@@ -760,6 +761,105 @@ def test_native_usage_total_keys_count_both_nested_objects() -> None:
     native["right"]["extra"] = 0
     with pytest.raises(HostedClientError):
         parse(value)
+
+
+@pytest.mark.parametrize(
+    "number", [-(2**53 - 1), 2**53 - 1, 0.5, 1.0, 1e80, True, False]
+)
+def test_native_numbers_preserve_type_and_signed_boundary(number: int | float) -> None:
+    value = live()
+    value["receipt"]["usage_provider"] = {"number": number}
+    parsed = parse(value).receipt.usage_provider["number"]
+    assert parsed == number and type(parsed) is type(number)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "reason",
+        "model_reported",
+        "provider_request_id",
+        "usage",
+        "usage_provider",
+        "excluded_blocks",
+        "replayed",
+    ],
+)
+def test_optional_receipt_null_is_never_an_absent_value(field: str) -> None:
+    value = live()
+    value["receipt"][field] = None
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "input_uncached_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+    ],
+)
+def test_optional_normalized_usage_null_is_refused(field: str) -> None:
+    value = live()
+    value["receipt"]["usage"][field] = None
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("different", [False, True])
+def test_mismatch_flag_must_match_reported_difference(different: bool) -> None:
+    value = live()
+    value["receipt"].update(
+        model_reported="other-model" if different else "test-model-20261014",
+        model_mismatch=not different,
+    )
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("reported", ["test-model-20261014", "other-model"])
+def test_catalogued_model_cannot_claim_incomplete_model_component(
+    reported: str,
+) -> None:
+    value = live()
+    value["receipt"].update(
+        model_reported=reported, model_mismatch=reported != "test-model-20261014"
+    )
+    value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    value["receipt"]["cost"].update(incomplete=["model"], held=True)
+    with pytest.raises(HostedClientError):
+        parse_model_response(
+            HostedOperationResponse.model_validate(value),
+            expected_model="test-model-20261014",
+            catalogue_revision="draft-test",
+            expected_request_sha256="sha256:" + "a" * 64,
+            expected_request_size_bytes=32,
+            catalogued_reported_models=(reported,),
+        )
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        object(),
+        HostedOperationResponse.model_construct(
+            status=cast(HostedOperationStatus, None), execution_id="synthetic"
+        ),
+    ],
+)
+def test_undeterminable_response_status_is_ambiguous(response: object) -> None:
+    with pytest.raises(AmbiguousModelReceiptError, match="may have been dispatched"):
+        parse_model_response(
+            cast(HostedOperationResponse, response),
+            expected_model="test-model-20261014",
+            catalogue_revision="draft-test",
+            expected_request_sha256="sha256:" + "a" * 64,
+            expected_request_size_bytes=32,
+            catalogued_reported_models=(),
+        )
 
 
 def test_unknown_outcome_with_complete_usage_keeps_tariff_and_hold() -> None:
@@ -802,7 +902,8 @@ def test_optional_identity_before_validation(reason: str, code: str) -> None:
 @pytest.mark.parametrize("word", ["unknown_component", "cache_read_tokens"])
 def test_incomplete_vocabulary_is_closed(word: str) -> None:
     value = live()
-    value["receipt"]["cost"].update(incomplete=[word], tariff_estimate_micro_usd=None)
+    value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    value["receipt"]["cost"].update(incomplete=[word], held=True)
     with pytest.raises(HostedClientError):
         parse(value)
 

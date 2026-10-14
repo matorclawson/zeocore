@@ -39,6 +39,8 @@ def parse_model_request_json(raw: bytes | str) -> TextCompletionRequest:
     duplicate-key or number-spelling evidence before model validation.
     """
     try:
+        if isinstance(raw, str) and len(raw) > 2 * MAX_REQUEST_BYTES:
+            raise ValueError("raw request exceeds HTTP body bound")
         encoded = raw.encode() if isinstance(raw, str) else raw
         if len(encoded) > 2 * MAX_REQUEST_BYTES:
             raise ValueError("raw request exceeds HTTP body bound")

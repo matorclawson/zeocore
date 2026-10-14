@@ -1,5 +1,5 @@
 {
-  "about": "Vectors for model-ops draft 6 (adds to request-vectors.json sha256 0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a; both sets apply). Every refused case gives `raw`: the exact request body text, or `hex:<bytes>` for raw bytes (hex: means the body is those bytes, not text). 0.070 is refused: the check is lexical on the number token, at most two digits after the point, so a trailing zero counts. A valid case gives `raw` too.",
+  "about": "Vectors for model-ops draft 8: everything in request-vectors-3.json plus the refused cases below (whitespace-only text, a model id outside the pattern, an alias, max_output_tokens above 2^53-1). request-vectors.json still applies. `raw` is the exact body text; `hex:` means those raw bytes.",
   "valid": [
     {
       "name": "minimal",
@@ -196,6 +196,36 @@
     {
       "name": "temperature 0.070 (three digits after the point, lexical)",
       "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":0.070}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "whitespace-only message text",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"  \\n\\t \"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "empty message text",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "model id with a space",
+      "raw": "{\"model\":\"a b\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "model id starting with a dot",
+      "raw": "{\"model\":\".m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "model id of 201 characters",
+      "raw": "{\"model\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "max_output_tokens above 2^53-1",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":9007199254740992}",
       "expected": "bad_request"
     }
   ]

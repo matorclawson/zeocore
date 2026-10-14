@@ -317,7 +317,7 @@ def test_connection_ceiling_and_temperature_catalogue_flag() -> None:
         ),
         (
             "request-vectors-extra.json",
-            "e06cfb6fe42b3eea15afec950dbcfc9a4f901713a09c16b75a1730f134de9592",
+            "5eb520927d6b68cc6688adcb081cb428d2c0f24cc9cc03e47f69cde74c391746",
         ),
     ],
 )
@@ -340,6 +340,39 @@ def test_owner_request_vectors_match_canonical_bytes_and_refusals(
         rejected = bytes.fromhex(text[4:]) if text.startswith("hex:") else text
         with pytest.raises(HostedClientError):
             parse_model_request_json(rejected)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '\ufeff{"model":"m","messages":[{"role":"user","text":"x"}],"max_output_tokens":1}',
+        '{"model":"m","messages":[{"role":"user","text":"x"}],'
+        '"max_output_tokens":1} extra',
+        "[" * 2000 + "0" + "]" * 2000,
+    ],
+)
+def test_raw_json_rejects_bom_trailing_data_and_nesting(raw: str) -> None:
+    with pytest.raises(HostedClientError):
+        parse_model_request_json(raw)
+
+
+def test_oversized_string_is_refused_before_encoding() -> None:
+    class MustNotEncode(str):
+        def encode(self, *args: object, **kwargs: object) -> bytes:
+            raise AssertionError("encoding must not run")
+
+    with pytest.raises(HostedClientError):
+        parse_model_request_json(MustNotEncode("x" * (512 * 1024 + 1)))
+
+
+def test_negative_zero_temperature_is_valid_and_canonicalises_to_zero() -> None:
+    raw = (
+        '{"model":"m","messages":[{"role":"user","text":"x"}],'
+        '"max_output_tokens":1,"temperature":-0.0}'
+    )
+    request = parse_model_request_json(raw)
+    assert request.temperature == 0.0
+    assert b'"temperature":0' in request.canonical_bytes()
 
 
 @pytest.mark.parametrize(
