@@ -1,114 +1,85 @@
 # Model-operation client contribution
 
-This draft contributes typed, keyless inputs, request preparation and receipt parsing for the
-proposed ZEOconnect model operations. It does not register a provider, dispatch
-requests, read keys, pair devices or establish coding-agent access.
+This draft prepares keyless text-completion requests and checks supplied model
+receipts. It does not dispatch requests, read keys, pair devices or register a
+provider. It has no invoke method. Receipt checks establish format consistency,
+not an authentic provider call, settlement or permission to retry.
 
-`ModelMessage`, `TextCompletionRequest` and `ModelCatalogue` are closed models.
-They bound serialized UTF-8 JSON (including escaping and structure) to the
-proposed 256 KiB limit, validate finite temperature from 0 to 1, and enforce each model’s
-owner-selected output-token ceiling. They retain exact catalogue model
-IDs and omit prompt text from representations. A catalogue is not a spending
-grant. The receiving owner must qualify exact model IDs and limits.
+## Draft inputs
 
-`DraftModelOperationClient.prepare()` returns an existing
-`HostedOperationRequest` with the selected connection, connector revision,
-expected-binding fence and caller-supplied idempotency key. Proposed operations
-are Anthropic Messages, OpenAI Responses and Gemini generation. No transport
-URL, native provider header or key can be supplied. There is no invoke method.
-
-The draft follows model-ops-20261013 revisions A/B. It deliberately remains
-outside the reviewed hosted-service registry. Its request limits and operation
-names are contribution proposals, not frozen Broker contracts. After contract
-review, add receiving-compatible request/receipt mappings and fake handshake
-checks, then qualify the installed and allowlisted receiver before activation.
-
-Use only synthetic inputs in tests. No live provider call or secret is needed.
-
-The request subset now follows SCHEMA-draft-1 SHA256
-`4b45e5913e3ad7eee937f34f31e5fbb187890bca094e8cabe6e3325ad68d629a`.
-The five accepted fields are model, messages, system, max_output_tokens and
-temperature.
-
-`parse_model_response()` checks a synthetic or supplied hosted response against
-the requested model and catalogue revision. It keeps reservation, tariff estimate
-and remaining budget separate. Missing usage stays missing: it is not counted as
-zero. Native provider usage is a bounded evidence block and is never used for
-price arithmetic. The parser neither calculates prices nor settles reservations.
-
-Receipt parsing follows draft 2 delta b for response mapping and expiry, and
-draft 2 delta c for stage-specific fields, SHA256
-`f9b85f190ae5bb98c60da175a1afd59ebdcd0da3a626d047687ca8452b370e5c`.
-Detailed refusal reasons must match the existing uppercase error code and response
-status. A live completion uses the outer artifact descriptor. An expired replay
-has matching digests and sizes in its marker and receipt metadata; it supplies no
-fetchable completion. These checks never establish that a provider was called,
-that usage is authentic or that a retry is safe.
-
-This is draft format conformance, not a frozen contract or live handshake. The
-receiving owner and council must review the contract, including failure receipts,
-before any receiver qualification or activation.
-
-
-A validation or catalogue refusal happens before the budget is read: it carries
-a request fingerprint, with no cost, budget, usage or artifact fields. A budget
-refusal carries the worst-case amount that would not fit and `held: false`.
-That amount was refused, not spent or reserved. Once the provider is reached,
-cost, budget and request-artifact metadata are required. `held` records whether
-the reservation remains held; an unknown outcome must keep it held. Fields that
-were never computed are absent, never filled with zeros.
-
-Lifecycle receipts carry capability and one of the owner's exact reasons:
-`connection_revoked`, `connection_repair_required` or
-`connector_revision_unavailable`. They carry no computed request, usage, cost or
-budget fields. Unknown or absent refusal reasons are rejected rather than guessed. HTTP-level
-stop and expired application grants are not parsed as model-operation receipts.
-
-
-## External draft inputs
-
-These are owner drafts, **not in this repository**, not public contract artifacts
-and not frozen. Their names and hashes identify the contribution inputs; a public
-checkout cannot reproduce their contents. Once adopted, the frozen contract must
-be provided through the project's normal contract distribution.
+The contribution binds **model-ops draft 2**, not a frozen Broker contract.
+These are owner drafts, **not in this repository**. A public checkout cannot
+reproduce their contents; an adopted contract needs the project's normal
+contract distribution.
 
 | Owner draft, not in this repo | SHA256 |
 |---|---|
-| DESIGN-NOTE-rev-a.md | `7ad6355ea8a6f83c3712981e2a30c261c27777bd5399ffa7f980e1e7459109dc` |
-| DESIGN-NOTE-rev-b.md | `5c721ca329eb009a4d5a23e8a692f440e206e510e81e2dda15ce6d29b107854b` |
-| SCHEMA-draft-1.md | `4b45e5913e3ad7eee937f34f31e5fbb187890bca094e8cabe6e3325ad68d629a` |
-| SCHEMA-draft-2-delta.md | `892163086ed9d2fd5241acc25503ea51765e086b2c2aa9ce732353b3f8734347` |
-| SCHEMA-draft-2-delta-b.md | `e737e8fe615143e776b746d1c7547693e7b29a749f6ca8562fb7057aa6b0e007` |
-| SCHEMA-draft-2-delta-c.md | `f9b85f190ae5bb98c60da175a1afd59ebdcd0da3a626d047687ca8452b370e5c` |
+| SCHEMA-draft-2.md | `2ae60f8cdca42a325bc4d3bbb22b5c58deb300258ed9e2cb5dc62d778f5fe901` |
+| DESIGN-NOTE-rev-c.md | `4b729345ec8ebfdd1589503ff1bd251aafaef40fc9eb253bad73fc8c92d0bf04` |
 
-The owner separately clarified the lifecycle names. That clarification is also
-a draft, not a frozen contract.
-No installed Broker contract version is claimed by these draft formats.
+Draft 2 replaces the earlier request schema and receipt deltas. Its recording
+double stamps the schema hash into `draft_schema`; the parser requires that
+exact stamp. This does not qualify an installed receiver or freeze its contract.
+Proposed operations are `anthropic.messages.create`, `openai.responses.create`
+and `google.gemini.generate`.
 
-## What the checks establish
+## Requests and caller-owned evidence
 
-A malformed ambiguous receipt raises `AmbiguousModelReceiptError`: the call may
-have been dispatched and must not be retried until its outcome and reservation
-are settled. Other parsing failures also do not prove that no dispatch happened.
+Closed request models accept model, messages, optional system, required
+max_output_tokens and optional temperature. Temperature is finite, from 0 to 1.
+The request is at most 256 KiB in RFC 8785 canonical JSON. Each catalogue model
+has an owner-selected output ceiling. Integer counters fit the interoperable
+canonical JSON range, up to 2^53 minus 1.
 
-In the owner draft, a live completion uses the outer artifact descriptor;
-`receipt.completion` is a second descriptor on replay. When present, both must
-match. Its absence on a live result means there is no independent receipt copy
-to compare. The caller must retain and check fetched bytes against the digest;
-this parser checks metadata and never fetches or authenticates those bytes.
+`TextCompletionRequest.canonical_bytes()` supplies the bytes the caller retains;
+`request_sha256()` fingerprints those bytes. There is **no request artifact** in
+this draft. The Broker receipt supplies the digest and byte count. The parser
+requires the caller's expected digest and size and compares them when present.
+This binds a supplied receipt to a retained copy; it does not prove dispatch.
 
-`model_reported` is retained as evidence, not matched to a live provider catalogue.
-The consumer and receiving owner must check the exact provider-reported ID against
-the pinned snapshot or an explicitly reviewed alias mapping before treating a
-result as belonging to the requested model. No prefix or alias substitution is
-inferred here. The catalogue's alias-name checks only catch known patterns;
-the owner remains responsible for pinning actual snapshot IDs.
+`DraftModelOperationClient.prepare()` retains the connection fence and caller's
+idempotency key in an existing `HostedOperationRequest`. Constructor inputs and
+copied request models are revalidated. The receiver must qualify its own lower
+connection ceiling and provider catalogue; this client does not inspect a live
+connection or establish those settings.
 
-Rate-source page strings are retained as evidence and are never fetched. All
-integer counters fit canonical JSON's interoperable range, up to 2^53 minus 1.
+`ModelCatalogue.proposed_contract_sha256` records owner-selected draft provenance
+for consumers retaining their catalogue. It is not checked against a frozen
+registry and does not authorize execution. Alias-pattern checks only catch known
+patterns; the owner must pin real snapshot IDs.
 
+## Receipts and costs
 
-`ModelCatalogue.proposed_contract_sha256` records the owner-selected draft's
-provenance for consumers retaining their catalogue. It is not checked against a
-frozen-contract registry and does not authorize execution. Consumers must retain
-that binding with their evidence; an arbitrary hash is never admission proof.
+A refusal before the budget is read carries no cost, budget, usage or completion.
+When a budget refusal includes the worst case that did not fit, `held` is false:
+that amount was neither held nor spent. Provider-reached receipts carry cost and
+budget context, including provider, UTC reservation day and accounting scope.
+Missing usage stays unknown. Native usage is bounded evidence, separate from
+normalized components and never used here for price arithmetic.
+
+Reservation, tariff estimate and remaining budget stay separate. The parser
+neither calculates prices nor settles or releases reservations. Unknown outcomes
+must keep their reservation held. A malformed ambiguous receipt raises
+`AmbiguousModelReceiptError`: the call may have been dispatched and must not be
+retried until its outcome and reservation are settled. Other parsing failures
+also do not prove that no dispatch happened.
+
+A confirmed completion requires matching outer and receipt artifact metadata.
+Expired replay requires a matching digest/size marker and expired receipt
+metadata, and supplies no fetchable completion. The caller must retain fetched
+bytes and check their digest; the parser never fetches or authenticates them.
+Rate-source page strings are retained and never fetched.
+
+Confirmed means delivery, not task success. A max-token completion must explicitly
+report `truncated: true`. Reported model differences must have a consistent
+`model_mismatch` flag; an uncatalogued reported model cannot claim a complete
+estimate. Consumers must still verify owner-pinned model identities before
+attributing benchmark results. No prefix or alias substitution is inferred.
+
+Detailed refusal reasons must match the existing error code and status, including
+in-flight and reused-key conflicts. Stop and expired application grants are HTTP
+refusals, not model receipt reasons. The shared hosted response model and error
+enum remain unchanged.
+
+Use synthetic inputs in tests. Text completion alone does not establish a
+coding-agent tool loop or any new AX benchmark result.

@@ -18,8 +18,18 @@ from zeo_core.integrations.model_ops import (
 
 def receipt() -> dict[str, Any]:
     return {
+        "draft_schema": (
+            "2ae60f8cdca42a325bc4d3bbb22b5c58deb300258ed9e2cb5dc62d778f5fe901"
+        ),
         "capability": "text_completion",
         "model_requested": "test-model-20261014",
+        "model_reported": "test-model-20261014",
+        "model_mismatch": False,
+        "stop_reason": "end",
+        "truncated": False,
+        "request_sha256": "sha256:" + "a" * 64,
+        "request_size_bytes": 32,
+        "completion": artifact() | {"state": "available"},
         "usage": {"cache_read_tokens": 20},
         "usage_provider": {"input_tokens": 30, "details": {"cached": 20}},
         "cost": {
@@ -33,12 +43,13 @@ def receipt() -> dict[str, Any]:
             },
         },
         "budget": {
+            "provider": "anthropic",
+            "day": "2026-10-14",
+            "scope": "broker_total",
             "authority_remaining_micro_usd": 900,
             "day_calls_remaining": 4,
             "day_spend_remaining_micro_usd": 900,
         },
-        "request_artifact": artifact("request.json", "application/json")
-        | {"state": "available"},
     }
 
 
@@ -59,6 +70,8 @@ def parse(value: dict[str, Any]) -> ParsedModelResponse:
         HostedOperationResponse.model_validate(value),
         expected_model="test-model-20261014",
         catalogue_revision="draft-test",
+        expected_request_sha256="sha256:" + "a" * 64,
+        expected_request_size_bytes=32,
     )
 
 
@@ -74,7 +87,6 @@ def live() -> dict[str, Any]:
 def expired() -> dict[str, Any]:
     r = receipt()
     r["replayed"] = True
-    r["request_artifact"]["state"] = "expired"
     r["completion"] = artifact() | {"state": "expired"}
     return {
         "status": "confirmed",
@@ -118,6 +130,8 @@ def test_expired_replay_has_no_fetchable_completion() -> None:
         ("model_not_allowed", "refused", "REQUEST_REFUSED"),
         ("bad_request", "refused", "REQUEST_REFUSED"),
         ("budget_exhausted", "refused", "REQUEST_REFUSED"),
+        ("request_in_progress", "refused", "REQUEST_REFUSED"),
+        ("idempotency_key_reused", "refused", "REQUEST_REFUSED"),
         ("blocked", "failed_safe", "REQUEST_REFUSED"),
         ("provider_refused", "failed_safe", "REQUEST_REFUSED"),
         ("rate_limited", "failed_safe", "RATE_LIMITED"),
@@ -131,12 +145,27 @@ def test_expired_replay_has_no_fetchable_completion() -> None:
 def test_fixed_error_mapping(reason: str | None, status: str, code: str) -> None:
     r = receipt()
     r["reason"] = reason
+    r.pop("completion")
     r["cost"]["tariff_estimate_micro_usd"] = None
-    if reason in {"model_not_allowed", "bad_request", "budget_exhausted"}:
+    if reason in {
+        "model_not_allowed",
+        "bad_request",
+        "budget_exhausted",
+        "request_in_progress",
+        "idempotency_key_reused",
+    }:
         r = {
             key: value
             for key, value in r.items()
-            if key in {"capability", "reason", "model_requested", "cost", "budget"}
+            if key
+            in {
+                "draft_schema",
+                "capability",
+                "reason",
+                "model_requested",
+                "cost",
+                "budget",
+            }
         }
         r.update(request_sha256="sha256:" + "a" * 64, request_size_bytes=32)
         if reason == "budget_exhausted":
@@ -150,7 +179,11 @@ def test_fixed_error_mapping(reason: str | None, status: str, code: str) -> None
         "connection_repair_required",
         "connector_revision_unavailable",
     }:
-        r = {"capability": "text_completion", "reason": reason}
+        r = {
+            "draft_schema": receipt()["draft_schema"],
+            "capability": "text_completion",
+            "reason": reason,
+        }
     value: dict[str, Any] = {
         "status": status,
         "execution_id": "synthetic",
@@ -176,9 +209,6 @@ def test_fixed_error_mapping(reason: str | None, status: str, code: str) -> None
         (("usage", "output_tokens"), -1),
         (("usage_provider",), {"depth": {"too": {"deep": 1}}}),
         (("usage_provider",), {"a": {str(n): 1 for n in range(32)}}),
-        (("request_artifact", "state"), "expired"),
-        (("request_artifact", "filename"), "other.json"),
-        (("request_artifact", "size_bytes"), True),
         (("reason",), "stopped"),
         (("completion",), artifact() | {"state": "available", "size_bytes": 99}),
     ],
@@ -200,7 +230,6 @@ def test_malformed_or_unbound_receipts_are_refused(
     [
         (("receipt", "replayed"), False),
         (("receipt", "completion", "state"), "available"),
-        (("receipt", "request_artifact", "state"), "available"),
         (("result", "size_bytes"), 99),
         (("result", "content_sha256"), "sha256:" + "b" * 64),
         (("result", "expired"), False),
@@ -225,6 +254,8 @@ def test_copied_response_cannot_bypass_outer_shape_validation() -> None:
             response,
             expected_model="test-model-20261014",
             catalogue_revision="draft-test",
+            expected_request_sha256="sha256:" + "a" * 64,
+            expected_request_size_bytes=32,
         )
 
 
@@ -237,6 +268,8 @@ def test_missing_receipt_does_not_leak_supplied_text() -> None:
             response,
             expected_model="test-model-20261014",
             catalogue_revision="draft-test",
+            expected_request_sha256="sha256:" + "a" * 64,
+            expected_request_size_bytes=32,
         )
     assert "synthetic-private-text" not in str(error.value)
 
@@ -259,6 +292,7 @@ def early(reason: str = "bad_request") -> dict[str, Any]:
             "message": "Synthetic refusal.",
         },
         "receipt": {
+            "draft_schema": receipt()["draft_schema"],
             "capability": "text_completion",
             "reason": reason,
             "request_sha256": "sha256:" + "a" * 64,
@@ -316,7 +350,7 @@ def test_budget_refusal_reports_worst_case_but_holds_nothing() -> None:
         parse(value)
 
 
-@pytest.mark.parametrize("field", ["cost", "budget", "request_artifact"])
+@pytest.mark.parametrize("field", ["cost", "budget", "completion"])
 def test_provider_receipt_requires_computed_fields(field: str) -> None:
     value = live()
     value["receipt"].pop(field)
@@ -334,6 +368,7 @@ def test_unknown_outcome_requires_strict_held_reservation(held: object) -> None:
         "message": "Synthetic unknown.",
     }
     value["receipt"]["reason"] = "unknown_outcome"
+    value["receipt"].pop("completion")
     value["receipt"]["cost"].update(held=held, tariff_estimate_micro_usd=None)
     with pytest.raises(AmbiguousModelReceiptError):
         parse(value)
@@ -368,6 +403,7 @@ def test_lifecycle_refusal_has_no_uncomputed_request_fields(field: str) -> None:
     value = early("connection_revoked")
     value["normalized_error"]["code"] = "CONNECTION_REVOKED"
     value["receipt"] = {
+        "draft_schema": receipt()["draft_schema"],
         "capability": "text_completion",
         "reason": "connection_revoked",
         field: None,
@@ -379,7 +415,10 @@ def test_lifecycle_refusal_has_no_uncomputed_request_fields(field: str) -> None:
 def test_old_missing_lifecycle_reason_is_rejected() -> None:
     value = early()
     value["normalized_error"]["code"] = "CONNECTION_REVOKED"
-    value["receipt"] = {"capability": "text_completion"}
+    value["receipt"] = {
+        "draft_schema": receipt()["draft_schema"],
+        "capability": "text_completion",
+    }
     with pytest.raises(HostedClientError):
         parse(value)
 
@@ -437,7 +476,7 @@ def test_native_usage_rejects_normalized_secret_names(field: str) -> None:
         ("receipt", "budget", "authority_remaining_micro_usd"),
         ("receipt", "budget", "day_calls_remaining"),
         ("receipt", "budget", "day_spend_remaining_micro_usd"),
-        ("receipt", "request_artifact", "size_bytes"),
+        ("receipt", "request_size_bytes"),
         ("artifact", "size_bytes"),
         ("receipt", "cost", "reservation_micro_usd"),
         ("receipt", "cost", "tariff_estimate_micro_usd"),
@@ -449,7 +488,70 @@ def test_money_and_size_canonical_json_boundary(path: tuple[str, ...]) -> None:
     for key in path[:-1]:
         target = target[key]
     target[path[-1]] = (1 << 53) - 1
-    assert parse(value).completion is not None
+    if path == ("receipt", "cost", "tariff_estimate_micro_usd"):
+        value["receipt"]["cost"]["reservation_micro_usd"] = (1 << 53) - 1
+    expected_size = ((1 << 53) - 1) if path == ("receipt", "request_size_bytes") else 32
+    if path == ("artifact", "size_bytes"):
+        value["receipt"]["completion"]["size_bytes"] = (1 << 53) - 1
+    assert (
+        parse_model_response(
+            HostedOperationResponse.model_validate(value),
+            expected_model="test-model-20261014",
+            catalogue_revision="draft-test",
+            expected_request_sha256="sha256:" + "a" * 64,
+            expected_request_size_bytes=expected_size,
+        ).completion
+        is not None
+    )
     target[path[-1]] = 1 << 53
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("draft_schema", "a" * 64),
+        ("request_sha256", "sha256:" + "b" * 64),
+        ("request_size_bytes", 99),
+        ("truncated", None),
+        ("model_mismatch", True),
+    ],
+)
+def test_consolidated_binding_and_flags(field: str, value: object) -> None:
+    response = live()
+    response["receipt"][field] = value
+    with pytest.raises(HostedClientError):
+        parse(response)
+
+
+def test_truncation_is_explicit_on_confirmed_delivery() -> None:
+    response = live()
+    response["receipt"].update(stop_reason="max_tokens", truncated=True)
+    assert parse(response).receipt.truncated is True
+    response["receipt"]["truncated"] = False
+    with pytest.raises(HostedClientError):
+        parse(response)
+
+
+def test_uncatalogued_reported_model_requires_incomplete_estimate() -> None:
+    response = live()
+    response["receipt"].update(model_reported="other-model", model_mismatch=True)
+    with pytest.raises(HostedClientError):
+        parse(response)
+    response["receipt"]["cost"].update(
+        tariff_estimate_micro_usd=None, incomplete=["model_mismatch"]
+    )
+    assert parse(response).receipt.model_mismatch is True
+
+
+def test_overshoot_is_retained_and_must_match_supplied_amounts() -> None:
+    value = live()
+    value["receipt"]["cost"].update(
+        tariff_estimate_micro_usd=120, overshoot_micro_usd=20
+    )
+    cost = parse(value).receipt.cost
+    assert cost is not None and cost.overshoot_micro_usd == 20
+    value["receipt"]["cost"]["overshoot_micro_usd"] = 19
     with pytest.raises(HostedClientError):
         parse(value)

@@ -236,3 +236,20 @@ def test_configuration_is_validated_before_preparation() -> None:
         DraftModelOperationClient(
             catalogue=catalogue, connection_id="synthetic", expected_binding=invalid
         )
+
+
+def test_caller_retains_rfc8785_bytes_and_digest() -> None:
+    import hashlib
+
+    request = TextCompletionRequest(
+        model="synthetic",
+        messages=(ModelMessage(role="user", text="é"),),
+        max_output_tokens=10,
+        temperature=1.0,
+    )
+    expected = (
+        '{"max_output_tokens":10,"messages":[{"role":"user","text":"é"}],'
+        '"model":"synthetic","temperature":1}'
+    ).encode()
+    assert request.canonical_bytes() == expected
+    assert request.request_sha256() == "sha256:" + hashlib.sha256(expected).hexdigest()

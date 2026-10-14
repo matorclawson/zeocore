@@ -28,7 +28,7 @@ _PROPOSED_OPERATIONS: Final = {
 class DraftModelOperationClient:
     """Inert contribution for contract review; never a native provider client.
 
-    The external owner drafts are named and hashed in the External draft inputs
+    The external owner drafts are named and hashed in the Draft inputs
     section of docs/integrations/model-operations.md. Names remain proposals.
     This class prepares input for fake contract tests, but deliberately exposes
     no invoke method, transport, credential reader or registry registration.

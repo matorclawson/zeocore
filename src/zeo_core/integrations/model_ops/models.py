@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import json
+import hashlib
 from typing import Literal
 
+import rfc8785
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Provider = Literal["anthropic", "openai", "google"]
@@ -44,17 +45,20 @@ class TextCompletionRequest(BaseModel):
     @model_validator(mode="after")
     def _bounded_utf8(self) -> TextCompletionRequest:
         try:
-            encoded = json.dumps(
-                self.model_dump(exclude_none=True),
-                ensure_ascii=False,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-        except UnicodeEncodeError, ValueError:
+            encoded = self.canonical_bytes()
+        except rfc8785.CanonicalizationError, UnicodeEncodeError, ValueError:
             raise ValueError("request must encode as finite UTF-8 JSON") from None
         if len(encoded) > MAX_REQUEST_BYTES:
             raise ValueError("serialized model request exceeds candidate byte limit")
         return self
+
+    def canonical_bytes(self) -> bytes:
+        """Caller-owned request bytes under RFC 8785; never stored or dispatched."""
+        return rfc8785.dumps(self.model_dump(exclude_none=True))
+
+    def request_sha256(self) -> str:
+        """Digest of caller-retained canonical bytes, not proof of dispatch."""
+        return "sha256:" + hashlib.sha256(self.canonical_bytes()).hexdigest()
 
 
 class CataloguedModel(BaseModel):
