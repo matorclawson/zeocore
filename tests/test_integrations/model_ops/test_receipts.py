@@ -19,8 +19,8 @@ from zeo_core.integrations.model_ops import (
 def receipt() -> dict[str, Any]:
     return {
         "draft_schema": (
-            "model-ops-draft-5 sha256:"
-            "9d4e5be93af364f08ce1f7413f4369b9d5edb6230ad7d66a46299e5fff5a6399"
+            "model-ops-draft-7 sha256:"
+            "1793c97b6eed5d1e3cc09a861b5d594d99ea7697134df4c0f14154acccfea186"
         ),
         "capability": "text_completion",
         "model_requested": "test-model-20261014",
@@ -149,8 +149,9 @@ def test_fixed_error_mapping(reason: str | None, status: str, code: str) -> None
     r["reason"] = reason
     if reason == "budget_exhausted":
         r["detail"] = "authority"
-    r.pop("completion")
-    r["cost"]["tariff_estimate_micro_usd"] = None
+    for field in ("completion", "stop_reason", "stop_reason_provider", "truncated"):
+        r.pop(field)
+    r["cost"].pop("tariff_estimate_micro_usd")
     if reason in {
         "model_not_allowed",
         "bad_request",
@@ -175,7 +176,7 @@ def test_fixed_error_mapping(reason: str | None, status: str, code: str) -> None
         if reason != "bad_request":
             r.update(request_sha256="sha256:" + "a" * 64, request_size_bytes=32)
         if reason == "budget_exhausted":
-            r["cost"].pop("tariff_estimate_micro_usd")
+            r["cost"].pop("tariff_estimate_micro_usd", None)
             r["cost"]["held"] = False
         else:
             r.pop("cost")
@@ -283,9 +284,8 @@ def test_missing_receipt_does_not_leak_supplied_text() -> None:
 
 def test_incomplete_estimate_preserves_missing_rate() -> None:
     value = live()
-    value["receipt"]["cost"].update(
-        tariff_estimate_micro_usd=None, incomplete=["cache_read_tokens"]
-    )
+    value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    value["receipt"]["cost"]["incomplete"] = ["price"]
     cost = parse(value).receipt.cost
     assert cost is not None and cost.tariff_estimate_micro_usd is None
 
@@ -383,8 +383,10 @@ def test_unknown_outcome_requires_strict_held_reservation(held: object) -> None:
         "message": "Synthetic unknown.",
     }
     value["receipt"]["reason"] = "unknown_outcome"
-    value["receipt"].pop("completion")
-    value["receipt"]["cost"].update(held=held, tariff_estimate_micro_usd=None)
+    for field in ("completion", "stop_reason", "stop_reason_provider", "truncated"):
+        value["receipt"].pop(field)
+    value["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    value["receipt"]["cost"]["held"] = held
     with pytest.raises(AmbiguousModelReceiptError):
         parse(value)
 
@@ -553,9 +555,8 @@ def test_uncatalogued_reported_model_requires_incomplete_estimate() -> None:
     response["receipt"].update(model_reported="other-model", model_mismatch=True)
     with pytest.raises(HostedClientError):
         parse(response)
-    response["receipt"]["cost"].update(
-        tariff_estimate_micro_usd=None, incomplete=["model_mismatch"]
-    )
+    response["receipt"]["cost"].pop("tariff_estimate_micro_usd")
+    response["receipt"]["cost"]["incomplete"] = ["model"]
     assert parse(response).receipt.model_mismatch is True
 
 
@@ -591,7 +592,7 @@ def test_content_filter_delivery_is_explicitly_truncated() -> None:
 def test_incomplete_estimate_cannot_release_hold() -> None:
     value = live()
     value["receipt"]["cost"].update(
-        tariff_estimate_micro_usd=None, incomplete=["missing_rate"], held=False
+        tariff_estimate_micro_usd=None, incomplete=["price"], held=False
     )
     with pytest.raises(HostedClientError):
         parse(value)
@@ -658,5 +659,54 @@ def test_confirmed_without_usage_stays_held() -> None:
 def test_budget_detail_is_absent_on_other_outcomes(detail: object) -> None:
     value = live()
     value["receipt"]["detail"] = detail
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("reason,code", [("connection_revoked", "CONNECTION_REVOKED")])
+def test_optional_identity_before_validation(reason: str, code: str) -> None:
+    value = early(reason)
+    value["receipt"].pop("model_requested")
+    value["receipt"].pop("request_sha256")
+    value["receipt"].pop("request_size_bytes")
+    value["normalized_error"]["code"] = code
+    assert parse(value).receipt.model_requested is None
+
+
+@pytest.mark.parametrize("word", ["unknown_component", "cache_read_tokens"])
+def test_incomplete_vocabulary_is_closed(word: str) -> None:
+    value = live()
+    value["receipt"]["cost"].update(incomplete=[word], tariff_estimate_micro_usd=None)
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+def test_catalogued_reported_difference_is_not_identity_proof() -> None:
+    value = live()
+    value["receipt"].update(model_reported="other-model", model_mismatch=True)
+    parsed = parse_model_response(
+        HostedOperationResponse.model_validate(value),
+        expected_model="test-model-20261014",
+        catalogue_revision="draft-test",
+        expected_request_sha256="sha256:" + "a" * 64,
+        expected_request_size_bytes=32,
+        catalogued_reported_models=("other-model",),
+    )
+    assert parsed.receipt.model_requested != parsed.receipt.model_reported
+    assert parsed.receipt.model_mismatch is True
+
+
+@pytest.mark.parametrize("reason", ["request_in_progress", "idempotency_key_reused"])
+def test_key_conflicts_require_requested_identity(reason: str) -> None:
+    value = early(reason)
+    value["receipt"].pop("model_requested")
+    with pytest.raises(HostedClientError):
+        parse(value)
+
+
+@pytest.mark.parametrize("pages", [["not a URL"], ["https://example.invalid"] * 9])
+def test_rate_sources_are_bounded_urls(pages: list[str]) -> None:
+    value = live()
+    value["receipt"]["cost"]["rates_source"]["pages"] = pages
     with pytest.raises(HostedClientError):
         parse(value)

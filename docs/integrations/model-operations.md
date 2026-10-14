@@ -7,19 +7,19 @@ not an authentic provider call, settlement or permission to retry.
 
 ## Draft inputs
 
-The contribution binds **model-ops draft 5**, not a frozen Broker contract.
+The contribution binds **model-ops draft 7**, not a frozen Broker contract.
 These are owner drafts, **not in this repository**. A public checkout cannot
 reproduce their contents; an adopted contract needs the project's normal
 contract distribution.
 
 | Owner draft, not in this repo | SHA256 |
 |---|---|
-| SCHEMA-draft-5.md | `9d4e5be93af364f08ce1f7413f4369b9d5edb6230ad7d66a46299e5fff5a6399` |
-| DESIGN-NOTE-rev-f.md | `541f2f41bd052e65ccda5e5c6a955e36dfa7aefb54a5de81da1f16cc0b4ce6f3` |
+| SCHEMA-draft-7.md | `1793c97b6eed5d1e3cc09a861b5d594d99ea7697134df4c0f14154acccfea186` |
+| DESIGN-NOTE-rev-h.md | `e3ffee1cbc91f92218966bbfa9ccfc5a4a7631c7447bfd21a148376b43393f19` |
 
-Draft 5 is self-contained and replaces the earlier schemas. Its recording
+Draft 7 is self-contained and replaces the earlier schemas. Its recording
 double stamps the schema hash into `draft_schema`; the parser requires that
-exact labelled `model-ops-draft-5 sha256:<draft-5 hash>` stamp. This does not qualify an installed receiver or freeze its contract.
+exact labelled `model-ops-draft-7 sha256:<draft-7 hash>` stamp. This does not qualify an installed receiver or freeze its contract.
 Proposed operations are `anthropic.messages.create`, `openai.responses.create`
 and `google.gemini.generate`.
 
@@ -45,11 +45,11 @@ before typed validation. Generic JSON loaders can discard that lexical evidence.
 The raw input bound is 512 KiB; canonical arguments remain bounded to 256 KiB. Optional keys are absent or
 valid, never explicit null.
 The owner's synthetic request vectors are retained at
-`tests/test_integrations/model_ops/fixtures/request-vectors-draft4.json`
+`tests/test_integrations/model_ops/fixtures/request-vectors-base.json`
 for byte/digest and refusal tests, SHA256
 `0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a`.
-The extended refusal set is `request-vectors-draft5.json` in the same directory,
-SHA256 `c62cbd12387dbecd59fbb3fc221f9beed92b8c6b7f75e44bc02acab8911abc80`.
+The extended refusal set is `request-vectors-extra.json` in the same directory,
+SHA256 `e06cfb6fe42b3eea15afec950dbcfc9a4f901713a09c16b75a1730f134de9592`.
 
 `DraftModelOperationClient.prepare()` retains the connection fence and caller's
 idempotency key in an existing `HostedOperationRequest`. Constructor inputs and
@@ -99,3 +99,15 @@ enum remain unchanged.
 
 Use synthetic inputs in tests. Text completion alone does not establish a
 coding-agent tool loop or any new AX benchmark result.
+
+
+The incomplete-component vocabulary is closed: usage, cache_write, reasoning,
+model, price and blocks. Rate-source pages are bounded to eight, and provider
+request IDs to 128 characters. Lifecycle and key-conflict refusals may omit
+identity/fingerprint evidence when no validated request was available.
+
+The draft's model_mismatch flag is true for every reported/requested ID
+difference, whether the reported ID is catalogued or not. An uncatalogued
+difference requires the incomplete model component; a catalogued difference
+can have a complete estimate. Neither case proves the requested model was used;
+raw IDs remain available for consumer checks and benchmark attribution.

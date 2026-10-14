@@ -1,5 +1,5 @@
 {
-  "about": "RFC 8785 canonicalisation test vectors for model-ops draft 4 request_sha256 (arguments only). Numbers print as ES6 numbers: 1.0 is 1, 0.07 is 0.07. A lexical check, not a float check, limits temperature to two decimals (0.07 is valid). Draft 5 adds refused cases: an explicit null for an optional key is bad_request (an optional key is absent or valid, never null).",
+  "about": "Vectors for model-ops draft 6 (adds to request-vectors.json sha256 0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a; both sets apply). Every refused case gives `raw`: the exact request body text, or `hex:<bytes>` for raw bytes (hex: means the body is those bytes, not text). 0.070 is refused: the check is lexical on the number token, at most two digits after the point, so a trailing zero counts. A valid case gives `raw` too.",
   "valid": [
     {
       "name": "minimal",
@@ -15,7 +15,8 @@
       },
       "canonical": "{\"max_output_tokens\":16,\"messages\":[{\"role\":\"user\",\"text\":\"hi\"}],\"model\":\"example-model-1\"}",
       "request_size_bytes": 91,
-      "request_sha256": "sha256:be60244328a5b98a83f895305aafa6d62afe47d80f2ce147d8c0edc36f71639c"
+      "request_sha256": "sha256:be60244328a5b98a83f895305aafa6d62afe47d80f2ce147d8c0edc36f71639c",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"hi\"}],\"max_output_tokens\":16}"
     },
     {
       "name": "all fields, key order irrelevant",
@@ -37,7 +38,8 @@
       },
       "canonical": "{\"max_output_tokens\":128,\"messages\":[{\"role\":\"user\",\"text\":\"a\"},{\"role\":\"assistant\",\"text\":\"b\"}],\"model\":\"example-model-1\",\"system\":\"be brief\",\"temperature\":0.07}",
       "request_size_bytes": 162,
-      "request_sha256": "sha256:80fffc39b6944c38ad2fec141716684c9d50251447d60c689600189a7670f3f2"
+      "request_sha256": "sha256:80fffc39b6944c38ad2fec141716684c9d50251447d60c689600189a7670f3f2",
+      "raw": "{\"temperature\":0.07,\"system\":\"be brief\",\"max_output_tokens\":128,\"messages\":[{\"text\":\"a\",\"role\":\"user\"},{\"role\":\"assistant\",\"text\":\"b\"}],\"model\":\"example-model-1\"}"
     },
     {
       "name": "temperature 1.0 is the number 1",
@@ -54,7 +56,8 @@
       },
       "canonical": "{\"max_output_tokens\":1,\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"model\":\"example-model-1\",\"temperature\":1}",
       "request_size_bytes": 105,
-      "request_sha256": "sha256:127936bbf3d19f98d9708493d941756e79b12222c51a1134e3290deb0d32f4b6"
+      "request_sha256": "sha256:127936bbf3d19f98d9708493d941756e79b12222c51a1134e3290deb0d32f4b6",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":1.0}"
     },
     {
       "name": "temperature 0.5",
@@ -71,7 +74,8 @@
       },
       "canonical": "{\"max_output_tokens\":1,\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"model\":\"example-model-1\",\"temperature\":0.5}",
       "request_size_bytes": 107,
-      "request_sha256": "sha256:948ea690fb75fae60082019f4733bb7601ff0a8bbb9c63cf1c55c9f51c1853c7"
+      "request_sha256": "sha256:948ea690fb75fae60082019f4733bb7601ff0a8bbb9c63cf1c55c9f51c1853c7",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":0.5}"
     },
     {
       "name": "non-ASCII text stays UTF-8",
@@ -87,7 +91,8 @@
       },
       "canonical": "{\"max_output_tokens\":8,\"messages\":[{\"role\":\"user\",\"text\":\"café ☃\"}],\"model\":\"example-model-1\"}",
       "request_size_bytes": 97,
-      "request_sha256": "sha256:3fee44c908e4d1153000a52a282e3db371fad389ea71ba72a16c758755dbb197"
+      "request_sha256": "sha256:3fee44c908e4d1153000a52a282e3db371fad389ea71ba72a16c758755dbb197",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"café ☃\"}],\"max_output_tokens\":8}"
     },
     {
       "name": "escapes",
@@ -103,7 +108,8 @@
       },
       "canonical": "{\"max_output_tokens\":8,\"messages\":[{\"role\":\"user\",\"text\":\"line\\nquote\\\" back\\\\slash\"}],\"model\":\"example-model-1\"}",
       "request_size_bytes": 113,
-      "request_sha256": "sha256:0f1d6f04698d7c40e263416b1bfc1e80ef6fc294073a9b570cb924deb8b9265c"
+      "request_sha256": "sha256:0f1d6f04698d7c40e263416b1bfc1e80ef6fc294073a9b570cb924deb8b9265c",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"line\\nquote\\\" back\\\\slash\"}],\"max_output_tokens\":8}"
     }
   ],
   "refused": [
@@ -183,8 +189,13 @@
       "expected": "bad_request"
     },
     {
-      "name": "invalid UTF-8 byte (as raw bytes in hex)",
-      "raw": "hex:7b226d6f64656c223a226dff227d",
+      "name": "invalid UTF-8 byte inside an otherwise valid request (raw bytes in hex)",
+      "raw": "hex:7b226d6f64656c223a226dff222c226d65737361676573223a5b7b22726f6c65223a2275736572222c2274657874223a2278227d5d2c226d61785f6f75747075745f746f6b656e73223a317d",
+      "expected": "bad_request"
+    },
+    {
+      "name": "temperature 0.070 (three digits after the point, lexical)",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":0.070}",
       "expected": "bad_request"
     }
   ]

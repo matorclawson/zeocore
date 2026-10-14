@@ -6,7 +6,15 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    TypeAdapter,
+    ValidationError,
+    model_validator,
+)
 
 from zeo_core.contracts.connections import NormalizedErrorCode
 from zeo_core.integrations.hosted.client import (
@@ -36,6 +44,8 @@ Reason = Literal[
     "connection_repair_required",
     "connector_revision_unavailable",
 ]
+
+_RATE_URL: TypeAdapter[HttpUrl] = TypeAdapter(HttpUrl)
 
 
 def _secret_usage_name(name: str) -> bool:
@@ -73,12 +83,14 @@ class RateSources(_Closed):
     revision: str = Field(min_length=1, max_length=200)
     read_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     pages: tuple[Annotated[str, Field(min_length=1, max_length=2048)], ...] = Field(
-        min_length=1, max_length=32
+        min_length=1, max_length=8
     )
 
     @model_validator(mode="after")
     def _calendar_date(self) -> RateSources:
         date.fromisoformat(self.read_on)
+        for page in self.pages:
+            _RATE_URL.validate_python(page)
         return self
 
 
@@ -86,15 +98,25 @@ class ModelCost(_Closed):
     reservation_micro_usd: Count
     held: bool = Field(strict=True)
     tariff_estimate_micro_usd: Count | None = None
-    incomplete: tuple[Annotated[str, Field(min_length=1, max_length=128)], ...] = Field(
-        default=(), max_length=32
-    )
+    incomplete: tuple[
+        Literal["usage", "cache_write", "reasoning", "model", "price", "blocks"], ...
+    ] = Field(default=(), max_length=32)
     rates_source: RateSources
     overshoot_micro_usd: Count | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _computed_amount_not_null(cls, value: object) -> object:
+        if isinstance(value, dict) and any(
+            key in value and value[key] is None
+            for key in ("tariff_estimate_micro_usd", "overshoot_micro_usd")
+        ):
+            raise ValueError("uncomputed amounts are absent, never null")
+        return value
+
     @model_validator(mode="after")
     def _incomplete_estimate_not_claimed(self) -> ModelCost:
-        if "incomplete" in self.model_fields_set and not self.held:
+        if self.incomplete and not self.held:
             raise ValueError("incomplete estimates must retain the reservation")
         if self.incomplete and self.tariff_estimate_micro_usd is not None:
             raise ValueError("incomplete rates cannot yield a complete estimate")
@@ -154,8 +176,8 @@ class ModelReceipt(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="ignore", hide_input_in_errors=True)
     draft_schema: Literal[
-        "model-ops-draft-5 sha256:"
-        "9d4e5be93af364f08ce1f7413f4369b9d5edb6230ad7d66a46299e5fff5a6399"
+        "model-ops-draft-7 sha256:"
+        "1793c97b6eed5d1e3cc09a861b5d594d99ea7697134df4c0f14154acccfea186"
     ]
     capability: Literal["text_completion"]
     reason: Reason | None = None
@@ -183,7 +205,7 @@ class ModelReceipt(BaseModel):
     request_size_bytes: Count | None = Field(default=None, le=MAX_REQUEST_BYTES)
     completion: ReceiptArtifact | None = None
     excluded_blocks: dict[NativeKey, Count] = Field(default_factory=dict, max_length=32)
-    provider_request_id: str | None = Field(default=None, min_length=1, max_length=500)
+    provider_request_id: str | None = Field(default=None, min_length=1, max_length=128)
     replayed: bool = Field(default=False, strict=True)
     stop_reason: (
         Literal["end", "max_tokens", "stop_sequence", "content_filter", "other"] | None
@@ -243,9 +265,10 @@ class ModelReceipt(BaseModel):
             if present:
                 raise ValueError("bad request carries no validated fingerprint")
             return
-        if self.model_requested is None:
+        optional_request = self.reason in _LIFECYCLE_REASONS
+        if not optional_request and self.model_requested is None:
             raise ValueError("requested model is required after validation")
-        if self.reason not in _LIFECYCLE_REASONS or present:
+        if not optional_request or present:
             if self.request_sha256 is None or self.request_size_bytes is None:
                 raise ValueError("validated request fingerprint is required")
 
@@ -259,10 +282,12 @@ class ModelReceipt(BaseModel):
         ):
             raise ValueError("max-token completion must report truncation")
         if self.model_reported is not None:
-            if self.model_requested is None or self.model_mismatch != (
-                self.model_requested != self.model_reported
-            ):
-                raise ValueError("reported model mismatch flag is inconsistent")
+            if self.model_requested is None or self.model_mismatch is None:
+                raise ValueError(
+                    "reported model requires requested identity and mismatch flag"
+                )
+        elif "model_mismatch" in self.model_fields_set:
+            raise ValueError("mismatch flag is absent without a reported model")
         return self
 
     @model_validator(mode="after")
@@ -446,8 +471,13 @@ def _confirmed_usage(receipt: ModelReceipt) -> None:
 
 
 def _not_confirmed(response: HostedOperationResponse, receipt: ModelReceipt) -> None:
-    if receipt.completion is not None:
-        raise ValueError("non-confirmed receipt cannot carry a completion")
+    if {
+        "completion",
+        "stop_reason",
+        "stop_reason_provider",
+        "truncated",
+    } & receipt.model_fields_set:
+        raise ValueError("non-confirmed receipt cannot carry completion outcome fields")
     error = response.normalized_error
     if error is None:
         raise ValueError("missing normalized refusal")
@@ -470,6 +500,28 @@ def _request_evidence(receipt: ModelReceipt, digest: str, size: int) -> None:
         receipt.request_sha256 != digest or receipt.request_size_bytes != size
     ):
         raise ValueError("caller-retained request fingerprint mismatch")
+
+
+def _reported_model_evidence(
+    receipt: ModelReceipt, catalogued: tuple[str, ...]
+) -> None:
+    if receipt.model_reported is None:
+        return
+    mismatch = receipt.model_reported != receipt.model_requested
+    if receipt.model_mismatch != mismatch:
+        raise ValueError("catalogue-aware mismatch flag is inconsistent")
+    if (
+        mismatch
+        and receipt.model_reported not in catalogued
+        and receipt.cost is not None
+    ):
+        if (
+            "model" not in receipt.cost.incomplete
+            or receipt.cost.tariff_estimate_micro_usd is not None
+        ):
+            raise ValueError(
+                "uncatalogued reported model requires incomplete model component"
+            )
 
 
 def parse_model_response(
@@ -497,13 +549,7 @@ def parse_model_response(
         ):
             raise ValueError("rate revision mismatch")
         _request_evidence(receipt, expected_request_sha256, expected_request_size_bytes)
-        if (
-            receipt.model_mismatch
-            and receipt.cost is not None
-            and receipt.cost.tariff_estimate_micro_usd is not None
-            and receipt.model_reported not in catalogued_reported_models
-        ):
-            raise ValueError("uncatalogued model mismatch cannot carry an estimate")
+        _reported_model_evidence(receipt, catalogued_reported_models)
         expired = False
         if response.status is HostedOperationStatus.CONFIRMED:
             expired = _confirmed(response, receipt)

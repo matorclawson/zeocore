@@ -312,12 +312,12 @@ def test_connection_ceiling_and_temperature_catalogue_flag() -> None:
     "filename,digest",
     [
         (
-            "request-vectors-draft4.json",
+            "request-vectors-base.json",
             "0f4c199a873e0282779edb50669ce5f4470789c7d41349d75bc2d8a9a9a4a85a",
         ),
         (
-            "request-vectors-draft5.json",
-            "c62cbd12387dbecd59fbb3fc221f9beed92b8c6b7f75e44bc02acab8911abc80",
+            "request-vectors-extra.json",
+            "e06cfb6fe42b3eea15afec950dbcfc9a4f901713a09c16b75a1730f134de9592",
         ),
     ],
 )
@@ -329,7 +329,7 @@ def test_owner_request_vectors_match_canonical_bytes_and_refusals(
     assert hashlib.sha256(raw).hexdigest() == digest
     vectors = json.loads(raw)
     for item in vectors["valid"]:
-        request = parse_model_request_json(json.dumps(item["request"]))
+        request = parse_model_request_json(item.get("raw", json.dumps(item["request"])))
         assert request.canonical_bytes().decode() == item["canonical"], item["name"]
         assert len(request.canonical_bytes()) == item["request_size_bytes"], item[
             "name"
