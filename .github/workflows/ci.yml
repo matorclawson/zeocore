@@ -89,19 +89,43 @@ jobs:
       - name: make verify (format-check, lint, mypy strict, arch-check, hygiene-check, hygiene-secrets, plugin-boundary, tests+coverage)
         run: make verify
 
+  # The kit (kit/) is a Go module with its own gate, `make kit-verify`
+  # (ZEOCORE-SOW-34). It runs beside the Python job, and verify-all below
+  # aggregates both, so the one required context still covers everything. The
+  # Go toolchain comes from tools/install-go.sh (go.dev's archive, pinned by its
+  # published sha256), not from a third-party action; kit/go.mod pins the
+  # toolchain and the gate runs with GOTOOLCHAIN=local.
+  kit:
+    name: kit (go1.27)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install the pinned Go toolchain
+        run: tools/install-go.sh
+
+      - name: make kit-verify (gofmt, vet, race tests, mutations, offline consumer build)
+        run: make kit-verify
+
   verify-all:
     name: verify-all
-    needs: verify
+    needs: [verify, kit]
     # See the RULING-413 comment above jobs: for why this needs if: always()
     # plus an explicit needs.verify.result check rather than a bare needs:.
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fail unless every verify matrix leg succeeded
+      - name: Fail unless every verify matrix leg and the kit job succeeded
         run: |
           if [ "${{ needs.verify.result }}" != "success" ]; then
             echo "verify did not succeed (result: ${{ needs.verify.result }}) -- failing verify-all"
             exit 1
           fi
-          echo "verify-all -- every verify (py...) matrix leg reported success"
+          if [ "${{ needs.kit.result }}" != "success" ]; then
+            echo "kit did not succeed (result: ${{ needs.kit.result }}) -- failing verify-all"
+            exit 1
+          fi
+          echo "verify-all -- every verify (py...) matrix leg and the kit job reported success"
