@@ -235,6 +235,22 @@ verify: verify-env ## The doctrine gate: format-check + ruff + mypy + hygiene + 
 	@$(MAKE) --no-print-directory docs-build
 	@echo "${GREEN}✓ verify complete: doctrine gate passes${RESET}"
 
+# The kit (kit/) is a Go module: its gate is separate from the Python gate, so a
+# contributor who never touches kit/ needs no Go toolchain. Maintainers and CI
+# run both. GOTOOLCHAIN=local: go.mod pins the toolchain and nothing downloads.
+.PHONY: kit-verify
+kit-verify: ## The kit gate: gofmt, vet, race tests, mutation list, offline consumer build (Go 1.27, no network)
+	@command -v go >/dev/null || { echo "${RED}kit-verify needs Go 1.27 on PATH (the Python gate does not).${RESET}"; exit 1; }
+	@echo "${BLUE}[kit 1/4] gofmt${RESET}"
+	@cd kit && out="$$(gofmt -l .)" && [ -z "$$out" ] || { echo "${RED}gofmt would change:${RESET}"; echo "$$out"; exit 1; }
+	@echo "${BLUE}[kit 2/4] go vet${RESET}"
+	@cd kit && GOTOOLCHAIN=local GOPROXY=off GOFLAGS=-mod=readonly go vet ./...
+	@echo "${BLUE}[kit 3/4] go test -race${RESET}"
+	@cd kit && GOTOOLCHAIN=local GOPROXY=off GOFLAGS=-mod=readonly go test -race -count=1 ./...
+	@echo "${BLUE}[kit 4/4] mutations (every guard has a test that fails without it)${RESET}"
+	@cd kit && GOTOOLCHAIN=local GOPROXY=off GOFLAGS=-mod=readonly ./scripts/mutate.sh scripts/mutations.txt
+	@echo "${GREEN}✓ kit-verify complete${RESET}"
+
 .PHONY: verify-full
 verify-full: ## verify, preceded by clean caches + fresh editable install (slow, complete)
 	@echo "${BLUE}Running FULL verification (fresh install, no stale state)...${RESET}"

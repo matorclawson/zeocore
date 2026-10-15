@@ -1,0 +1,241 @@
+// Package conformance is the suite an app runs against its own binary to prove
+// it speaks zeo-cli/v1: the shapes of help, version, doctor and status, every
+// exit code it can reach, single-dash refusal, --json purity and the RESULT
+// line grammar. zeocore runs it against a sample app; zeocouncil adopts it.
+package conformance
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os/exec"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+)
+
+// Config names the binary under test.
+type Config struct {
+	// Binary is the path of the app's executable.
+	Binary string
+	// Env is added to the process environment (the binary gets nothing else
+	// unless it is listed here).
+	Env []string
+	// Name is the app name help --json must report.
+	Name string
+	// FailingDoctorEnv, when set, is an environment entry that makes doctor
+	// fail, so exit 7 can be checked. Leave it empty to skip that check.
+	FailingDoctorEnv string
+}
+
+type outcome struct {
+	stdout, stderr string
+	code           int
+}
+
+func run(t *testing.T, cfg Config, env []string, args ...string) outcome {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, cfg.Binary, args...)
+	cmd.Env = append(append([]string{}, cfg.Env...), env...)
+	var so, se bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &so, &se
+	// stdin is nil (the null device): a verb that waits for input would see EOF
+	// at once and so can never hang the suite, and no verb may prompt.
+	err := cmd.Run()
+	code := 0
+	if err != nil {
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("running %s %v: %v", cfg.Binary, args, err)
+		}
+		code = ee.ExitCode()
+	}
+	return outcome{so.String(), se.String(), code}
+}
+
+// one decodes stdout as exactly one JSON document and nothing else.
+func one(t *testing.T, label, stdout string) map[string]any {
+	t.Helper()
+	dec := json.NewDecoder(strings.NewReader(stdout))
+	var doc map[string]any
+	if err := dec.Decode(&doc); err != nil {
+		t.Fatalf("%s: stdout is not a JSON document: %v\n%q", label, err, stdout)
+	}
+	if dec.More() {
+		t.Fatalf("%s: stdout holds more than one document: %q", label, stdout)
+	}
+	if rest := strings.TrimSpace(stdout[dec.InputOffset():]); rest != "" {
+		t.Fatalf("%s: text after the document: %q", label, rest)
+	}
+	return doc
+}
+
+func firstKey(t *testing.T, label, stdout string) string {
+	t.Helper()
+	dec := json.NewDecoder(strings.NewReader(stdout))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		t.Fatalf("%s: not an object", label)
+	}
+	tok, err := dec.Token()
+	if err != nil {
+		t.Fatalf("%s: %v", label, err)
+	}
+	key, _ := tok.(string)
+	return key
+}
+
+var resultRe = regexp.MustCompile(`^RESULT [^\s"=]+ [^\s"=]+ (ok|refused|failed|undone|recovery_required)( [a-z][a-z0-9_]*=([^\s"=]+|"([^"\\]|\\.)*"))*$`)
+
+// ResultLine reports whether a line follows the RESULT grammar of rev d section 5.
+func ResultLine(line string) bool { return resultRe.MatchString(line) }
+
+// Run runs the whole suite.
+func Run(t *testing.T, cfg Config) {
+	t.Helper()
+	if cfg.Binary == "" || cfg.Name == "" {
+		t.Fatal("conformance: Binary and Name are required")
+	}
+	var commands []map[string]any
+	t.Run("help_json_is_the_catalogue", func(t *testing.T) {
+		o := run(t, cfg, nil, "help", "--json")
+		if o.code != 0 {
+			t.Fatalf("help --json exit %d: %s", o.code, o.stderr)
+		}
+		if k := firstKey(t, "help", o.stdout); k != "schema" {
+			t.Fatalf("first field is %q, not schema", k)
+		}
+		doc := one(t, "help", o.stdout)
+		if doc["schema"] != "zeo.help/v1" || doc["contract"] != "zeo-cli/v1" || doc["app"] != cfg.Name {
+			t.Fatalf("help header wrong: %v", doc)
+		}
+		exits, _ := doc["exits"].([]any)
+		if len(exits) != 8 {
+			t.Fatalf("exit table has %d rows, want 8", len(exits))
+		}
+		list, _ := doc["commands"].([]any)
+		have := map[string]bool{}
+		for _, c := range list {
+			m := c.(map[string]any)
+			commands = append(commands, m)
+			have[m["name"].(string)] = true
+		}
+		for _, verb := range []string{"help", "version", "doctor", "status"} {
+			if !have[verb] {
+				t.Fatalf("kit verb %q is missing from help", verb)
+			}
+		}
+	})
+	t.Run("help_text_is_one_line_per_command", func(t *testing.T) {
+		o := run(t, cfg, nil, "help")
+		if o.code != 0 {
+			t.Fatalf("help exit %d", o.code)
+		}
+		for _, c := range commands {
+			name := c["name"].(string)
+			n := 0
+			for _, line := range strings.Split(o.stdout, "\n") {
+				if f := strings.Fields(line); len(f) > 0 && f[0] == name {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Errorf("command %q appears on %d help lines, want 1", name, n)
+			}
+		}
+	})
+	t.Run("every_command_in_help_exists", func(t *testing.T) {
+		for _, c := range commands {
+			name := c["name"].(string)
+			o := run(t, cfg, nil, name, "--no-such-flag")
+			if o.code != 2 {
+				t.Errorf("%s --no-such-flag: exit %d, want 2 (a listed command must exist and refuse an unknown flag)", name, o.code)
+			}
+		}
+	})
+	t.Run("version", func(t *testing.T) {
+		o := run(t, cfg, nil, "version", "--json")
+		doc := one(t, "version", o.stdout)
+		if firstKey(t, "version", o.stdout) != "schema" || doc["schema"] != "zeo.version/v1" {
+			t.Fatalf("version document wrong: %v", doc)
+		}
+		switch doc["signature"] {
+		case "verified", "unsigned", "invalid", "unknown_signer":
+		default:
+			t.Fatalf("signature %v is not in the enum", doc["signature"])
+		}
+	})
+	t.Run("doctor", func(t *testing.T) {
+		o := run(t, cfg, nil, "doctor", "--json")
+		doc := one(t, "doctor", o.stdout)
+		if doc["schema"] != "zeo.doctor/v1" {
+			t.Fatalf("doctor schema %v", doc["schema"])
+		}
+		ready, _ := doc["ready"].(bool)
+		if (o.code == 0) != ready || (o.code != 0 && o.code != 7) {
+			t.Fatalf("doctor exit %d disagrees with ready=%v", o.code, ready)
+		}
+		for _, ck := range doc["checks"].([]any) {
+			m := ck.(map[string]any)
+			if ok, _ := m["ok"].(bool); !ok && m["skipped"] != true && m["next"] == "" {
+				t.Errorf("failing check %v names no next step", m["name"])
+			}
+		}
+		if cfg.FailingDoctorEnv != "" {
+			f := run(t, cfg, []string{cfg.FailingDoctorEnv}, "doctor", "--json")
+			if f.code != 7 {
+				t.Errorf("a failing doctor exits %d, want 7", f.code)
+			}
+			if d := one(t, "failing doctor", f.stdout); d["ready"] != false {
+				t.Errorf("failing doctor still prints a document with ready=false: %v", d)
+			}
+		}
+	})
+	t.Run("status", func(t *testing.T) {
+		o := run(t, cfg, nil, "status", "--json")
+		doc := one(t, "status", o.stdout)
+		if doc["schema"] != "zeo.status/v1" {
+			t.Fatalf("status schema %v", doc["schema"])
+		}
+		healthy, _ := doc["healthy"].(bool)
+		if (o.code == 0) != healthy {
+			t.Fatalf("status exit %d disagrees with healthy=%v", o.code, healthy)
+		}
+		for _, k := range []string{"state", "live", "counts"} {
+			if _, ok := doc[k]; !ok {
+				t.Errorf("status document lacks %q", k)
+			}
+		}
+	})
+	t.Run("single_dash_is_refused", func(t *testing.T) {
+		for _, args := range [][]string{{"-json"}, {"help", "-json"}, {"version", "-x=1"}} {
+			o := run(t, cfg, nil, args...)
+			if o.code != 2 || !strings.Contains(o.stderr, "--") || o.stdout != "" {
+				t.Errorf("%v: exit %d stdout %q stderr %q; want exit 2, nothing on stdout, and a message naming the double-dash form", args, o.code, o.stdout, o.stderr)
+			}
+		}
+	})
+	t.Run("usage_errors", func(t *testing.T) {
+		for _, args := range [][]string{{}, {"no-such-verb"}, {"help", "--json=true"}, {"help", "extra"}} {
+			if o := run(t, cfg, nil, args...); o.code != 2 {
+				t.Errorf("%v: exit %d, want 2", args, o.code)
+			}
+		}
+	})
+	t.Run("json_stdout_is_one_document_and_errors_stay_on_stderr", func(t *testing.T) {
+		for _, c := range commands {
+			name := c["name"].(string)
+			if name != "help" && name != "version" && name != "doctor" && name != "status" {
+				continue
+			}
+			o := run(t, cfg, nil, name, "--json")
+			one(t, name, o.stdout)
+		}
+		o := run(t, cfg, nil, "version", "--json", "--bogus")
+		if o.stdout != "" || o.code != 2 {
+			t.Errorf("a refused call must print nothing on stdout: exit %d stdout %q", o.code, o.stdout)
+		}
+	})
+}
