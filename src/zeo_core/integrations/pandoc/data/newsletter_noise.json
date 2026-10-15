@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "version": "2026-10-13",
+  "note": "A starting set, reviewed with the code. zeonewsroom adds hosts and patterns found in the pilot mail by small data-only pull requests, each with the message that showed it and no sender content copied.",
+  "pixel_hosts": [
+    "list-manage.com",
+    "mandrillapp.com",
+    "sendgrid.net",
+    "hubspotemail.net",
+    "convertkit-mail.com",
+    "convertkit-mail2.com",
+    "mailchimpapp.net",
+    "rs6.net",
+    "createsend.com",
+    "customeriomail.com"
+  ],
+  "opaque_redirect_hosts": [
+    "sendgrid.net",
+    "list-manage.com",
+    "hubspotlinks.com",
+    "convertkit-mail.com",
+    "convertkit-mail2.com",
+    "rs6.net",
+    "createsend.com",
+    "customeriomail.com"
+  ],
+  "redirectors": [
+    {
+      "host": "www.google.com",
+      "path": "/url",
+      "param": "q"
+    },
+    {
+      "host": "google.com",
+      "path": "/url",
+      "param": "q"
+    },
+    {
+      "host": "l.facebook.com",
+      "path": "/l.php",
+      "param": "u"
+    },
+    {
+      "host": "t.umblr.com",
+      "path": "/redirect",
+      "param": "z"
+    }
+  ],
+  "tracking_params": [
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "utm_id",
+    "mc_cid",
+    "mc_eid",
+    "fbclid",
+    "gclid",
+    "mkt_tok",
+    "_hsenc",
+    "_hsmi",
+    "__s",
+    "vero_id",
+    "oly_enc_id",
+    "oly_anon_id"
+  ],
+  "footer_patterns": [
+    "\\bunsubscribe\\b",
+    "view (this (email|message|newsletter) )?(in|on) (your |a )?(web )?browser",
+    "(trouble|having trouble) (viewing|reading|seeing) this",
+    "\\b(manage|update|change) (your )?(email )?(subscription|preferences)\\b",
+    "you (are )?(receiving|received) this (email|message|newsletter) because",
+    "you('re| are) (getting|receiving) this (email|message|newsletter)",
+    "\\bforward(ed)? (this )?(email|message|newsletter) to a friend\\b"
+  ],
+  "hidden_style_patterns": [
+    {
+      "kind": "display",
+      "pattern": "display:none"
+    },
+    {
+      "kind": "visibility",
+      "pattern": "visibility:(hidden|collapse)"
+    },
+    {
+      "kind": "opacity",
+      "pattern": "opacity:0(?![.0-9])"
+    },
+    {
+      "kind": "font_size",
+      "pattern": "font-size:0(px|pt|em|rem|%)?(?![.0-9a-z])"
+    },
+    {
+      "kind": "max_size",
+      "pattern": "max-(height|width):0(px|pt|em|rem)?(?![.0-9a-z%])"
+    },
+    {
+      "kind": "mso",
+      "pattern": "mso-hide:all"
+    },
+    {
+      "kind": "zero_size",
+      "pattern": "(^|;)(width|height|line-height):0(px|pt|em|rem)?(?![.0-9a-z%])"
+    },
+    {
+      "kind": "offscreen",
+      "pattern": "(left|top|text-indent):-[0-9]{3,}(px|em|pt)"
+    },
+    {
+      "kind": "clip",
+      "pattern": "clip:rect\\(0"
+    }
+  ],
+  "per_recipient_params": [
+    "upn",
+    "uid",
+    "user_id",
+    "userid",
+    "uuid",
+    "email",
+    "recipient",
+    "subscriber",
+    "subscriber_id",
+    "sub",
+    "token",
+    "sig",
+    "signature",
+    "hash",
+    "e",
+    "c",
+    "r"
+  ],
+  "form_tags": [
+    "input",
+    "button",
+    "select",
+    "textarea",
+    "option",
+    "label"
+  ]
+}
