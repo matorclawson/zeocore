@@ -13,6 +13,16 @@ from zeo_core.integrations.pandoc.models import (
     ConversionTask,
     FileInfo,
 )
+from zeo_core.integrations.pandoc.newsletter import (
+    ConvertedItem,
+    ConvertedLink,
+    DecodedMessage,
+    convert_decoded_message,
+    convert_newsletter,
+    decode_raw_message,
+)
+from zeo_core.integrations.pandoc.refusals import NewsletterRefusalError
+from zeo_core.integrations.pandoc.render import RenderedHtml, render_email_html
 from zeo_core.integrations.pandoc.service import PandocIntegration
 
 __all__ = [
@@ -27,6 +37,16 @@ __all__ = [
     "ConversionMetrics",
     "ConversionTask",
     "FileInfo",
+    # Newsletter conversion (stage 2)
+    "ConvertedItem",
+    "ConvertedLink",
+    "DecodedMessage",
+    "NewsletterRefusalError",
+    "RenderedHtml",
+    "convert_decoded_message",
+    "convert_newsletter",
+    "decode_raw_message",
+    "render_email_html",
     # Factory function for integration discovery
     "create_integration",
 ]
