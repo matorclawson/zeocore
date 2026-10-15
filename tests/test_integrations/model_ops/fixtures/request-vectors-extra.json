@@ -1,0 +1,276 @@
+{
+  "about": "Vectors for model-ops draft 10: everything in request-vectors-4.json plus a catalogue-refused alias, valid edges (a 200-character model id, max_output_tokens 2^53-1). request-vectors.json still applies. `raw` is the exact body text; `hex:` means those raw bytes. A 262144-character text or system cannot be isolated from the 256 KiB canonical cap (262144 vs 262145 bytes of canonical request), so no vector claims to. `expected` is bad_request unless it says otherwise.",
+  "valid": [
+    {
+      "name": "minimal",
+      "request": {
+        "model": "example-model-1",
+        "messages": [
+          {
+            "role": "user",
+            "text": "hi"
+          }
+        ],
+        "max_output_tokens": 16
+      },
+      "canonical": "{\"max_output_tokens\":16,\"messages\":[{\"role\":\"user\",\"text\":\"hi\"}],\"model\":\"example-model-1\"}",
+      "request_size_bytes": 91,
+      "request_sha256": "sha256:be60244328a5b98a83f895305aafa6d62afe47d80f2ce147d8c0edc36f71639c",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"hi\"}],\"max_output_tokens\":16}"
+    },
+    {
+      "name": "all fields, key order irrelevant",
+      "request": {
+        "temperature": 0.07,
+        "system": "be brief",
+        "max_output_tokens": 128,
+        "messages": [
+          {
+            "text": "a",
+            "role": "user"
+          },
+          {
+            "role": "assistant",
+            "text": "b"
+          }
+        ],
+        "model": "example-model-1"
+      },
+      "canonical": "{\"max_output_tokens\":128,\"messages\":[{\"role\":\"user\",\"text\":\"a\"},{\"role\":\"assistant\",\"text\":\"b\"}],\"model\":\"example-model-1\",\"system\":\"be brief\",\"temperature\":0.07}",
+      "request_size_bytes": 162,
+      "request_sha256": "sha256:80fffc39b6944c38ad2fec141716684c9d50251447d60c689600189a7670f3f2",
+      "raw": "{\"temperature\":0.07,\"system\":\"be brief\",\"max_output_tokens\":128,\"messages\":[{\"text\":\"a\",\"role\":\"user\"},{\"role\":\"assistant\",\"text\":\"b\"}],\"model\":\"example-model-1\"}"
+    },
+    {
+      "name": "temperature 1.0 is the number 1",
+      "request": {
+        "model": "example-model-1",
+        "messages": [
+          {
+            "role": "user",
+            "text": "x"
+          }
+        ],
+        "max_output_tokens": 1,
+        "temperature": 1.0
+      },
+      "canonical": "{\"max_output_tokens\":1,\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"model\":\"example-model-1\",\"temperature\":1}",
+      "request_size_bytes": 105,
+      "request_sha256": "sha256:127936bbf3d19f98d9708493d941756e79b12222c51a1134e3290deb0d32f4b6",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":1.0}"
+    },
+    {
+      "name": "temperature 0.5",
+      "request": {
+        "model": "example-model-1",
+        "messages": [
+          {
+            "role": "user",
+            "text": "x"
+          }
+        ],
+        "max_output_tokens": 1,
+        "temperature": 0.5
+      },
+      "canonical": "{\"max_output_tokens\":1,\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"model\":\"example-model-1\",\"temperature\":0.5}",
+      "request_size_bytes": 107,
+      "request_sha256": "sha256:948ea690fb75fae60082019f4733bb7601ff0a8bbb9c63cf1c55c9f51c1853c7",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":0.5}"
+    },
+    {
+      "name": "non-ASCII text stays UTF-8",
+      "request": {
+        "model": "example-model-1",
+        "messages": [
+          {
+            "role": "user",
+            "text": "café ☃"
+          }
+        ],
+        "max_output_tokens": 8
+      },
+      "canonical": "{\"max_output_tokens\":8,\"messages\":[{\"role\":\"user\",\"text\":\"café ☃\"}],\"model\":\"example-model-1\"}",
+      "request_size_bytes": 97,
+      "request_sha256": "sha256:3fee44c908e4d1153000a52a282e3db371fad389ea71ba72a16c758755dbb197",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"café ☃\"}],\"max_output_tokens\":8}"
+    },
+    {
+      "name": "escapes",
+      "request": {
+        "model": "example-model-1",
+        "messages": [
+          {
+            "role": "user",
+            "text": "line\nquote\" back\\slash"
+          }
+        ],
+        "max_output_tokens": 8
+      },
+      "canonical": "{\"max_output_tokens\":8,\"messages\":[{\"role\":\"user\",\"text\":\"line\\nquote\\\" back\\\\slash\"}],\"model\":\"example-model-1\"}",
+      "request_size_bytes": 113,
+      "request_sha256": "sha256:0f1d6f04698d7c40e263416b1bfc1e80ef6fc294073a9b570cb924deb8b9265c",
+      "raw": "{\"model\":\"example-model-1\",\"messages\":[{\"role\":\"user\",\"text\":\"line\\nquote\\\" back\\\\slash\"}],\"max_output_tokens\":8}"
+    },
+    {
+      "name": "model id of exactly 200 characters",
+      "request": {
+        "model": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "messages": [
+          {
+            "role": "user",
+            "text": "x"
+          }
+        ],
+        "max_output_tokens": 1
+      },
+      "raw": "{\"model\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "canonical": "{\"max_output_tokens\":1,\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"model\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "request_size_bytes": 274,
+      "request_sha256": "sha256:fc85c518efdf93203ba616d1f3cae326d89eac63b80939693b665d7a1f6f2c6f"
+    },
+    {
+      "name": "max_output_tokens 2^53-1",
+      "request": {
+        "model": "m",
+        "messages": [
+          {
+            "role": "user",
+            "text": "x"
+          }
+        ],
+        "max_output_tokens": 9007199254740991
+      },
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":9007199254740991}",
+      "canonical": "{\"max_output_tokens\":9007199254740991,\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"model\":\"m\"}",
+      "request_size_bytes": 90,
+      "request_sha256": "sha256:5ff0fd08b21029760dc5d03a3cf901aba888b16a9b69bd60fe71148b405f2a89"
+    }
+  ],
+  "refused": [
+    {
+      "name": "duplicate key",
+      "raw": "{\"model\":\"m\",\"model\":\"n\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "lone surrogate",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"\\ud800\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "three decimals",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":0.123}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "unknown key",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"tools\":[]}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "explicit null temperature",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":null}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "explicit null system",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"system\":null}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "temperature as a string",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":\"0.5\"}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "temperature with an exponent",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":5e-1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "temperature above 1",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":1.01}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "unknown role",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"tool\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "empty messages",
+      "raw": "{\"model\":\"m\",\"messages\":[],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "max_output_tokens zero",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":0}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "max_output_tokens as float",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1.5}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "message with an extra key",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\",\"name\":\"n\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "a URL-ish key",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"image_url\":\"https://x\"}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "invalid UTF-8 byte inside an otherwise valid request (raw bytes in hex)",
+      "raw": "hex:7b226d6f64656c223a226dff222c226d65737361676573223a5b7b22726f6c65223a2275736572222c2274657874223a2278227d5d2c226d61785f6f75747075745f746f6b656e73223a317d",
+      "expected": "bad_request"
+    },
+    {
+      "name": "temperature 0.070 (three digits after the point, lexical)",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1,\"temperature\":0.070}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "whitespace-only message text",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"  \\n\\t \"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "empty message text",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "model id with a space",
+      "raw": "{\"model\":\"a b\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "model id starting with a dot",
+      "raw": "{\"model\":\".m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "model id of 201 characters",
+      "raw": "{\"model\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "max_output_tokens above 2^53-1",
+      "raw": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":9007199254740992}",
+      "expected": "bad_request"
+    },
+    {
+      "name": "alias model id latest (passes the pattern; the catalogue refuses it)",
+      "raw": "{\"model\":\"latest\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "model_not_allowed"
+    },
+    {
+      "name": "alias model id ending -latest",
+      "raw": "{\"model\":\"example-model-latest\",\"messages\":[{\"role\":\"user\",\"text\":\"x\"}],\"max_output_tokens\":1}",
+      "expected": "model_not_allowed"
+    }
+  ]
+}
