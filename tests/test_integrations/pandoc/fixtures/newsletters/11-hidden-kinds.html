@@ -1,0 +1,25 @@
+<html><head><style>
+.sr { display:none }
+#pre { visibility: hidden }
+@media (max-width:600px) { .mob { display:none } }
+</style></head><body>
+<p>VISIBLE-START</p>
+<p style="display:none">H-display</p>
+<p style="visibility:hidden">H-visibility</p>
+<p style="opacity:0">H-opacity</p>
+<p style="font-size:0">H-fontsize</p>
+<p style="max-height:0;overflow:hidden">H-maxheight</p>
+<p style="mso-hide:all">H-mso</p>
+<p style="width:0;height:0;overflow:hidden">H-zerosize</p>
+<p style="position:absolute;left:-9999px">H-offscreen</p>
+<p style="clip:rect(0,0,0,0)">H-clip</p>
+<p style="color:#fff;background-color:#ffffff">H-colormatch</p>
+<div style="background:#fff"><span style="color:white">H-ancestorcolor</span></div>
+<p class="sr">H-class</p>
+<p id="pre">H-id</p>
+<p hidden>H-attribute</p>
+<p class="mob">KEPT-mobile-only-rule</p>
+<p style="color:#333;background-color:#fff">KEPT-normal-colours</p>
+<p style="opacity:0.8">KEPT-opacity-point-eight</p>
+<p>VISIBLE-END</p>
+</body></html>
