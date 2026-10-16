@@ -16,13 +16,14 @@ that was not accepted. The older refusals of this module exit 1.
 from __future__ import annotations
 
 import argparse
+import errno
 import getpass
 import os
 import select
 import sys
 import time
 from typing import NoReturn
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from ..models import RevolutEnvironment
 from .session import LocalEnrollmentError, LocalRevolutEnrollment
@@ -61,6 +62,19 @@ class _ClientIdError(_InputRefusedError):
     code = "CLIENT_ID"
 
 
+def _looks_like_address(value: str) -> bool:
+    """True if a client id holds ``://``, ``?`` or ``=``, plain or percent-encoded."""
+    decoded = value
+    for _ in range(4):  # a few layers of encoding; never loops on its own output
+        if any(mark in decoded for mark in ("://", "?", "=")):
+            return True
+        unquoted = unquote(decoded)
+        if unquoted == decoded:
+            return False
+        decoded = unquoted
+    return True  # still changing after four decodes: not a client id
+
+
 class _Parser(argparse.ArgumentParser):
     """Never echoes a token from the command line in a usage error."""
 
@@ -79,14 +93,24 @@ def _from_descriptor(descriptor: int) -> bytes:
     buffer = bytearray()
     while b"\n" not in buffer and len(buffer) < limit:
         remaining = deadline - time.monotonic()
-        ready = select.select([descriptor], [], [], max(remaining, 0.0))[0]
+        try:
+            ready = select.select([descriptor], [], [], max(remaining, 0.0))[0]
+        except OSError:
+            raise _NoRedirectUrlError(f"stdin could not be read; {_ONE_LINE}") from None
         if not ready:
             if buffer:
                 raise _NoRedirectUrlError(
                     f"the first line on stdin did not finish in time; {_ONE_LINE}"
                 )
             raise _NoRedirectUrlError(f"nothing arrived on stdin; {_ONE_LINE}")
-        chunk = os.read(descriptor, limit - len(buffer))
+        try:
+            chunk = os.read(descriptor, limit - len(buffer))
+        except BlockingIOError:  # O_NONBLOCK and nothing there yet: wait again
+            continue
+        except OSError as error:
+            if error.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                continue
+            raise _NoRedirectUrlError(f"stdin could not be read; {_ONE_LINE}") from None
         if not chunk:  # end of input
             break
         buffer += chunk
@@ -126,9 +150,12 @@ def _redirect_url() -> str:
         if sys.stdin.isatty():
             # Hidden, so the one-time code does not land in shell history.
             line = getpass.getpass("URL Revolut redirected to: ")
+            # Under a C locale getpass can return lone surrogates: refuse them here,
+            # the same strict UTF-8 check the stdin path gets.
+            line.encode("utf-8")
         else:
             line = _first_line()
-    except EOFError, KeyboardInterrupt, UnicodeError:
+    except EOFError, KeyboardInterrupt, UnicodeError, OSError:
         raise _NoRedirectUrlError(
             f"no redirect URL could be read; {_ONE_LINE}"
         ) from None
@@ -180,7 +207,7 @@ def _step(
     elif arguments.step == "authorize":
         if not arguments.client_id:
             parser.error("--client-id or REVOLUT_CLIENT_ID is required")
-        if any(mark in arguments.client_id for mark in ("://", "?", "=")):
+        if _looks_like_address(arguments.client_id):
             raise _ClientIdError(
                 "that is not a client id; it looks like an address. Copy the client "
                 "id from Revolut Business settings, then run authorize again"
