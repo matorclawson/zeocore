@@ -276,6 +276,14 @@ _EXECUTABLE = {
                 bundle_identifier="ac.zeo.pomar.host", identifier="ac.zeo.pomar.host"
             )
         ),
+        # Nor its own: the one exception is a bundle's own CFBundleIdentifier,
+        # which is never in the ac.zeo namespace, so the allowlist can hold it.
+        _signing(
+            _entry(
+                bundle_identifier="ac.zeo.zeoapp.zeoapp",
+                identifier="ac.zeo.zeoapp.zeoapp",
+            )
+        ),
         # Version 1 is unchanged: executables only.
         _signing(_entry(), release_manifest=1),
         _signing(),
@@ -383,9 +391,10 @@ _FW = "Contents/Frameworks/A.framework"
         ("Contents/Resources/x", "../Info.plist"),
         (f"{_FW}/Versions/A/Resources/x", "../A"),
         (f"{_FW}/Versions/Other", "A"),
-        # Versions/Current names one version beside it.
+        # Versions/Current names one version directory beside it.
         (f"{_FW}/Versions/Current", "A/Resources"),
         (f"{_FW}/Versions/Current", "."),
+        (f"{_FW}/Versions/Current", "F"),
         # A top-level link names something under Versions/.
         (f"{_FW}/B", "Versions"),
         (f"{_FW}/B", "../A.framework/Versions/A/A"),
@@ -401,11 +410,26 @@ def test_a_link_out_of_place_or_out_of_its_framework_is_refused(
     root = _framework(tmp_path)
     (root / "Contents" / "Resources").mkdir(parents=True, exist_ok=True)
     (root / "Contents" / "Info.plist").write_bytes(b"")
+    (root / _FW / "Versions" / "F").write_bytes(b"a file, not a version")
     if (root / link).is_symlink():
         (root / link).unlink()
     (root / link).symlink_to(target)
     with pytest.raises(TreeError):
         listing(root)
+
+
+@pytest.mark.parametrize("name", ["Resources", "Headers", "Modules"])
+def test_a_frameworks_usual_top_level_links_are_allowed(
+    tmp_path: Path, name: str
+) -> None:
+    root = _framework(tmp_path)
+    (root / _FW / "Versions" / "A" / name).mkdir(exist_ok=True)
+    (root / _FW / name).symlink_to(f"Versions/Current/{name}")
+    links = {
+        entry.path: entry.value for entry in listing(root) if entry.type == "symlink"
+    }
+    assert links[f"{_FW}/{name}"] == f"Versions/Current/{name}"
+    assert len(tree_sha256(root)) == 64
 
 
 def test_each_hop_is_resolved_inside_the_framework(tmp_path: Path) -> None:
@@ -1564,3 +1588,89 @@ def test_a_nested_subtree_that_cant_be_described_is_refused_not_raised(
     outcome = sign(built, work, tools, HOST)
     assert (outcome.status, outcome.reason) == ("refused", "bundle_unsafe")
     assert tools.sign_calls == []
+
+
+def test_a_two_link_chain_in_a_response_is_refused(
+    framework_app: App, tmp_path: Path
+) -> None:
+    built = framework_app()
+    work = WorkDir(tmp_path / "work")
+    assert sign(built, work, FakeToolchain(), HOST).status == "done"
+    create_response(built, work, tmp_path / "response.tar")
+
+    def swap(members: list[tuple[tarfile.TarInfo, bytes]]) -> None:
+        members[:] = [m for m in members if not m[0].name.startswith("signed/")]
+        # Each passes a lexical check alone; together they leave the destination.
+        members.append(_link("signed/a", ".."))
+        members.append(_link("signed/zeoapp", "a/.."))
+
+    _repack(tmp_path / "response.tar", tmp_path / "bad.tar", swap)
+    with pytest.raises(PackError):
+        open_response(built, tmp_path / "bad.tar", tmp_path / "in")
+
+
+def test_a_link_planted_in_a_nested_bundle_after_listing_is_refused(
+    framework_app: App, work: WorkDir, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The listing refuses every link a nested subtree could hold, so only a
+    change after it reaches the nested digest: the real tree code refuses it."""
+    from zeo_core.release.signing import step
+
+    built = framework_app()
+    original = step._bundle_shape
+
+    def plant(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        (built.resolve(_bundle(built).path) / _AUDIO / "evil").symlink_to("../../..")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(step, "_bundle_shape", plant)
+    tools = FakeToolchain()
+    outcome = sign(built, work, tools, HOST)
+    assert (outcome.status, outcome.reason) == ("refused", "bundle_unsafe")
+    assert tools.sign_calls == []
+
+
+def test_a_signed_copy_that_cant_be_described_at_reconcile_closes_its_intents(
+    framework_app: App, work: WorkDir, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from zeo_core.release.signing import step
+
+    loaded = framework_app()
+    tools = FakeToolchain()
+    assert sign(loaded, work, tools, HOST).status == "done"
+    # As if the run stopped after the last codesign, before any receipt.
+    for name in ("zeoapp", *(item["name"] for item in NESTED)):
+        work.receipt_path(name).unlink()
+    key = f"{loaded.sha256}:zeoapp"
+    journal = SigningJournal(work.root / "journal.jsonl")
+    journal.append(key, "intent", datetime.now(UTC))
+    journal.close()
+
+    checked = step._check_bundle
+    after_check = {"on": False}
+
+    def check(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        found = checked(*args, **kwargs)
+        after_check["on"] = True
+        return found
+
+    described = step.tree_sha256
+
+    def tree(path: Path) -> str:
+        if after_check["on"]:
+            raise TreeError("the signed copy changed after it was read")
+        return described(path)
+
+    monkeypatch.setattr(step, "_check_bundle", check)
+    monkeypatch.setattr(step, "tree_sha256", tree)
+    refused = sign(loaded, work, tools, HOST)
+    assert (refused.status, refused.reason) == ("refused", "bundle_unsafe")
+    monkeypatch.undo()
+
+    journal = SigningJournal(work.root / "journal.jsonl")
+    assert not journal.is_open(key)
+    journal.close()
+    # Nothing is held: the next run signs afresh from the unsigned original.
+    calls = len(tools.sign_calls)
+    assert sign(loaded, work, tools, HOST).status == "done"
+    assert len(tools.sign_calls) > calls

@@ -245,15 +245,15 @@ class SigningManifest(_Strict):
 
     @model_validator(mode="after")
     def _bundle_identifiers_are_own(self) -> SigningManifest:
-        # A bundle's identifier is its own CFBundleIdentifier, or in this
-        # product's namespace: never another product's.
-        prefix = f"ac.zeo.{self.product}."
+        # The one exception to ac.zeo.<product>.<name> is a bundle's own
+        # CFBundleIdentifier (SOW-32 §1.5), so it is never in the ac.zeo
+        # namespace at all. The allowlist holds it the same way: as a bundle
+        # identifier of exactly one product, never an ac.zeo one.
         for bundle in self.bundles:
-            if bundle.identifier.startswith("ac.zeo.") and not (
-                bundle.identifier.startswith(prefix)
-            ):
+            if bundle.identifier.startswith("ac.zeo."):
                 raise ValueError(
-                    f"{bundle.name}: an ac.zeo bundle identifier is {prefix}<name>"
+                    f"{bundle.name}: a bundle's identifier is its own "
+                    "CFBundleIdentifier, never in the ac.zeo namespace"
                 )
         return self
 

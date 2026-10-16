@@ -1,0 +1,19 @@
+#!/bin/sh
+# zeocore pre-commit: hands over to the pre-commit hook this machine already has.
+#
+# Once core.hooksPath points at .githooks (`make setup`), git no longer looks in
+# .git/hooks, so a per-machine pre-commit hook that zeo installed there would stop
+# running. This file keeps it running, and does nothing on a machine without one.
+# It never runs the same file twice: if the machine's hook is this file, it stops.
+
+common=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+machine_dir=$(cd "$common/hooks" 2>/dev/null && pwd -P) || exit 0
+this_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 0
+
+if [ "$machine_dir" = "$this_dir" ]; then
+  exit 0
+fi
+
+if [ -x "$machine_dir/pre-commit" ]; then
+  exec "$machine_dir/pre-commit" "$@"
+fi

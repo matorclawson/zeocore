@@ -99,6 +99,17 @@ make verify PYTHON=/Volumes/ZeoWork/<you>/venv/bin/python
 - Production code never detects that it runs under test. Inject a parameter, fixture or fake.
 - Examples under `examples/` import `zeo_core` and run with `uv run examples/<name>.py`. The beginner examples stay deterministic, offline and credential-free.
 
+`make setup` also points git at the hooks committed in `.githooks` (it runs
+`git config core.hooksPath .githooks`; `make hooks` does just that step). The
+`pre-push` hook runs `make verify` before anything leaves your machine, so a
+fresh clone has the gate without anyone installing a hook by hand. It tests the
+checked-out tree, so it refuses a push with uncommitted tracked changes or of a
+ref that isn't `HEAD`. `git push --no-verify` skips it; don't use it, because the
+merge gate runs the same check. A failing gate is fixed, then you push again. If you already set `core.hooksPath` to something else, `make setup` keeps
+it and prints the one command that installs these.
+
+Run `make help` at any point to see every available target.
+
 **Tests.** They live under `tests/`, mirroring `src/zeo_core/` (see [tests/README.md](tests/README.md)). Rules:
 
 - Test the failure path as well as the success path. Every refusal gets a negative control.
