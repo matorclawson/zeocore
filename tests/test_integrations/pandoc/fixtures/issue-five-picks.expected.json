@@ -1,0 +1,7 @@
+{
+ "recorded_with_pandoc": "3.11",
+ "sha256": "1ed259d6b00f29a486fcadaef8d7958e07aa1be5229cf039a4f0beb1cd827b17",
+ "renderer_digest": "5e55514081fe1d3999489683a5697d3d977ade24ceb59a9c86a0524fea9e29c3",
+ "pandoc_binary_sha256": "23908d6bc347072befa2bfe312f2c1c44a7c9c2e9e60bb5d41069245454b3236",
+ "lua_filter_sha256": "dbcfc94b3fac1ccab97e19b7e451c277ffd6522b17ed4bd077a99d642261b5a0"
+}
