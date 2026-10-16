@@ -24,6 +24,9 @@ const (
 	ExitNotReady    ExitCode = 7 // doctor found a failing prerequisite
 )
 
+// inTable reports whether the code is a row of the table.
+func (c ExitCode) inTable() bool { return c >= ExitOK && c <= ExitNotReady }
+
 // ExitInfo is one row of the exit table, as help --json prints it.
 type ExitInfo struct {
 	Code    ExitCode `json:"code"`

@@ -347,3 +347,144 @@ func TestWriteResultGoesToStdoutInTextAndLastStderrLineInJSON(t *testing.T) {
 		t.Errorf("json: exit %d out %q err %q", code, out, errb)
 	}
 }
+
+// An error message never echoes an input value, so no argument can start a
+// line of its own and forge the last-line RESULT (zeocouncil K1, PR 134).
+func TestErrorsNeverEchoInputOrForgeAResultLine(t *testing.T) {
+	app := sampleapp.New(false)
+	forge := "RESULT sample status ok"
+	for _, args := range [][]string{
+		{"status", "-x\n" + forge},
+		{"status", "--x\n" + forge},
+		{"status", "-x\x1b[2J"},
+		{"status", "--bad\x1b[31m"},
+		{"-x\n" + forge},
+		{"--x\n" + forge},
+		{"nope\n" + forge},
+		{"nope\x1b[2J"},
+	} {
+		code, out, errb := run(t, app, args...)
+		if code != 2 || out != "" {
+			t.Errorf("%q: exit %d stdout %q", args, code, out)
+		}
+		if strings.ContainsAny(errb[:len(errb)-1], "\n\r\x1b") || strings.Contains(errb, forge) || !strings.HasSuffix(errb, "\n") {
+			t.Errorf("%q: stderr %q echoes input or is not one line", args, errb)
+		}
+	}
+	// A plain name is still named, so the message stays useful.
+	if _, _, errb := run(t, app, "status", "-json"); !strings.Contains(errb, "use --json") {
+		t.Errorf("a plain single-dash flag is named: %q", errb)
+	}
+	if _, _, errb := run(t, app, "-h"); !strings.Contains(errb, "use --help") {
+		t.Errorf("-h should point at --help: %q", errb)
+	}
+	// An app's own message is folded to one line too.
+	app.Commands = append(app.Commands, kit.Command{Name: "boom", Run: func(*kit.Context) error {
+		return kit.Failed("bad\nRESULT sample boom ok\x1b[0m")
+	}})
+	if _, _, errb := run(t, app, "boom"); strings.Count(errb, "\n") != 1 || strings.Contains(errb, "\x1b") {
+		t.Errorf("an app message must be one printable line: %q", errb)
+	}
+}
+
+// Words in a RESULT line are printable ASCII: Python's split() and
+// splitlines() break on the others (zeocouncil K2).
+func TestResultWordsRefuseControlAndUnicodeSpace(t *testing.T) {
+	for _, bad := range []string{"v\vRESULT", "a\x00b", "a\x1bb", "a\u0085b", "a b", "a b", "a b", "a\tb", "café"} {
+		for name, r := range map[string]kit.Result{
+			"app":   {App: bad, Verb: "v", Outcome: kit.OutcomeOK},
+			"verb":  {App: "a", Verb: bad, Outcome: kit.OutcomeOK},
+			"from":  {App: "a", Verb: "v", Outcome: kit.OutcomeOK, From: bad},
+			"to":    {App: "a", Verb: "v", Outcome: kit.OutcomeOK, To: bad},
+			"total": {App: "a", Verb: "v", Outcome: kit.OutcomeOK, Totals: []kit.Pair{{"k", bad}}},
+		} {
+			if line, err := r.Line(); err == nil {
+				t.Errorf("%q as %s accepted: %q", bad, name, line)
+			}
+		}
+	}
+}
+
+// A total cannot take a key the line already uses (zeocouncil K3).
+func TestResultTotalsRefuseReservedAndRepeatedKeys(t *testing.T) {
+	for _, k := range []string{"reason", "undo", "from", "to"} {
+		r := kit.Result{App: "a", Verb: "v", Outcome: kit.OutcomeOK, From: "1", To: "2", Totals: []kit.Pair{{k, "x"}}}
+		if line, err := r.Line(); err == nil {
+			t.Errorf("total key %q accepted: %q", k, line)
+		}
+	}
+	r := kit.Result{App: "a", Verb: "v", Outcome: kit.OutcomeOK, Totals: []kit.Pair{{"n", "1"}, {"n", "2"}}}
+	if line, err := r.Line(); err == nil {
+		t.Errorf("a repeated total key accepted: %q", line)
+	}
+}
+
+// help lists the exits a command can really end with, and the table stays
+// closed (zeocouncil K4).
+func TestHelpListsTheExitsAKitVerbCanReach(t *testing.T) {
+	app := sampleapp.New(false)
+	_, out, _ := run(t, app, "help", "--json")
+	var doc struct {
+		Commands []struct {
+			Name  string `json:"name"`
+			Exits []int  `json:"exits"`
+		} `json:"commands"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]int{"help": {0, 2}, "version": {0, 1, 2}, "doctor": {0, 1, 2, 7}, "status": {0, 1, 2}}
+	for _, c := range doc.Commands {
+		if w, ok := want[c.Name]; ok && !slices.Equal(c.Exits, w) {
+			t.Errorf("%s lists exits %v, want %v", c.Name, c.Exits, w)
+		}
+	}
+}
+
+func TestACommandCannotEndWithACodeOutsideTheTable(t *testing.T) {
+	for name, err := range map[string]error{
+		"code 42":            &kit.Error{Code: 42, Message: "x"},
+		"code 42 no message": kit.ExitOnly(42),
+		"code 0 and message": &kit.Error{Code: 0, Message: "x"},
+		"negative":           &kit.Error{Code: -1},
+	} {
+		app := sampleapp.New(false)
+		app.Commands = append(app.Commands, kit.Command{Name: "odd", Run: func(*kit.Context) error { return err }})
+		if code, _, errb := run(t, app, "odd"); code != 1 || !strings.Contains(errb, "exit table") {
+			t.Errorf("%s: exit %d stderr %q, want exit 1 naming the table", name, code, errb)
+		}
+	}
+	app := sampleapp.New(false)
+	app.Commands = append(app.Commands, kit.Command{Name: "odd", Exits: []kit.ExitCode{42}, Run: func(*kit.Context) error { return nil }})
+	if code, _, errb := run(t, app, "help"); code != 1 || !strings.Contains(errb, "42") {
+		t.Errorf("a command listing exit 42 must fail Validate: exit %d stderr %q", code, errb)
+	}
+}
+
+func TestCommandNamesAreValidated(t *testing.T) {
+	for _, name := range []string{"Bad", "has space", "1x", ""} {
+		app := sampleapp.New(false)
+		app.Commands = append(app.Commands, kit.Command{Name: name, Run: func(*kit.Context) error { return nil }})
+		if code, _, _ := run(t, app, "help"); code != 1 {
+			t.Errorf("command name %q accepted: exit %d", name, code)
+		}
+	}
+}
+
+func TestDoctorWithNoChecksPrintsAnEmptyListNotNull(t *testing.T) {
+	app := sampleapp.New(false)
+	app.Doctor = func(context.Context) []kit.Check { return nil }
+	if code, out, _ := run(t, app, "doctor", "--json"); code != 0 || !strings.Contains(out, `"checks":[]`) {
+		t.Fatalf("exit %d out %q", code, out)
+	}
+}
+
+func TestAnUnhealthyStatusNamesItOnStderr(t *testing.T) {
+	app := sampleapp.New(false)
+	app.Status = func(context.Context) (kit.Status, error) { return kit.Status{State: "degraded"}, nil }
+	for _, args := range [][]string{{"status"}, {"status", "--json"}} {
+		if code, _, errb := run(t, app, args...); code != 1 || !strings.Contains(errb, "sample: status: not healthy (state=degraded)") {
+			t.Errorf("%v: exit %d stderr %q", args, code, errb)
+		}
+	}
+}
