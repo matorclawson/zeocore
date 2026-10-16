@@ -11,7 +11,10 @@
 # kit/go.mod pins `toolchain go1.27.0`, and the gate runs with GOTOOLCHAIN=local,
 # so a different Go here fails the build instead of downloading another one.
 #
-# Prints the directory to put on PATH, and appends it to $GITHUB_PATH when set.
+# Prints the directory to put on PATH, and nothing else, on stdout; the go version
+# line goes to stderr. It appends the directory to $GITHUB_PATH when set. The
+# toolchain goes under $RUNNER_TEMP, or under the directory given as the first
+# argument; with neither, the script refuses rather than leave a temp directory.
 set -euo pipefail
 
 VERSION="1.27.0"
@@ -23,7 +26,12 @@ if [ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]; then
   exit 1
 fi
 
-dest="${RUNNER_TEMP:-$(mktemp -d)}/go-${VERSION}"
+base="${1:-${RUNNER_TEMP:-}}"
+if [ -z "$base" ]; then
+  echo "install-go.sh needs a directory: pass one, or set RUNNER_TEMP" >&2
+  exit 1
+fi
+dest="${base}/go-${VERSION}"
 archive="$(mktemp --suffix=.tar.gz)"
 trap 'rm -f "$archive"' EXIT
 curl --fail --silent --show-error --location \
@@ -36,5 +44,5 @@ tar -C "$dest" -xzf "$archive"
 if [ -n "${GITHUB_PATH:-}" ]; then
   echo "${dest}/go/bin" >> "$GITHUB_PATH"
 fi
-"${dest}/go/bin/go" version
+"${dest}/go/bin/go" version >&2
 echo "${dest}/go/bin"

@@ -23,7 +23,9 @@ func TestSampleAppConforms(t *testing.T) {
 
 func TestResultLineGrammar(t *testing.T) {
 	good := []string{"RESULT a update ok from=1 to=2", `RESULT a apply ok undo="x y"`, "RESULT zeo survey ok repos=4 open=9"}
-	bad := []string{"RESULT a update done", "result a update ok", "RESULT a update ok extra", "RESULT a update ok reason=x y"}
+	bad := []string{"RESULT a update done", "result a update ok", "RESULT a update ok extra", "RESULT a update ok reason=x y",
+		"RESULT a\vRESULT update ok", "RESULT a up\u00a0date ok", "RESULT a update ok from=a\u2028b", "RESULT a update ok from=a\x1bb",
+		"RESULT a apply ok undo=\"x\ny\"", "RESULT a apply ok undo=\"x\x1by\""}
 	for _, l := range good {
 		if !conformance.ResultLine(l) {
 			t.Errorf("rejected %q", l)
