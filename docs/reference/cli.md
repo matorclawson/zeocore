@@ -91,7 +91,7 @@ holds only that app's own device grant, in the macOS Keychain.
 | `logout` | no | Revokes the grant and deletes it. |
 | `whoami` | no | Says whether this profile is paired, with its device id and expiry. Local only: no network, never a token. |
 | `connections [--service S]` | no | Lists the grant's connections. |
-| `invoke <operation_id> --connection C [--occurrence L] [--wait-approval SECONDS]` | the arguments object | Runs one operation and answers the Broker's response plus `request_key` and `retry`. |
+| `invoke <operation_id> --connection C [--occurrence L] [--wait SECONDS \| --wait-approval SECONDS]` | the arguments object | Runs one operation and answers the Broker's response plus `request_key` and `retry`. |
 | `artifact get --out PATH` | an artifact descriptor | Downloads an output to a new file and checks its size and digest. |
 
 **Refusals from Broker contract 1.4.0.** Each comes before custody, so nothing
@@ -145,6 +145,14 @@ Development origins also need `ZEOCONNECT_DEVELOPMENT=1`.
   approval. It emits `{"event": "approval", "approval_url", "request_key"}`
   once, then asks again with the same key every 5 s until the answer is no
   longer `approval_required`, or the time runs out (exit 10).
+- **`--wait SECONDS`** (1 to 3600) waits until the outcome is final, so an agent
+  never has to poll. It asks again with the same key every 5 s through a
+  person's approval, an answer still in flight, and ZEOconnect being
+  unavailable. It emits each kind of wait once: the `approval` event, then
+  `{"event": "waiting", "reason": "in_flight" | "unavailable", "request_key"}`.
+  The exit is the final answer's own. At the deadline it is the last answer's:
+  10 or 11. An ambiguous answer (13), or a Broker that didn't answer at all, is
+  never retried. `--wait` and `--wait-approval` can't be combined.
 - **`retry`** says what another attempt needs:
   - `same_request`: ask again as it is;
   - `new_occurrence`: the failure is recorded, so a retry is a new act;
