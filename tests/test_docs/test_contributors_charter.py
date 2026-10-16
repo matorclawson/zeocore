@@ -92,7 +92,10 @@ def test_the_operator_neither_merges_nor_is_asked() -> None:
 
 
 def test_the_charter_names_no_feature_main_lacks() -> None:
-    """Facts only: these arrive in later PRs and must not be promised here."""
+    """Facts only: these arrive in later PRs and must not be promised here.
+
+    ``.githooks`` left this list when the pre-push hook landed with its charter text.
+    """
     text = _text()
-    for absent in ("ZEO_WORK_DIR", ".githooks", "pypi wait"):
+    for absent in ("ZEO_WORK_DIR", "pypi wait"):
         assert absent not in text, absent
