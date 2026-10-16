@@ -267,6 +267,17 @@ func (a *App) applyPlan(c *Context, s Subject, plan planDoc) error {
 		}
 		return ExitOnly(code)
 	}
+	// One operation at a time per app, and none while an update is unfinished.
+	unlock, err := a.lockOp()
+	if err != nil {
+		fmt.Fprintf(c.Stderr, "%s: %v\n", a.Name, err)
+		return finish(OutcomeRefused, reasonOf(err, "busy"))
+	}
+	defer unlock()
+	if err := a.refuseIfRecovery(); err != nil {
+		fmt.Fprintf(c.Stderr, "%s: %v\n", a.Name, err)
+		return finish(OutcomeRefused, reasonOf(err, "recovery_required"))
+	}
 	targets := make([]string, 0, len(plan.Changes))
 	for _, ch := range plan.Changes {
 		targets = append(targets, ch.Target)

@@ -100,6 +100,34 @@ func build(failDoctor bool, stateDir string) *kit.App {
 	if stateDir != "" {
 		app.StateDir = filepath.Join(stateDir, "state")
 		app.Subjects = []kit.Subject{motd(stateDir)}
+		app.Updater = updater(stateDir)
 	}
 	return app
+}
+
+// updater is the sample app's update: releases are staged as directories
+// stateDir/releases/<version>/ holding a VERSION file, and installing copies
+// one beside the others under stateDir/install. ZEO_KIT_SAMPLE_DIE_IN_VERIFY=1
+// makes Verify kill the process, to prove a crash leaves recovery_required.
+func updater(stateDir string) *kit.Updater {
+	return &kit.Updater{
+		Root: filepath.Join(stateDir, "install"),
+		Fetch: func(_ context.Context, to string) (kit.Release, error) {
+			if to == "" {
+				return kit.Release{}, errors.New("name a version with --to: the sample app has no release feed")
+			}
+			dir := filepath.Join(stateDir, "releases", to)
+			if _, err := os.Stat(dir); err != nil {
+				return kit.Release{}, err
+			}
+			return kit.Release{Version: to, Dir: dir}, nil
+		},
+		Verify: func(_ context.Context, dir string) error {
+			if os.Getenv("ZEO_KIT_SAMPLE_DIE_IN_VERIFY") == "1" {
+				os.Exit(9)
+			}
+			_, err := os.ReadFile(filepath.Join(dir, "VERSION"))
+			return err
+		},
+	}
 }
