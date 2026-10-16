@@ -177,7 +177,11 @@ The [public API map](reference/api.md) defines supported import paths.
 
 [CONTRIBUTING.md](../CONTRIBUTING.md) covers dev environment setup
 (`make setup`), the verification gate (`make verify`), and how to submit a
-change. Conduct expectations are in
+change. Where repositories and runs live on different volumes, set
+`ZEO_WORK_DIR` to an absolute path outside the checkout: `make` then keeps the
+virtual environment, docs site, build output, coverage and caches under
+`$ZEO_WORK_DIR/<checkout name>-<hash of its path>/`. Unset, everything stays in
+the checkout. Conduct expectations are in
 [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md); security reports go through
 [SECURITY.md](../SECURITY.md).
 

@@ -33,7 +33,43 @@ PYTHON_VERSION := 3.14
 VENV_NAME := .venv
 PROJECT_NAME := zeocore
 REPO_ROOT := $(shell pwd)
-PYTHON := $(REPO_ROOT)/$(VENV_NAME)/bin/python
+
+# Where this checkout's environment, caches and build output live.
+# ZEO_WORK_DIR set (the org's machines, where repositories live on one volume
+# and runs on another; the operator, 2026-10-12): all of it goes under
+# $(ZEO_WORK_DIR)/<checkout directory name>-<hash of its path>/ (two checkouts
+# with one name, such as worktrees, never share an environment), and the
+# checkout holds only the repository, bar .import_linter_cache. Unset,
+# everything stays inside the checkout, as for any contributor.
+ifdef ZEO_WORK_DIR
+ifneq ($(words $(ZEO_WORK_DIR)),1)
+$(error ZEO_WORK_DIR must be one path without spaces)
+endif
+ifneq ($(patsubst /%,/,$(ZEO_WORK_DIR)),/)
+$(error ZEO_WORK_DIR must be an absolute path, got '$(ZEO_WORK_DIR)')
+endif
+ifneq ($(filter $(REPO_ROOT) $(REPO_ROOT)/%,$(abspath $(ZEO_WORK_DIR))),)
+$(error ZEO_WORK_DIR must be outside the checkout, got '$(ZEO_WORK_DIR)')
+endif
+WORK_DIR := $(abspath $(ZEO_WORK_DIR))/$(notdir $(REPO_ROOT))-$(shell printf %s '$(REPO_ROOT)' | cksum | cut -d' ' -f1)
+VENV_DIR := $(WORK_DIR)/venv
+SITE_DIR := $(WORK_DIR)/site
+DIST_DIR := $(WORK_DIR)/dist
+PYTEST_CACHE := -o cache_dir=$(WORK_DIR)/cache/pytest
+export UV_PROJECT_ENVIRONMENT := $(VENV_DIR)
+export COVERAGE_FILE := $(WORK_DIR)/coverage/.coverage
+export MYPY_CACHE_DIR := $(WORK_DIR)/cache/mypy
+export RUFF_CACHE_DIR := $(WORK_DIR)/cache/ruff
+export PYTHONPYCACHEPREFIX := $(WORK_DIR)/cache/pycache
+export HYPOTHESIS_STORAGE_DIRECTORY := $(WORK_DIR)/cache/hypothesis
+else
+WORK_DIR := $(REPO_ROOT)
+VENV_DIR := $(REPO_ROOT)/$(VENV_NAME)
+SITE_DIR := $(REPO_ROOT)/site
+DIST_DIR := $(REPO_ROOT)/dist
+PYTEST_CACHE :=
+endif
+PYTHON := $(VENV_DIR)/bin/python
 # The optional integrations a full development environment carries. One list,
 # used by sync (make setup), install-all and verify-env, so they never drift apart.
 SETUP_EXTRAS := gmail,notion,supabase,google,drive,calendar,pandoc,llms,github,bluesky,http,ffmpeg,jupytext,notebook,mcp,mcp-dev,runtime-host,revolut
@@ -92,8 +128,8 @@ help: ## Show this help message
 .PHONY: env
 env: ## Create virtual environment using uv
 	@echo "${BLUE}Creating virtual environment...${RESET}"
-	uv venv --python $(PYTHON_VERSION)
-	@echo "${GREEN}Virtual environment created. Activate: source $(VENV_NAME)/bin/activate${RESET}"
+	uv venv --python $(PYTHON_VERSION) $(VENV_DIR)
+	@echo "${GREEN}Virtual environment created. Activate: source $(VENV_DIR)/bin/activate${RESET}"
 
 .PHONY: install
 install: ## Install zeocore (editable)
@@ -141,7 +177,7 @@ setup: ## Create the development environment from uv.lock (what CI and releases 
 	@echo "${BLUE}Creating complete development environment...${RESET}"
 	$(MAKE) --no-print-directory sync
 	@echo ""
-	@echo "${GREEN}Setup complete. Activate: source .venv/bin/activate${RESET}"
+	@echo "${GREEN}Setup complete. Activate: source $(VENV_DIR)/bin/activate${RESET}"
 
 .PHONY: check-env
 check-env: ## Check that the virtual environment is active and working
@@ -166,7 +202,7 @@ check-env: ## Check that the virtual environment is active and working
 # audience is someone who has never debugged a Python environment before.
 .PHONY: doctor
 doctor: ## Check this machine is ready to develop/release zeocore (never stops at the first problem)
-	@bash tools/doctor.sh "$(REPO_ROOT)" "$(PYTHON)" "$(VENV_NAME)"
+	@bash tools/doctor.sh "$(REPO_ROOT)" "$(PYTHON)" "$(VENV_DIR)"
 
 # ============================================================
 # THE GATE — verify / verify-full
@@ -198,7 +234,7 @@ doctor: ## Check this machine is ready to develop/release zeocore (never stops a
 .PHONY: verify-env
 verify-env:
 	@if [ ! -x "$(PYTHON)" ]; then \
-		echo "${YELLOW}No environment at $(VENV_NAME) -- provisioning it from the committed uv.lock before the gate.${RESET}"; \
+		echo "${YELLOW}No environment at $(VENV_DIR) -- provisioning it from the committed uv.lock before the gate.${RESET}"; \
 		uv sync --locked --python $(PYTHON_VERSION) \
 			$(foreach extra,$(subst $(comma), ,$(SETUP_EXTRAS)) dev lint,--extra $(extra)) \
 			--group documentation \
@@ -291,24 +327,24 @@ hygiene-check: ## Fail if production code detects that it is under test
 .PHONY: test
 test: ## Run tests with coverage (ONCE)
 	@echo "${BLUE}Running tests with coverage...${RESET}"
-	$(PYTHON) -m pytest $(TESTS) $(PYTEST_ARGS) \
+	$(PYTHON) -m pytest $(TESTS) $(PYTEST_ARGS) $(PYTEST_CACHE) \
 	  --cov=zeo_core --cov-report=term-missing \
 	  --cov-fail-under=$(COVERAGE_THRESHOLD)
 
 .PHONY: test-fast
 test-fast: ## Run tests without coverage (quick inner-loop feedback)
 	@echo "${BLUE}Running tests (no coverage)...${RESET}"
-	$(PYTHON) -m pytest $(TESTS) $(PYTEST_ARGS)
+	$(PYTHON) -m pytest $(TESTS) $(PYTEST_ARGS) $(PYTEST_CACHE)
 
 .PHONY: test-docs
 test-docs: ## Check documentation links and safe beginner examples
 	@echo "${BLUE}Checking documentation and beginner examples...${RESET}"
-	$(PYTHON) -m pytest $(TESTS)/test_docs $(PYTEST_ARGS)
+	$(PYTHON) -m pytest $(TESTS)/test_docs $(PYTEST_ARGS) $(PYTEST_CACHE)
 
 .PHONY: docs-build docs-serve
 docs-build: ## Build the searchable documentation and check links strictly
 	$(PYTHON) -m unittest discover -s tests/docs_site -v
-	$(PYTHON) -m mkdocs build --strict
+	$(PYTHON) -m mkdocs build --strict --site-dir $(SITE_DIR)
 
 docs-serve: ## Preview the documentation locally
 	$(PYTHON) -m mkdocs serve
@@ -316,19 +352,19 @@ docs-serve: ## Preview the documentation locally
 .PHONY: test-module
 test-module: ## Run one module's tests: make test-module M=test_integrations/pandoc
 	@test -n "$(M)" || (echo "Usage: make test-module M=test_integrations/pandoc" && exit 1)
-	$(PYTHON) -m pytest $(TESTS)/$(M) $(PYTEST_ARGS) --cov=zeo_core --cov-report=term-missing
+	$(PYTHON) -m pytest $(TESTS)/$(M) $(PYTEST_ARGS) $(PYTEST_CACHE) --cov=zeo_core --cov-report=term-missing
 
 .PHONY: arch-check
 arch-check: ## Enforce directional import contracts (.importlinter via import-linter)
 	@echo "${BLUE}Checking import architecture (.importlinter)...${RESET}"
-	@$(VENV_NAME)/bin/lint-imports || $(PYTHON) -m importlinter lint
+	@$(VENV_DIR)/bin/lint-imports || $(PYTHON) -m importlinter lint
 	@echo "${GREEN}✓ arch OK — directional import contracts kept${RESET}"
 
 .PHONY: build
 build: ## Build sdist + wheel (python -m build)
 	@echo "${BLUE}Building sdist + wheel...${RESET}"
-	$(PYTHON) -m build
-	@echo "${GREEN}✓ build complete — see dist/${RESET}"
+	$(PYTHON) -m build --outdir $(DIST_DIR)
+	@echo "${GREEN}✓ build complete — see $(DIST_DIR)${RESET}"
 
 # ============================================================
 # HTTP adapter
@@ -336,16 +372,16 @@ build: ## Build sdist + wheel (python -m build)
 .PHONY: api-run
 api-run: ## Run HTTP adapter server
 	@echo "${BLUE}Starting zeo_core HTTP adapter...${RESET}"
-	$(VENV_NAME)/bin/uvicorn zeo_core.adapters.http.app:create_app --factory --host 0.0.0.0 --port 8080
+	$(VENV_DIR)/bin/uvicorn zeo_core.adapters.http.app:create_app --factory --host 0.0.0.0 --port 8080
 
 .PHONY: api-run-reload
 api-run-reload: ## Run HTTP adapter with auto-reload
-	$(VENV_NAME)/bin/uvicorn zeo_core.adapters.http.app:create_app --factory --reload --host 0.0.0.0 --port 8080
+	$(VENV_DIR)/bin/uvicorn zeo_core.adapters.http.app:create_app --factory --reload --host 0.0.0.0 --port 8080
 
 .PHONY: api-test
 api-test: ## Run HTTP adapter tests
 	@echo "${BLUE}Running HTTP adapter tests...${RESET}"
-	$(PYTHON) -m pytest $(TESTS)/test_http $(PYTEST_ARGS) \
+	$(PYTHON) -m pytest $(TESTS)/test_http $(PYTEST_ARGS) $(PYTEST_CACHE) \
 	  --cov=zeo_core.adapters.http --cov-report=term-missing
 
 # ============================================================
@@ -355,6 +391,7 @@ api-test: ## Run HTTP adapter tests
 clean-caches: ## Remove test/type/lint caches and compiled bytecode (fast, safe)
 	@echo "${BLUE}Clearing caches...${RESET}"
 	@rm -rf .coverage .mypy_cache .pytest_cache .ruff_cache
+	@if [ "$(WORK_DIR)" != "$(REPO_ROOT)" ]; then rm -rf "$(WORK_DIR)/cache" "$(WORK_DIR)/coverage"; fi
 	@find . -type d -name "__pycache__" -not -path "./$(VENV_NAME)/*" -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name "*.pyc" -not -path "./$(VENV_NAME)/*" -delete 2>/dev/null || true
 	@echo "${GREEN}✓ caches cleared${RESET}"
@@ -362,13 +399,13 @@ clean-caches: ## Remove test/type/lint caches and compiled bytecode (fast, safe)
 .PHONY: clean
 clean: clean-caches ## Remove build artifacts + caches (keeps venv)
 	@echo "${BLUE}Cleaning build artifacts...${RESET}"
-	@rm -rf build/ dist/ *.egg-info
+	@rm -rf build/ dist/ *.egg-info "$(DIST_DIR)" "$(SITE_DIR)"
 	@echo "${GREEN}✓ cleaned${RESET}"
 
 .PHONY: clean-all
 clean-all: clean ## Remove everything including the virtual environment
 	@echo "${BLUE}Removing virtual environment...${RESET}"
-	@rm -rf $(VENV_NAME)
+	@rm -rf "$(VENV_DIR)"
 	@echo "${GREEN}✓ cleaned all (venv removed — run 'make setup' to rebuild)${RESET}"
 
 # ============================================================
