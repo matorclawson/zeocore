@@ -1,0 +1,171 @@
+{
+ "recorded_with_pandoc": "3.11",
+ "noise_data_version": "2026-10-13",
+ "items": {
+  "01-simple-article": {
+   "stripped": {
+    "tracked_links": 1
+   },
+   "links": [
+    [
+     "https://example.com/post-one?id=42",
+     "new parser",
+     "https://example.com/post-one?utm_source=news&utm_medium=email&utm_campaign=weekly&id=42",
+     true
+    ],
+    [
+     "https://example.org/benchmark",
+     "the benchmark page",
+     null,
+     false
+    ]
+   ],
+   "title": "The week in tools",
+   "warnings": []
+  },
+  "02-tracking-pixels": {
+   "stripped": {
+    "pixels": 3
+   },
+   "links": [],
+   "title": null,
+   "warnings": []
+  },
+  "03-unsubscribe-footer": {
+   "stripped": {
+    "footers": 3
+   },
+   "links": [],
+   "title": null,
+   "warnings": []
+  },
+  "04-hidden-text": {
+   "stripped": {
+    "hidden": 3,
+    "hidden_attribute": 1,
+    "hidden_display": 1,
+    "hidden_font_size": 1
+   },
+   "links": [],
+   "title": null,
+   "warnings": []
+  },
+  "05-scripts-and-forms": {
+   "stripped": {
+    "scripts": 3,
+    "styles": 1,
+    "frames": 1,
+    "forms": 1,
+    "comments": 1
+   },
+   "links": [],
+   "title": null,
+   "warnings": []
+  },
+  "06-hostile-text": {
+   "stripped": {
+    "hidden": 1,
+    "hidden_display": 1,
+    "unsafe_images": 1
+   },
+   "links": [],
+   "title": null,
+   "warnings": []
+  },
+  "07-table-layout": {
+   "stripped": {
+    "tables_flattened": 1
+   },
+   "links": [
+    [
+     "https://example.com/x",
+     "link",
+     null,
+     false
+    ]
+   ],
+   "title": null,
+   "warnings": []
+  },
+  "08-non-ascii": {
+   "stripped": {},
+   "links": [],
+   "title": "Café notes",
+   "warnings": []
+  },
+  "09-redirect-links": {
+   "stripped": {
+    "tracked_links": 2,
+    "unsafe_links": 1
+   },
+   "links": [
+    [
+     "https://example.org/article?id=7",
+     "wrapped article",
+     "https://www.google.com/url?q=https%3A%2F%2Fexample.org%2Farticle%3Fid%3D7&sa=D",
+     true
+    ],
+    [
+     "https://u123.ct.sendgrid.net/ls/click?upn=opaque",
+     "opaque tracked link",
+     null,
+     true
+    ],
+    [
+     "https://example.com/plain?keep=1",
+     "clean me",
+     "https://example.com/plain?mc_cid=abc&mc_eid=def&keep=1",
+     true
+    ]
+   ],
+   "title": null,
+   "warnings": [
+    "1 tracked link(s) could not be unwrapped without fetching them"
+   ]
+  },
+  "10-malformed": {
+   "stripped": {},
+   "links": [
+    [
+     "https://example.com/m",
+     "a link one two nested stuff",
+     null,
+     false
+    ]
+   ],
+   "title": null,
+   "warnings": []
+  },
+  "11-hidden-kinds": {
+   "stripped": {
+    "styles": 1,
+    "hidden": 14,
+    "hidden_attribute": 1,
+    "hidden_display": 1,
+    "hidden_visibility": 1,
+    "hidden_opacity": 1,
+    "hidden_font_size": 1,
+    "hidden_max_size": 1,
+    "hidden_mso": 1,
+    "hidden_zero_size": 1,
+    "hidden_offscreen": 1,
+    "hidden_clip": 1,
+    "hidden_color_match": 2,
+    "hidden_style_class": 2
+   },
+   "links": [],
+   "title": null,
+   "warnings": []
+  },
+  "12-gfm-extensions": {
+   "stripped": {
+    "forms": 2,
+    "unsafe_links": 1,
+    "tables_flattened": 1
+   },
+   "links": [],
+   "title": null,
+   "warnings": []
+  }
+ }
+}
