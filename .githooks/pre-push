@@ -1,0 +1,71 @@
+#!/bin/sh
+# zeocore pre-push: the one gate, `make verify`, runs before anything leaves this machine.
+#
+# This file is committed, so a fresh clone has the gate. `make setup` (or `make hooks`)
+# points git at this directory with `git config core.hooksPath .githooks`.
+# A failing gate is fixed and run again; no variable or flag of ours gets past it.
+#
+# The gate runs on the checked-out working tree, so it only vouches for what is pushed
+# when that is exactly HEAD with nothing uncommitted: the hook refuses anything else.
+set -u
+
+# Git runs a hook with its own environment variables set (the repository location, the
+# index file and others). Anything below that runs git, such as the tests creating
+# temporary repositories, must find its repository from the current directory, or it
+# would act on this one. Drop them all first.
+for name in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+  unset "$name"
+done
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) && cd "$root" || {
+  echo "pre-push: this is not inside a git checkout, so the gate cannot run and nothing was pushed; run it from your zeocore checkout, then push again." >&2
+  exit 1
+}
+head=$(git rev-parse --verify --quiet HEAD 2>/dev/null || true)
+
+# Git sends one line per ref on stdin: "<local ref> <local sha> <remote ref> <remote sha>".
+# A push that only deletes refs has a local sha of all zeros and nothing to gate. A hand
+# run from a terminal has nothing on stdin and is gated; so is a run with an empty stdin.
+seen=0
+deleting_only=1
+mismatch=
+if [ ! -t 0 ]; then
+  while read -r local_ref local_sha _remote_ref _remote_sha; do
+    seen=1
+    case "$local_sha" in
+      *[!0]*)
+        deleting_only=0
+        if [ "$local_sha" != "$head" ]; then
+          mismatch=${mismatch:-$local_ref}
+        fi
+        ;;
+    esac
+  done
+fi
+if [ "$seen" = 1 ] && [ "$deleting_only" = 1 ]; then
+  exit 0
+fi
+
+if [ -z "$head" ]; then
+  echo "pre-push: this checkout has no commit, so the gate cannot tell what is pushed and nothing was pushed; commit your work, then push again." >&2
+  exit 1
+fi
+if [ -n "$mismatch" ]; then
+  echo "pre-push: the gate runs on the checked-out tree, but $mismatch is not HEAD, so nothing was pushed; check out what you push, then push again." >&2
+  exit 1
+fi
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "pre-push: the checked-out tree has uncommitted changes, so the gate would not test what is pushed and nothing was pushed; commit or stash your changes, then push again." >&2
+  exit 1
+fi
+
+if ! command -v make >/dev/null 2>&1; then
+  echo "pre-push: make is not installed, so the gate cannot run and nothing was pushed; install make, then push again." >&2
+  exit 1
+fi
+
+echo "pre-push: running the gate (make verify) before anything is pushed."
+if ! make verify; then
+  echo "pre-push: make verify failed, so nothing was pushed; fix what it printed, run make verify until it passes, then push again." >&2
+  exit 1
+fi
