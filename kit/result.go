@@ -120,7 +120,7 @@ func (r Result) Line() (string, error) {
 		if strings.ContainsAny(r.Undo, "\n\r") {
 			return "", errors.New("kit: RESULT undo must be one line")
 		}
-		fmt.Fprintf(&b, " undo=%s", strconv.Quote(r.Undo))
+		fmt.Fprintf(&b, " undo=%s", strconv.QuoteToASCII(r.Undo))
 	}
 	return b.String(), nil
 }

@@ -98,7 +98,7 @@ func firstKey(t *testing.T, label, stdout string) string {
 
 // word is printable ASCII without a quote or an equals sign, so no control
 // character, Unicode space or line separator is ever part of a RESULT line.
-var resultRe = regexp.MustCompile(`^RESULT [!#-<>-~]+ [!#-<>-~]+ (ok|refused|failed|undone|recovery_required)( [a-z][a-z0-9_]*=([!#-<>-~]+|"([^"\\\x00-\x1f\x7f]|\\[^\x00-\x1f\x7f])*"))*$`)
+var resultRe = regexp.MustCompile(`^RESULT [!#-<>-~]+ [!#-<>-~]+ (ok|refused|failed|undone|recovery_required)( [a-z][a-z0-9_]*=([!#-<>-~]+|"([ !#-\[\]-~]|\\[ -~])*"))*$`)
 
 // ResultLine reports whether a line follows the RESULT grammar of rev d section 5.
 func ResultLine(line string) bool { return resultRe.MatchString(line) }
