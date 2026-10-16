@@ -226,7 +226,9 @@ class HostedUnavailableError(HostedClientError):
 
     Not a stop, and not proof that an effectful request was never accepted
     (council ruling E7). It grants no retry: only a read named as safe is
-    attempted again, and only after a failure that produced no response.
+    attempted again, and only after a failure that produced no response. The
+    caller may still ask the Broker again with the same key, which replays
+    the stored outcome (``zeocore invoke --wait`` does).
     """
 
     def __init__(self, message: str = "hosted transport is unavailable") -> None:

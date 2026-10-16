@@ -171,6 +171,13 @@ def _resolves_inside(top: Path, parts: tuple[str, ...], scope: int) -> bool:
     return len(resolved) > floor
 
 
+def _is_real_directory(path: Path) -> bool:
+    try:
+        return stat.S_ISDIR(path.lstat().st_mode)
+    except OSError:
+        return False
+
+
 def _link(root: Path, relative: str) -> Entry:
     target = os.readlink(root / relative)
     if not _plain(target) or not contained_target(relative, target):
@@ -192,6 +199,10 @@ def _link(root: Path, relative: str) -> Entry:
         )
     if not _resolves_inside(root.parent, parts, scope):
         raise TreeError(f"{relative}: a link must resolve inside its framework")
+    if inner == ("Versions", "Current") and not _is_real_directory(
+        (root / relative).parent / target
+    ):
+        raise TreeError(f"{relative}: Versions/Current names a version directory")
     return Entry(relative, "symlink", None, target)
 
 
