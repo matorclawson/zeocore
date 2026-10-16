@@ -8,7 +8,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -27,6 +29,10 @@ type Config struct {
 	// FailingDoctorEnv, when set, is an environment entry that makes doctor
 	// fail, so exit 7 can be checked. Leave it empty to skip that check.
 	FailingDoctorEnv string
+	// SharedSubject, when set, names a subject that changes shared state and
+	// has something to plan; the suite then drives plan, apply and the undo.
+	// The app must start with that subject in its planned-for-change state.
+	SharedSubject string
 }
 
 type outcome struct {
@@ -238,4 +244,55 @@ func Run(t *testing.T, cfg Config) {
 			t.Errorf("a refused call must print nothing on stdout: exit %d stdout %q", o.code, o.stdout)
 		}
 	})
+	if cfg.SharedSubject != "" {
+		t.Run("plan_apply_undo", func(t *testing.T) { planApplyUndo(t, cfg) })
+	}
+}
+
+func planApplyUndo(t *testing.T, cfg Config) {
+	subj := cfg.SharedSubject
+	p := run(t, cfg, nil, "plan", subj, "--json")
+	if p.code != 0 || firstKey(t, "plan", p.stdout) != "schema" {
+		t.Fatalf("plan exit %d: %s", p.code, p.stderr)
+	}
+	plan := one(t, "plan", p.stdout)
+	if plan["schema"] != "zeo.plan/v1" || plan["empty"] != false {
+		t.Fatalf("plan document wrong: %v", plan)
+	}
+	if id, _ := plan["plan_id"].(string); len(id) != 64 {
+		t.Fatalf("plan_id %q is not a sha256", id)
+	}
+	if o := run(t, cfg, nil, "apply", subj); o.code != 2 {
+		t.Errorf("apply of shared state without --plan: exit %d, want 2", o.code)
+	}
+	file := filepath.Join(t.TempDir(), "plan.json")
+	if err := os.WriteFile(file, []byte(p.stdout), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := run(t, cfg, nil, "apply", subj, "--plan", file, "--json")
+	if a.code != 0 {
+		t.Fatalf("apply exit %d: %s", a.code, a.stderr)
+	}
+	applied := one(t, "apply", a.stdout)
+	undo, _ := applied["undo"].(string)
+	last := a.stderr[strings.LastIndex(strings.TrimRight(a.stderr, "\n"), "\n")+1:]
+	if applied["schema"] != "zeo.apply/v1" || applied["outcome"] != "ok" || undo == "" || !ResultLine(strings.TrimSpace(last)) || !strings.Contains(last, "undo=") {
+		t.Fatalf("apply document %v, last stderr line %q", applied, last)
+	}
+	if again := run(t, cfg, nil, "apply", subj, "--plan", file); again.code != 3 || !strings.Contains(again.stdout, "reason=plan_stale") {
+		t.Errorf("the same plan applied twice: exit %d %q, want exit 3 plan_stale", again.code, again.stdout)
+	}
+	if e := run(t, cfg, nil, "plan", subj, "--json"); !strings.Contains(e.stdout, `"empty":true`) {
+		t.Errorf("after apply the plan must be empty: %s", e.stdout)
+	}
+	fields := strings.Fields(undo)
+	if len(fields) < 4 || fields[0] != cfg.Name || fields[1] != "apply" {
+		t.Fatalf("undo %q is not a runnable `%s apply ...` command", undo, cfg.Name)
+	}
+	if u := run(t, cfg, nil, fields[1:]...); u.code != 0 {
+		t.Fatalf("undo exit %d: %s", u.code, u.stdout+u.stderr)
+	}
+	if r := run(t, cfg, nil, "plan", subj, "--json"); !strings.Contains(r.stdout, `"empty":false`) {
+		t.Errorf("after the undo the original plan applies again: %s", r.stdout)
+	}
 }

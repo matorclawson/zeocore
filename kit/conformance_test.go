@@ -18,7 +18,10 @@ func TestSampleAppConforms(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	conformance.Run(t, conformance.Config{Binary: bin, Name: "sample", FailingDoctorEnv: "ZEO_KIT_SAMPLE_FAIL_DOCTOR=1"})
+	conformance.Run(t, conformance.Config{
+		Binary: bin, Name: "sample", FailingDoctorEnv: "ZEO_KIT_SAMPLE_FAIL_DOCTOR=1",
+		Env: []string{"ZEO_KIT_SAMPLE_DIR=" + t.TempDir()}, SharedSubject: "motd",
+	})
 }
 
 func TestResultLineGrammar(t *testing.T) {
