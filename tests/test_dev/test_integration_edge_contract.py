@@ -53,7 +53,9 @@ def test_the_real_config_keeps_the_contract(tmp_path: Path) -> None:
 
 
 def test_the_sources_are_wildcards_never_the_bare_root() -> None:
-    sources = re.search(r"source_modules =\n((?:    .+\n)+)", _section(CONFIG.read_text()))
+    sources = re.search(
+        r"source_modules =\n((?:    .+\n)+)", _section(CONFIG.read_text())
+    )
     assert sources is not None
     assert [s.strip() for s in sources.group(1).splitlines()] == [
         "zeo_core.*",
@@ -83,9 +85,12 @@ def test_a_bare_root_source_would_check_nothing(tmp_path: Path) -> None:
     text = CONFIG.read_text()
     section = _section(text)
     vacuous = re.sub(
-        r"ignore_imports =.*", "", section.replace(
+        r"ignore_imports =.*",
+        "",
+        section.replace(
             "    zeo_core.*\n    zeo_core.integrations.*\n", "    zeo_core\n"
-        ), flags=re.S
+        ),
+        flags=re.S,
     )
     result = _lint(text.replace(section, vacuous), tmp_path)
     assert result.returncode == 0
