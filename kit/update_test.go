@@ -32,6 +32,12 @@ type fakeApp struct {
 	prot    string
 	touch   bool
 	now     time.Time
+	// touchIn names hooks that rewrite a protected file when they run;
+	// statusErr makes Status fail; asIsOK lets Ready take a zero t0 (recover
+	// proving what already runs).
+	touchIn   map[string]bool
+	statusErr bool
+	asIsOK    bool
 }
 
 func newFake2(t *testing.T) *fakeApp {
@@ -51,6 +57,9 @@ func (f *fakeApp) release(v string, migrates bool) {
 
 func (f *fakeApp) hit(name string) error {
 	f.calls = append(f.calls, name)
+	if f.touchIn[name] {
+		_ = os.WriteFile(filepath.Join(f.prot, "approver.key"), []byte("changed by "+name), 0o600)
+	}
 	if n := f.fail[name]; n > 0 {
 		f.fail[name] = n - 1
 		return errors.New(name + " failed")
@@ -62,6 +71,9 @@ func (f *fakeApp) app() *kit.App {
 	app := sampleapp.New(false)
 	live := f.live
 	app.Status = func(context.Context) (kit.Status, error) {
+		if f.statusErr {
+			return kit.Status{}, errors.New("status is down")
+		}
 		return kit.Status{State: "running", Healthy: true, Live: &live}, nil
 	}
 	app.StateDir = f.state
@@ -125,7 +137,7 @@ func (f *fakeApp) app() *kit.App {
 			if err := f.hit("ready"); err != nil {
 				return err
 			}
-			if f.running != v || t0.IsZero() {
+			if f.running != v || (t0.IsZero() && !f.asIsOK) {
 				return errors.New("not ready as " + v)
 			}
 			return nil
@@ -497,12 +509,12 @@ func TestLiveRuleNeedsTheIdleFence(t *testing.T) {
 	f.ran("fetch", "fence", "preflight", "install", "stop", "start", "ready", "verify", "unfence")
 }
 
-func TestProtectedPathTouchedByAHookRefusesBeforeTheSwitch(t *testing.T) {
+func TestProtectedPathTouchedByAHookFailsBeforeTheSwitch(t *testing.T) {
 	f := newFake2(t)
 	f.install1()
 	f.touch = true
 	u := f.do("update")
-	if u.code != 3 || u.reason != "protected" || f.current() != "1.0.0" {
+	if u.code != 1 || u.outcome != "failed" || u.reason != "protected" || f.current() != "1.0.0" {
 		t.Fatalf("%+v current %s", u, f.current())
 	}
 	if _, err := os.Stat(filepath.Join(f.root, "versions", "2.0.0")); err == nil {

@@ -84,7 +84,10 @@ func TestACrashBetweenSwitchAndVerifyLeavesRecoveryRequired(t *testing.T) {
 	if code, out := sample("", "recover"); code != 0 || !strings.Contains(out, "RESULT sample recover ok") {
 		t.Fatalf("recover: %d %s", code, out)
 	}
-	if code, out := sample("", "update", "--to", "2.0.0"); code != 0 {
+	// The crash came after 2.0.0 was proved by the sample (Verify died only on
+	// the first call): recover proves what is current as it stands and keeps it,
+	// so the same update is now refused as already installed, and a rollback goes.
+	if code, out := sample("", "update", "--to", "2.0.0"); code != 3 || !strings.Contains(out, "reason=current") {
 		t.Fatalf("after recover: %d %s", code, out)
 	}
 }

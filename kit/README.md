@@ -2,9 +2,9 @@
 
 A Go module (`github.com/zeroemployeeorg/zeocore/kit`) that gives every zeo and dt app the same
 commands, grammar, exit codes and result line. The contract is zeoarchitect SOW-05 rev d with the
-Architect's section 14 ruling; the build plan is ZEOCORE-SOW-34. **Slices 1 and 2 of 7:** the grammar,
-the exit table, the `RESULT` line, the `help`, `version`, `doctor` and `status` verbs, and `plan` and
-`apply`, plus the conformance suite. `update`, `rollback` and `recover` come in later slices.
+Architect's section 14 ruling; the build plan is ZEOCORE-SOW-34. **Slices 1 to 3 of 7:** the grammar,
+the exit table, the `RESULT` line, the `help`, `version`, `doctor` and `status` verbs, `plan` and
+`apply`, and `update`, `rollback` and `recover`, plus the conformance suite.
 
 The kit uses the Go standard library only, so an app that links it takes no third-party module.
 
@@ -95,19 +95,62 @@ path where the backup goes). The kit adds `plan <subject>` and `apply <subject>`
 
 ## update, rollback and recover (slice 3)
 
+**Unix only** (macOS and Linux): the lock and the directory syncs use `flock` and `fsync`.
+
 An app sets `Updater` (an absolute `Root`, the `Protected` paths no step may touch, and hooks: `Fetch`,
 `Preflight`, `Install`, `Verify`, and for a service `Fence`, `Stop`, `Start`, `Ready` and `Down`). The
 kit then runs the six steps of the contract as one state machine: fetch and verify, preflight, install
 beside the current version, stop, switch the `current` symlink atomically, start and prove readiness,
 and back out on any failure.
 
-- An intent is written before the switch; a crash leaves `recovery_required`, and every later
-  operation refuses until `recover` has proved exactly one version is running.
-- A failed switch is switched back and verified (`undone`), or `recovery_required`. A downgrade needs
-  `rollback`, and `rollback` is refused across a state migration unless the app supplies `Down`.
-- Refusals: `busy`, `recovery_required`, `current`, `downgrade`, `space`, the live reasons (`live` or
-  an app's own, e.g. `studio_live`) and `protected`. Exits: 1 (failed), 2 (usage), 3 (refused).
-- `--to` must be a version word; the value is not echoed. Hook error texts are folded to one line.
+- **Durable.** An intent is written (file synced, renamed, directory synced) before the service is
+  stopped; the switch and its removal sync the directory too. A crash leaves `recovery_required`, and
+  every later operation refuses until `recover` has cleared it.
+- **Live rule fails closed.** If `Status` cannot say whether the app is live, it is treated as live: the
+  operation refuses with the live reason (`live`, or an app's own, e.g. `studio_live`) unless the app
+  has an idle `Fence` and takes it.
+- **Guard compares what the kernel would open.** It takes absolute paths without `..` and resolves each
+  path as the kernel does, component by component: a link is replaced by its target (an absolute target
+  restarts from the root), and every existing directory on the way is compared by `os.SameFile`, so a
+  case or Unicode-normalisation spelling the file system folds, or a link into a subdirectory, names the
+  same thing. Past the first component that does not exist yet only names are compared, so a new file
+  beside the protected tree is allowed. A link that does not resolve (or loops) is refused, and a
+  protected path that cannot be resolved refuses everything. **Guard is advisory**: it checks a path, not
+  the descriptor a hook later opens, so a link swapped after Guard returns is not stopped by it. A hard
+  link to a protected file is not caught by Guard when the protected path is a directory; the snapshot
+  catches the write. The snapshot is the backstop.
+- **Protected paths.** `Guard` takes absolute paths without `..` (a `..` after a symbolic link would be
+  collapsed as text before the link is resolved, so it is refused outright) and resolves links on both
+  sides. The kit also snapshots the protected paths before `Fetch` (or a rollback's preflight) and
+  compares them just before the switch and again after the new version is proved: any hook that touched
+  one ends the operation. **A touched file is detected, not undone**: before the switch the operation
+  ends `failed` (nothing switched; the file stays as the hook left it); after, the version is switched
+  back (`undone`), also leaving the file as it is. Every protected file keeps its exact size and bytes,
+  except files under `Updater.AppendOnly` (append-only state), which may grow with their first bytes
+  unchanged. No entry may appear, vanish or change mode, and a symbolic link (inside the tree, or the
+  protected path itself) may not be retargeted. `Protected` and `AppendOnly` are copied at the start of a
+  run, so a hook cannot widen them; **do not let `AppendOnly` cover key custody**. Limits of the snapshot,
+  said plainly: a link inside a tree that points outside it is compared by its target string only; a
+  write undone inside the window (truncate, then restore) is invisible; owner, ACL and extended
+  attributes are not compared; every regular file is hashed in full, several times per update, so a
+  large append-only journal costs several full reads.
+- **recover looks before it acts.** It first proves the version that is current as it stands (ready and
+  verify, no stop). If one of the intent's two versions is running and proved, only the record is left,
+  and it is cleared. The app's `Ready` is asked with a zero time (a readiness event at any time counts)
+  and must still check the live process (its pid and a readiness event). Only if that fails does it act: it applies the live rule, then goes through the two
+  versions, From first, and proves the first that passes. A `Down` migration must therefore be
+  all-or-nothing: the intent does not record it. An unreadable intent is cleared once current is proved.
+- **recover exists for an app with `Subjects` and no `Updater`** (its `help` lists `zeo.update/v1`; an unreadable intent there can only be removed by hand, since only an apply writes one) (a half-done apply leaves an intent that only recover clears); an unfinished update cannot be recovered without an updater.
+- **An apply leaves an intent too.** A killed `Apply` hook, or a half-done apply the kit could not put
+  back, blocks every later update, rollback or apply until `recover` reads the targets: all at their
+  before values, or all at their after values, clears it; a mix stays `recovery_required` with the
+  backup path in the document.
+- Refusals: `busy`, `recovery_required`, `current`, `downgrade`, `space`, the live reasons, `protected`.
+  A version name that holds `.tmp-` is not a version (that is how an install in progress is marked).
+  Exits: 1 (failed), 2 (usage), 3 (refused). `update --check` writes nothing and takes no lock. A failure
+  to create the lock or the state directory is `failed`, not `busy`. `--to` must be a version word; the
+  value is not echoed. Hook error texts and intent fields are folded to one line. Install directories
+  (`versions/*.tmp-<pid>`) left by a crashed process are removed at the next install.
 
 ## client (DRAFT, ZEOCORE-SOW-35 rev e)
 
