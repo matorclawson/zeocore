@@ -2,9 +2,9 @@
 
 A Go module (`github.com/zeroemployeeorg/zeocore/kit`) that gives every zeo and dt app the same
 commands, grammar, exit codes and result line. The contract is zeoarchitect SOW-05 rev d with the
-Architect's section 14 ruling; the build plan is ZEOCORE-SOW-34. **Slices 1 and 2 of 7:** the grammar,
-the exit table, the `RESULT` line, the `help`, `version`, `doctor` and `status` verbs, and `plan` and
-`apply`, plus the conformance suite. `update`, `rollback` and `recover` come in later slices.
+Architect's section 14 ruling; the build plan is ZEOCORE-SOW-34. **Slices 1 to 3 of 7:** the grammar,
+the exit table, the `RESULT` line, the `help`, `version`, `doctor` and `status` verbs, `plan` and
+`apply`, and `update`, `rollback` and `recover`, plus the conformance suite.
 
 The kit uses the Go standard library only, so an app that links it takes no third-party module.
 
@@ -95,17 +95,37 @@ path where the backup goes). The kit adds `plan <subject>` and `apply <subject>`
 
 ## update, rollback and recover (slice 3)
 
+**Unix only** (macOS and Linux): the lock and the directory syncs use `flock` and `fsync`.
+
 An app sets `Updater` (an absolute `Root`, the `Protected` paths no step may touch, and hooks: `Fetch`,
 `Preflight`, `Install`, `Verify`, and for a service `Fence`, `Stop`, `Start`, `Ready` and `Down`). The
 kit then runs the six steps of the contract as one state machine: fetch and verify, preflight, install
 beside the current version, stop, switch the `current` symlink atomically, start and prove readiness,
 and back out on any failure.
 
-- An intent is written before the switch; a crash leaves `recovery_required`, and every later
-  operation refuses until `recover` has proved exactly one version is running.
-- A failed switch is switched back and verified (`undone`), or `recovery_required`. A downgrade needs
-  `rollback`, and `rollback` is refused across a state migration unless the app supplies `Down`.
-- Refusals: `busy`, `recovery_required`, `current`, `downgrade`, `space`, the live reasons (`live` or
-  an app's own, e.g. `studio_live`) and `protected`. Exits: 1 (failed), 2 (usage), 3 (refused).
-- `--to` must be a version word; the value is not echoed. Hook error texts are folded to one line.
-
+- **Durable.** An intent is written (file synced, renamed, directory synced) before the service is
+  stopped; the switch and its removal sync the directory too. A crash leaves `recovery_required`, and
+  every later operation refuses until `recover` has cleared it.
+- **Live rule fails closed.** If `Status` cannot say whether the app is live, it is treated as live: the
+  operation refuses with the live reason (`live`, or an app's own, e.g. `studio_live`) unless the app
+  has an idle `Fence` and takes it.
+- **Protected paths.** `Guard` compares absolute paths with symbolic links resolved on both sides. The
+  kit also snapshots the protected paths before `Fetch` (or a rollback's preflight) and compares them
+  just before the switch and again after the new version is proved: any hook that touched one ends the
+  operation (before the switch: `failed`, nothing switched; after: switched back, `undone`). A protected
+  file may be appended to (append-only state); its first bytes may not change, and no entry may appear,
+  vanish or change mode.
+- **recover looks before it acts.** It first proves the version that is current as it stands (ready and
+  verify, no stop). If one of the intent's two versions is running and proved, only the record is left,
+  and it is cleared. Only if that fails does it act: it applies the live rule, then goes through the two
+  versions, From first, and proves the first that passes. A `Down` migration must therefore be
+  all-or-nothing: the intent does not record it. An unreadable intent is cleared once current is proved.
+- **An apply leaves an intent too.** A killed `Apply` hook, or a half-done apply the kit could not put
+  back, blocks every later update, rollback or apply until `recover` reads the targets: all at their
+  before values, or all at their after values, clears it; a mix stays `recovery_required` with the
+  backup path in the document.
+- Refusals: `busy`, `recovery_required`, `current`, `downgrade`, `space`, the live reasons, `protected`.
+  Exits: 1 (failed), 2 (usage), 3 (refused). `update --check` writes nothing and takes no lock. A failure
+  to create the lock or the state directory is `failed`, not `busy`. `--to` must be a version word; the
+  value is not echoed. Hook error texts and intent fields are folded to one line. Install directories
+  (`versions/*.tmp-<pid>`) left by a crashed process are removed at the next install.

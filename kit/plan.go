@@ -339,13 +339,28 @@ func (a *App) applyPlan(c *Context, s Subject, plan planDoc) error {
 	}
 	out.Backup = path
 	out.Undo = fmt.Sprintf("%s apply %s --plan %s", a.Name, s.Name, shellWord(path))
+	// The intent is durable BEFORE the hook runs: a process killed inside Apply,
+	// or a half-done apply the kit could not put back, leaves it, and every later
+	// update, rollback or apply refuses until recover has read the targets.
+	if err := a.writeIntent(intent{App: a.Name, Step: "apply", Kind: "apply", Subject: s.Name, PlanID: plan.PlanID, Backup: path, Changes: plan.Changes}); err != nil {
+		fmt.Fprintf(c.Stderr, "%s: intent: %s\n", a.Name, oneLine(err.Error()))
+		return finish(OutcomeFailed, "intent")
+	}
+	settle := func(o Outcome, reason string) error {
+		if o != OutcomeRecoveryRequired {
+			if err := a.clearIntent(); err != nil {
+				return finish(OutcomeRecoveryRequired, "state")
+			}
+		}
+		return finish(o, reason)
+	}
 	if err := s.Apply(c.Context, plan.Changes); err != nil {
 		fmt.Fprintf(c.Stderr, "%s: apply %s: %s\n", a.Name, s.Name, oneLine(err.Error()))
 		// A failed hook may have written some targets: read again before
 		// claiming that nothing changed.
-		return a.afterFailedApply(c, s, plan, undoChanges, &out, finish)
+		return a.afterFailedApply(c, s, plan, undoChanges, &out, settle)
 	}
-	return finish(OutcomeOK, "")
+	return settle(OutcomeOK, "")
 }
 
 // writeBackup stores the undo plan under StateDir, owner-only, and returns its path.
