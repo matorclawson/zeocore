@@ -249,11 +249,11 @@ func (a *App) writeHistory(h history) error {
 // the lock held, and the durable intent record is what outlives it.
 func (a *App) lockOp() (func(), error) {
 	if err := os.MkdirAll(a.StateDir, 0o700); err != nil {
-		return nil, Failed("state directory: %v", err)
+		return nil, Failed("state directory: %s", oneLine(err.Error()))
 	}
 	f, err := os.OpenFile(a.statePath("op.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, Failed("operation lock: %v", err)
+		return nil, Failed("operation lock: %s", oneLine(err.Error()))
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
@@ -266,7 +266,7 @@ func (a *App) lockOp() (func(), error) {
 func (a *App) refuseIfRecovery() error {
 	in, err := a.readIntent()
 	if err != nil {
-		return Failed("intent record: %v", err)
+		return Failed("intent record: %s", oneLine(err.Error()))
 	}
 	if in != nil {
 		return Refused("recovery_required", "an earlier operation did not finish (%s %s to %s, at %s); run `%s recover`", in.App, in.From, in.To, in.Step, a.Name)
@@ -508,7 +508,7 @@ func (r *run) preflight(rel Release) (error, string) {
 		}
 		release, err := u.Fence(r.c.Context)
 		if err != nil {
-			return Refused(reason, "the idle fence is not free: %v", err), reason
+			return Refused(reason, "the idle fence is not free: %s", oneLine(err.Error())), reason
 		}
 		r.fence = release
 	}
@@ -524,7 +524,7 @@ func (r *run) update() error {
 	u, ctx := r.u, r.c.Context
 	to, _ := r.c.Flag("to")
 	if to != "" && !versionRe.MatchString(to) {
-		return Usagef("--to %q is not a version", to)
+		return Usagef("--to is not a version (letters, digits and . _ + - only, at most 64)")
 	}
 	rel, err := u.Fetch(ctx, to)
 	r.step("fetch", err, "")

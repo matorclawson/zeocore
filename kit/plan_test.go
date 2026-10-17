@@ -509,11 +509,11 @@ func TestAFailedBackupStopsTheApply(t *testing.T) {
 	f := newFake()
 	app := planApp(t, f, true)
 	plan := writePlan(t, app)
-	file := filepath.Join(t.TempDir(), "not-a-dir")
-	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+	// StateDir itself is fine (apply takes its lock there); a regular file where
+	// the backups directory should be makes the backup fail.
+	if err := os.WriteFile(filepath.Join(app.StateDir, "backups"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app.StateDir = file // MkdirAll under a regular file fails
 	code, out, errs := run(t, app, "apply", "rules", "--plan", plan)
 	if code != 1 || f.applied != 0 || f.vals["a"] != "1" || !strings.Contains(out+errs, "reason=backup") {
 		t.Fatalf("exit %d applied %d state %v\n%s%s", code, f.applied, f.vals, out, errs)

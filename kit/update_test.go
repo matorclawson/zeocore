@@ -582,3 +582,12 @@ func TestCompareVersionsThroughUpdateOrder(t *testing.T) {
 		t.Errorf("1.10.0 is newer than 1.9.0 (numeric, not text, order): %+v", u)
 	}
 }
+
+// The --to value is input and is never echoed.
+func TestUpdateToIsNotEchoed(t *testing.T) {
+	f := newFake2(t)
+	u := f.do("update", "--to", "bad version \x1b[31m")
+	if u.code != 2 || strings.Contains(u.stderr, "bad version") || strings.Contains(u.stderr, "\x1b") || strings.Contains(u.stderr, "31m") {
+		t.Fatalf("%+v", u)
+	}
+}
