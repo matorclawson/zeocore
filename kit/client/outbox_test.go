@@ -612,7 +612,7 @@ func TestC20ToC22NoOvertaking(t *testing.T) {
 	f := newFake(t, nil)
 	ob := outbox(t)
 	enqueue(t, ob, "op-old")
-	if res := valid(t, call(f.client(ob), writeReq("op-new", false))); res.Outcome != OutcomeOK || f.seen["op-old"] != 1 || f.seen["op-new"] != 1 {
+	if res := valid(t, call(f.client(ob), writeReq("op-new", true))); res.Outcome != OutcomeOK || f.seen["op-old"] != 1 || f.seen["op-new"] != 1 {
 		t.Fatalf("%s %v", res.JSON(), f.seen)
 	}
 	// C20b: if the queue cannot be drained, the new write is queued behind (it may
@@ -1202,5 +1202,41 @@ func TestADrainSkipsARecordAnotherProcessHolds(t *testing.T) {
 	}
 	if n, _ := f.client(ob).Drain(context.Background()); n != 0 || f.seen["op-held"] != 0 {
 		t.Fatalf("a drain sent a record that a live writer holds: %d %v", n, f.seen)
+	}
+}
+
+// A drain never sends a queued record of a verb with no dedup contract.
+func TestADrainSkipsANonDedupRecord(t *testing.T) {
+	f := newFake(t, nil)
+	ob := outbox(t)
+	if _, err := ob.Enqueue("zmsg", "nudge", "op-n", StoredRequest{Method: "POST", Path: "/v1/nudge", Audience: "aud", Body: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	enqueue(t, ob, "op-d")
+	if n, _ := f.client(ob).Drain(context.Background()); n != 1 || f.seen["op-n"] != 0 || f.seen["op-d"] != 1 {
+		t.Fatalf("%d %v", n, f.seen)
+	}
+}
+
+// The unordered verbs have their own record and byte bounds.
+func TestTheUnorderedBoundsHold(t *testing.T) {
+	ob := outbox(t)
+	ob.maxRecords = 2
+	un := func(id string) error {
+		_, err := ob.Enqueue("zmsg", "stop", id, StoredRequest{Method: "POST", Path: "/", Audience: "aud", Unordered: true, Body: json.RawMessage(`{}`)})
+		return err
+	}
+	if un("a") != nil || un("b") != nil || !errors.Is(un("c"), ErrFull) {
+		t.Fatal("the record bound of unordered verbs")
+	}
+	ob2 := outbox(t)
+	ob2.maxBytes = 300
+	body := json.RawMessage(`"` + strings.Repeat("x", 100) + `"`)
+	enq := func(id string) error {
+		_, err := ob2.Enqueue("zmsg", "stop", id, StoredRequest{Method: "POST", Path: "/", Audience: "aud", Unordered: true, Body: body})
+		return err
+	}
+	if enq("a") != nil || !errors.Is(enq("b"), ErrFull) {
+		t.Fatal("the byte bound of unordered verbs")
 	}
 }
