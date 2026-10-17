@@ -152,7 +152,7 @@ and back out on any failure.
   value is not echoed. Hook error texts and intent fields are folded to one line. Install directories
   (`versions/*.tmp-<pid>`) left by a crashed process are removed at the next install.
 
-## client (DRAFT, ZEOCORE-SOW-35 rev e)
+## client (DRAFT, ZEOCORE-SOW-35 rev g)
 
 `kit/client` is the shared client contract: how a tool finds a service that may run on this host or on
 another, and what it does when the service does not answer. It is a **draft** until the council's joint
