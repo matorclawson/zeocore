@@ -15,7 +15,7 @@ from typing import Final
 
 import httpx
 
-from zeo_core.integrations.github.app_tokens import (
+from zeo_core.release.app_tokens import (
     GITHUB_API,
     AppKeySource,
     AppTokenError,

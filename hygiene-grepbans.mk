@@ -27,3 +27,23 @@ plugin-boundary: ## Ban plugin.py importing tools/capabilities (Plugin is a leaf
 	exit 1; \
 	fi
 	@echo "$(GREEN)OK: plugin boundary clean$(RESET)"
+
+# zeocore-SOW-36 slice 0: import-linter cannot see a module named in a string
+# (importlib, a "module:Name" table), so the edges it misses are banned here.
+# Outside src/zeo_core/integrations, no quoted string may name a module of an
+# integration that moves, except two listed lines: cli/schemas.py names
+# revolut.models (it ends in the Revolut slice), and a log message in
+# prompt/_internal/enhancer.py (text, not an import). The list can only shrink.
+.PHONY: integration-edge-strings
+integration-edge-strings: ## Ban string-named imports of the integrations that move (SOW-36)
+	@echo "$(BLUE)Checking string-named integration imports...$(RESET)"
+	@offenders=$$(grep -rEnI --include='*.py' --exclude-dir=__pycache__ --exclude-dir=integrations \
+	'["'"'"']zeo_core\.integrations\.(github|google|hubspot|kit|notion|database|social|llms|revolut|meetings|gemini|pandoc|ffmpeg|jupytext|notebook)\b' $(PKG_SRC) 2>/dev/null \
+	| grep -v '^$(PKG_SRC)/cli/schemas.py:.*zeo_core\.integrations\.revolut\.models:' \
+	| grep -v '^$(PKG_SRC)/prompt/_internal/enhancer.py:.*logger\.warning(' || true); \
+	if [ -n "$$offenders" ]; then \
+	echo "$(RED)FAIL: a string names a module of an integration that moves:$(RESET)"; \
+	echo "$$offenders" | sed 's/^/    /'; \
+	exit 1; \
+	fi
+	@echo "$(GREEN)OK: no string-named integration imports$(RESET)"

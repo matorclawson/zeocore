@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import SecretStr
 
-from zeo_core.integrations.github.app_tokens import GITHUB_API, AppTokenError
+from zeo_core.release.app_tokens import GITHUB_API, AppTokenError
 from zeo_core.release.pypi import ReleaseApp
 from zeo_core.release.pypi.reads import TagAnswerLostError, TargetUnreadableError
 

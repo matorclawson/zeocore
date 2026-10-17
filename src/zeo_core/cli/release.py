@@ -378,7 +378,7 @@ def _default_pypi_reads() -> tuple[pypi.GitHubCli, pypi.PyPIHttp]:
 def _default_release_app(
     app_id: int, environ: Mapping[str, str]
 ) -> pypi.TagCreator:  # pragma: no cover - needs the Keychain
-    from zeo_core.integrations.github.app_tokens import KeychainAppKeySource
+    from zeo_core.release.app_tokens import KeychainAppKeySource
 
     account = environ.get(RELEASE_APP_KEY_ACCOUNT_VARIABLE) or "private-key"
     key = KeychainAppKeySource(service=RELEASE_APP_KEY_SERVICE, account=account)

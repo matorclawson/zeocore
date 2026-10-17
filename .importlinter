@@ -63,3 +63,76 @@ forbidden_modules =
     sovereign_agent
     zero_employee
 
+
+# zeocore-SOW-36 slice 0: zeocore code must not import the integrations that
+# move to the zeointegrations repository. The sources are wildcards, never the
+# bare root package: import-linter skips any source/forbidden pair where one
+# contains the other, so `source_modules = zeo_core` would check nothing, and
+# the same skip is what exempts each integration's own directory. Every edge
+# that exists today is listed below, so the list can only shrink; a listed
+# edge that disappears fails the run (unmatched_ignore_imports_alerting).
+[importlinter:contract:sow36-core-does-not-import-moving-integrations]
+name = zeocore does not import the integrations that move (zeocore-SOW-36 slice 0)
+type = forbidden
+source_modules =
+    zeo_core.*
+    zeo_core.integrations.*
+forbidden_modules =
+    zeo_core.integrations.github
+    zeo_core.integrations.google
+    zeo_core.integrations.hubspot
+    zeo_core.integrations.kit
+    zeo_core.integrations.notion
+    zeo_core.integrations.database
+    zeo_core.integrations.social
+    zeo_core.integrations.llms
+    zeo_core.integrations.revolut
+    zeo_core.integrations.meetings
+    zeo_core.integrations.gemini
+    zeo_core.integrations.pandoc
+    zeo_core.integrations.ffmpeg
+    zeo_core.integrations.jupytext
+    zeo_core.integrations.notebook
+ignore_imports =
+    zeo_core.tools.builtin.hubspot -> zeo_core.integrations.hubspot.client
+    zeo_core.tools.builtin.hubspot -> zeo_core.integrations.hubspot.models
+    zeo_core.tools.builtin.hubspot -> zeo_core.integrations.hubspot.service
+    zeo_core.tools.builtin.hubspot -> zeo_core.integrations.hubspot.transport
+    zeo_core.tools.builtin.kit -> zeo_core.integrations.kit.client
+    zeo_core.tools.builtin.kit -> zeo_core.integrations.kit.models
+    zeo_core.tools.builtin.kit -> zeo_core.integrations.kit.service
+    zeo_core.tools.builtin.kit -> zeo_core.integrations.kit.transport
+    zeo_core.prompt._internal.enhancer -> zeo_core.integrations.llms.models
+    zeo_core.prompt._internal.enhancer -> zeo_core.integrations.llms.service
+    zeo_core.integrations.hosted.services -> zeo_core.integrations.google.docs
+    zeo_core.integrations.hosted.services -> zeo_core.integrations.google.drive
+    zeo_core.integrations.hosted.services -> zeo_core.integrations.social.bluesky
+    zeo_core.integrations.meetings.adapters -> zeo_core.integrations.google.calendar
+    zeo_core.integrations.meetings.adapters -> zeo_core.integrations.google.sheets
+    zeo_core.integrations.meetings.adapters -> zeo_core.integrations.notion.upsert
+
+# The two files the wildcards above cannot cover (their packages contain every
+# forbidden module), checked on their own imports only.
+[importlinter:contract:sow36-package-roots-do-not-import-moving-integrations]
+name = zeo_core and zeo_core.integrations package files import no moving integration
+type = forbidden
+as_packages = False
+source_modules =
+    zeo_core
+    zeo_core.integrations
+forbidden_modules =
+    zeo_core.integrations.github
+    zeo_core.integrations.google
+    zeo_core.integrations.hubspot
+    zeo_core.integrations.kit
+    zeo_core.integrations.notion
+    zeo_core.integrations.database
+    zeo_core.integrations.social
+    zeo_core.integrations.llms
+    zeo_core.integrations.revolut
+    zeo_core.integrations.meetings
+    zeo_core.integrations.gemini
+    zeo_core.integrations.pandoc
+    zeo_core.integrations.ffmpeg
+    zeo_core.integrations.jupytext
+    zeo_core.integrations.notebook

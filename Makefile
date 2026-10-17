@@ -388,6 +388,7 @@ test-module: ## Run one module's tests: make test-module M=test_integrations/pan
 arch-check: ## Enforce directional import contracts (.importlinter via import-linter)
 	@echo "${BLUE}Checking import architecture (.importlinter)...${RESET}"
 	@$(VENV_DIR)/bin/lint-imports || $(PYTHON) -m importlinter lint
+	@$(MAKE) --no-print-directory integration-edge-strings
 	@echo "${GREEN}✓ arch OK — directional import contracts kept${RESET}"
 
 .PHONY: build
