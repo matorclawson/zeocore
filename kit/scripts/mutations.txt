@@ -87,3 +87,45 @@ RESULT totals refuse reserved keys	result.go	s/seen := map\[string\]bool\{"from"
 doctor prints an empty list, not null	verbs.go	s/if checks == nil \{/if false {/	./...
 an unhealthy status names itself on stderr	verbs.go	s/\t\tfmt\.Fprintf\(c\.Stderr, "%s: status: not healthy[^\n]*\n//	./...
 RESULT: undo is escaped to ASCII	result.go	s/strconv\.QuoteToASCII\(r\.Undo\)/strconv.Quote(r.Undo)/	./...
+CLIENT: an empty variable falls through to the file	client/endpoint.go	s/if v, ok := getenv\(name\); ok \{/if v, ok := getenv(name); ok \&\& v != \"\" {/	./client/
+CLIENT: a value need not be https	client/endpoint.go	s/if !strings\.HasPrefix\(v, \"https:\/\/\"\) \{/if false {/	./client/
+CLIENT: userinfo is accepted	client/endpoint.go	s/u\.User != nil/false/	./client/
+CLIENT: a query or fragment is accepted	client/endpoint.go	s/ \|\| v\[i\] == '\?' \|\| v\[i\] == '#'//	./client/
+CLIENT: a space or control character is accepted	client/endpoint.go	s/v\[i\] <= ' ' \|\| v\[i\] >= 0x7f/v[i] < 0/	./client/
+CLIENT: a missing host file is a malformed one	client/endpoint.go	s/errors\.Is\(err, fs\.ErrNotExist\)/(errors.Is(err, fs.ErrNotExist) \&\& false)/	./client/
+CLIENT: the host file may hold unknown fields	client/endpoint.go	s/dec\.DisallowUnknownFields\(\)//	./client/
+CLIENT: the host file schema is not checked	client/endpoint.go	s/ \|\| doc\.Schema != EndpointsSchema//	./client/
+CLIENT: data after the host document is accepted	client/endpoint.go	s/ \|\| dec\.More\(\)//	./client/
+CLIENT: an unlisted service is not not_configured	client/endpoint.go	s/v, ok := doc\.Services\[service\]\n\tif !ok \{/v, ok := doc.Services[service]\n\tif false \&\& !ok {/	./client/
+CLIENT: a service name is not validated	client/endpoint.go	s/if !serviceRe\.MatchString\(service\) \{/if false {/	./client/
+CLIENT: the variable name keeps punctuation	client/endpoint.go	s/b\.WriteByte\('_'\)/b.WriteRune(r)/	./client/
+CLIENT: an unknown dispatch exits 6	client/result.go	s/default:\n\t\treturn kit\.ExitFailed/default:\n\t\treturn kit.ExitUnavailable/	./client/
+CLIENT: spooled is not exit 0	client/result.go	s/case OutcomeOK, OutcomeSpooled:/case OutcomeOK:/	./client/
+CLIENT: the result names no schema	client/result.go	s/\tr\.Schema = ResultSchema\n//	./client/
+CLIENT: a config can raise a timeout	client/policy.go	s/want\.Connect < p\.Connect/want.Connect != p.Connect/	./client/
+CLIENT: a read is retried after bytes were sent	client/call.go	s/ \&\& !last\.Sent//	./client/
+CLIENT: sent is never set	client/call.go	s/sent = true/sent = false/g	./client/
+CLIENT: a sent write is not unknown	client/call.go	s/case sent \&\& !r\.Read:/case false:/	./client/
+CLIENT: a 5xx answer to a write is not unknown	client/call.go	s/case !r\.Read:\n\t\t\/\/ A 5xx/case false:\n\t\t\/\/ A 5xx/	./client/
+CLIENT: a 401 is not refused	client/call.go	s/case resp\.StatusCode == 401:/case false:/	./client/
+CLIENT: a stop answer is not refused	client/call.go	s/case resp\.StatusCode == 403:/case false:/	./client/
+CLIENT: a timeout is called unavailable	client/call.go	s/case timedOut:/case timedOut \&\& false:/	./client/
+CLIENT: a non-spoolable write is spooled	client/call.go	s/if !r\.Spoolable \|\| c\.Outbox == nil \{/if c.Outbox == nil {/	./client/
+CLIENT: a full outbox is not reported	client/call.go	s/case errors\.Is\(err, ErrFull\):/case false:/	./client/
+CLIENT: no idempotency key is sent	client/call.go	s/req\.Header\.Set\(\"Idempotency-Key\", r\.OperationID\)//	./client/
+CLIENT: a path with .. is accepted	client/call.go	s/strings\.Contains\(r\.Path, \"\.\.\"\)/false/	./client/
+CLIENT: a write needs no operation id	client/call.go	s/if !r\.Read \&\& !idRe\.MatchString\(r\.OperationID\) \{/if false {/	./client/
+CLIENT: an unknown dispatch is not retained	client/call.go	s/_ = c\.Outbox\.SetState\(rec, StateUnknown\)/_ = rec/	./client/
+CLIENT: an outbox path may be relative or unclean	client/outbox.go	s/if !filepath\.IsAbs\(dir\) \|\| filepath\.Clean\(dir\) != dir \{/if false {/	./client/
+CLIENT: an outbox path may hold a symlink	client/outbox.go	s/err != nil \|\| real != dir/err != nil || (real != dir \&\& false)/	./client/
+CLIENT: an outbox directory may be open to others	client/outbox.go	s/ \|\| st\.Mode\(\)\.Perm\(\)\&0o077 != 0//	./client/
+CLIENT: the sender is not validated	client/outbox.go	s/if !idRe\.MatchString\(sender\) \{/if false {/	./client/
+CLIENT: a repeated operation id is a second record	client/outbox.go	s/if r\.OperationID == id \{/if false {/	./client/
+CLIENT: the record bound is not kept	client/outbox.go	s/len\(recs\) >= o\.maxRecords \|\|/false ||/	./client/
+CLIENT: the byte bound is not kept	client/outbox.go	s/bytes\+len\(canon\) > o\.maxBytes/false/	./client/
+CLIENT: a record file is world-readable	client/outbox.go	s/tmp\.Chmod\(0o600\)/tmp.Chmod(0o644)/	./client/
+CLIENT: a drain goes past a record that is not queued	client/outbox.go	s/if r\.State != StateQueued \{/if false {/	./client/
+CLIENT: a drain goes on after a failure	client/outbox.go	s/default:\n\t\t\treturn sent, nil\n\t\t\}/default:\n\t\t}/	./client/
+CLIENT: a refusal does not mark the record	client/outbox.go	s/case OutcomeRefused, OutcomeInvalid:/case OutcomeInvalid:/	./client/
+CLIENT: an unknown dispatch is not marked in a drain	client/outbox.go	s/return sent, o\.SetState\(r, StateUnknown\)/return sent, nil/	./client/
+CLIENT: doctor never says the outbox is near full	client/outbox.go	s/s\.NearFull = s\.Count >= o\.maxRecords\*9\/10 \|\|/s.NearFull = false ||/	./client/

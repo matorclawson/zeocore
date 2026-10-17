@@ -1,0 +1,2 @@
+bump: patch
+**kit: a draft shared client contract (`kit/client`).** Endpoint resolution (`ZEO_<S>_ENDPOINT`, then the per-host config, never a fallback to local), a call that fails closed on reads and never retries a write, the `zeo.client-result/v1` document with its exit mapping, and a spooling outbox with a bounded, 0700 directory. It follows ZEOCORE-SOW-35 section 10 and is a draft until the council rules; nothing adopts it yet. Standard library only; 45 more mutations are killed.
