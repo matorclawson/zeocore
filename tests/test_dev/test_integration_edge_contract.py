@@ -14,8 +14,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / ".importlinter"
 CONTRACT = "sow36-core-does-not-import-moving-integrations"
@@ -26,7 +24,7 @@ def _lint(config: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
     path.write_text(config)
     exe = Path(sys.executable).parent / "lint-imports"
     cmd = [str(exe)] if exe.exists() else [sys.executable, "-m", "importlinter", "lint"]
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603 - our own linter on our own config
         [*cmd, "--config", str(path), "--contract", CONTRACT],
         cwd=ROOT,
         capture_output=True,
