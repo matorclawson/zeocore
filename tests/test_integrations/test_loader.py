@@ -49,6 +49,7 @@ def _make_entry_point(name: str, value: str = "pkg.module:factory") -> MagicMock
     ep.name = name
     ep.value = value
     ep.module = value.split(":")[0]
+    ep.dist = None  # no distribution: listed as unknown
     return ep
 
 
@@ -68,11 +69,15 @@ class TestListAvailableEntryPoints:
                 "integration_id": "github",
                 "value": "zeo_core.integrations.github:factory",
                 "module": "zeo_core.integrations.github",
+                "distribution": "an unknown distribution",
+                "ambiguous": "false",
             },
             {
                 "integration_id": "drive",
                 "value": "zeo_core.integrations.google.drive:factory",
                 "module": "zeo_core.integrations.google.drive",
+                "distribution": "an unknown distribution",
+                "ambiguous": "false",
             },
         ]
         mock_eps.select.assert_called_once_with(group=DEFAULT_ENTRY_GROUP)
