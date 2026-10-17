@@ -5,15 +5,59 @@ package sampleapp
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 
 	"github.com/zeroemployeeorg/zeocore/kit"
 )
 
 // New returns the sample app. failDoctor makes one check fail, so the exit-7
-// path can be driven.
-func New(failDoctor bool) *kit.App {
+// path can be driven. It has no plan or apply subject.
+func New(failDoctor bool) *kit.App { return build(failDoctor, "") }
+
+// NewWithState is New plus one shared subject, "motd", whose state is the file
+// stateDir/motd.txt, so plan, apply and the undo can be driven for real.
+func NewWithState(failDoctor bool, stateDir string) *kit.App { return build(failDoctor, stateDir) }
+
+// MOTD is the text the "motd" subject plans to set.
+const MOTD = "hello from the kit"
+
+func motd(stateDir string) kit.Subject {
+	file := filepath.Join(stateDir, "motd.txt")
+	read := func() (string, error) {
+		b, err := os.ReadFile(file)
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return string(b), err
+	}
+	return kit.Subject{
+		Name: "motd", Summary: "The message of the day.", Shared: true,
+		Plan: func(context.Context) ([]kit.Change, error) {
+			cur, err := read()
+			if err != nil || cur == MOTD {
+				return nil, err
+			}
+			return []kit.Change{{Target: "motd", Before: cur, After: MOTD}}, nil
+		},
+		Read: func(_ context.Context, targets []string) (map[string]string, error) {
+			cur, err := read()
+			m := map[string]string{}
+			for _, t := range targets {
+				m[t] = cur
+			}
+			return m, err
+		},
+		Apply: func(_ context.Context, cs []kit.Change) error {
+			return os.WriteFile(file, []byte(cs[len(cs)-1].After), 0o600)
+		},
+	}
+}
+
+func build(failDoctor bool, stateDir string) *kit.App {
 	live := false
-	return &kit.App{
+	app := &kit.App{
 		Name:    "sample",
 		Version: "0.0.1",
 		Commit:  "0000000",
@@ -51,6 +95,39 @@ func New(failDoctor bool) *kit.App {
 		},
 		Status: func(context.Context) (kit.Status, error) {
 			return kit.Status{State: "running", Healthy: true, Live: &live, Counts: map[string]int{"ready_rows": 3}}, nil
+		},
+	}
+	if stateDir != "" {
+		app.StateDir = filepath.Join(stateDir, "state")
+		app.Subjects = []kit.Subject{motd(stateDir)}
+		app.Updater = updater(stateDir)
+	}
+	return app
+}
+
+// updater is the sample app's update: releases are staged as directories
+// stateDir/releases/<version>/ holding a VERSION file, and installing copies
+// one beside the others under stateDir/install. ZEO_KIT_SAMPLE_DIE_IN_VERIFY=1
+// makes Verify kill the process, to prove a crash leaves recovery_required.
+func updater(stateDir string) *kit.Updater {
+	return &kit.Updater{
+		Root: filepath.Join(stateDir, "install"),
+		Fetch: func(_ context.Context, to string) (kit.Release, error) {
+			if to == "" {
+				return kit.Release{}, errors.New("name a version with --to: the sample app has no release feed")
+			}
+			dir := filepath.Join(stateDir, "releases", to)
+			if _, err := os.Stat(dir); err != nil {
+				return kit.Release{}, err
+			}
+			return kit.Release{Version: to, Dir: dir}, nil
+		},
+		Verify: func(_ context.Context, dir string) error {
+			if os.Getenv("ZEO_KIT_SAMPLE_DIE_IN_VERIFY") == "1" {
+				os.Exit(9)
+			}
+			_, err := os.ReadFile(filepath.Join(dir, "VERSION"))
+			return err
 		},
 	}
 }
