@@ -33,7 +33,14 @@ const (
 	StateQueued  = "queued"  // a drain may send it
 	StateUnknown = "unknown" // sent, no complete answer: never drained; reconcile only
 	StateRefused = "refused" // the service refused it; terminal until purged
+	// StateAbandoned ends an unknown record of a verb that cannot be reconciled
+	// (no dedup contract). It keeps the ambiguity and is never resent.
+	StateAbandoned = "abandoned"
 )
+
+// ReservedRecords is the room kept for unordered verbs (a stop), out of
+// MaxRecords. Scaled down with a smaller bound.
+const ReservedRecords = 16
 
 // idRe restricts an operation id: it is a filename.
 var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -51,11 +58,14 @@ func NewOperationID() string {
 // reconcile can send exactly it again. Dedup names the owner's contract that
 // de-duplicates by key with a stored result.
 type StoredRequest struct {
-	Method   string          `json:"method"`
-	Path     string          `json:"path"`
-	Audience string          `json:"audience"`
-	Dedup    string          `json:"dedup"`
-	Body     json.RawMessage `json:"body"`
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	Audience string `json:"audience"`
+	Dedup    string `json:"dedup"`
+	// Unordered marks a verb the owner declares outside the sequence order (at
+	// least stop): never held behind other records, with reserved room.
+	Unordered bool            `json:"unordered"`
+	Body      json.RawMessage `json:"body"`
 }
 
 // Record is one retained write.
@@ -136,17 +146,36 @@ func OpenOutbox(dir, sender string, now func() time.Time) (*Outbox, error) {
 	if err := o.loadIncarnation(); err != nil {
 		return nil, err
 	}
-	// An unfinished temporary file from a crash is not a record, but deleting
-	// it would not prove that no durable sequence intent exists: it is kept
-	// aside and holds the order until a person resolves it.
+	// An unfinished temporary file from a crash is not a record, and deleting
+	// it would not prove that no durable intent exists: it is kept aside as
+	// .suspect. It was never sent (the record is made before the send), so it
+	// is terminal and does not hold the order.
 	if ents, err := os.ReadDir(dir); err == nil {
 		for _, e := range ents {
-			if strings.HasPrefix(e.Name(), ".tmp-") {
+			if strings.HasPrefix(e.Name(), ".tmp-") && !strings.Contains(e.Name(), ".suspect") {
 				_ = os.Rename(filepath.Join(dir, e.Name()), filepath.Join(dir, e.Name()+".suspect"))
 			}
 		}
 	}
+	o.setAsideStale()
 	return o, nil
+}
+
+// setAsideStale moves a queued record of a verb with no dedup contract aside as
+// .stale: such a verb is never spooled, so a queued record of it is what a
+// crash left behind, and it must never be drained later.
+func (o *Outbox) setAsideStale() {
+	recs, _, err := o.list()
+	if err != nil {
+		return
+	}
+	for _, r := range recs {
+		var sr StoredRequest
+		if r.State == StateQueued && strictDecode(r.Request, &sr) == nil && sr.Dedup == "" {
+			p := filepath.Join(o.dir, fileName(r.Seq, r.OperationID))
+			_ = os.Rename(p, p+".stale")
+		}
+	}
 }
 
 func (o *Outbox) loadIncarnation() error {
@@ -203,8 +232,11 @@ func (o *Outbox) list() ([]Record, int, error) {
 	bad := 0
 	for _, e := range ents {
 		name := e.Name()
-		if strings.HasSuffix(name, ".bad") || strings.HasSuffix(name, ".suspect") {
+		if strings.HasSuffix(name, ".bad") {
 			bad++
+			continue
+		}
+		if strings.HasSuffix(name, ".suspect") || strings.HasSuffix(name, ".stale") {
 			continue
 		}
 		if e.IsDir() || !strings.HasSuffix(name, ".json") {
@@ -225,16 +257,18 @@ func (o *Outbox) list() ([]Record, int, error) {
 	return out, bad, nil
 }
 
-// Held says whether a torn, unparsable or suspect file holds the order. While
-// it does, no later record is sent and no new write is accepted: the missing
-// ordinal is never skipped.
+// Held says whether a .bad file (a record that fails to parse, which may stand
+// for an emitted write) holds the order. While it does, no later ordered record
+// is sent and no new ordered write is accepted: the missing ordinal is never
+// skipped. A .suspect or .stale file was never sent and does not hold it.
 func (o *Outbox) Held() bool {
 	_, bad, err := o.list()
 	return err != nil || bad > 0
 }
 
-// Resolve clears a hold after a person has looked at the held files. They are
-// kept, renamed .resolved, for the record.
+// Resolve clears a hold after a person has looked at the held files. A .bad
+// file is kept, renamed .resolved; a .suspect or .stale file may only be
+// discarded (renamed .discarded), never requeued.
 func (o *Outbox) Resolve() (int, error) {
 	ents, err := os.ReadDir(o.dir)
 	if err != nil {
@@ -243,14 +277,60 @@ func (o *Outbox) Resolve() (int, error) {
 	n := 0
 	for _, e := range ents {
 		name := e.Name()
-		if strings.HasSuffix(name, ".bad") || strings.HasSuffix(name, ".suspect") {
-			if err := os.Rename(filepath.Join(o.dir, name), filepath.Join(o.dir, name+".resolved")); err != nil {
-				return n, err
-			}
-			n++
+		var to string
+		switch {
+		case strings.HasSuffix(name, ".bad"):
+			to = name + ".resolved"
+		case strings.HasSuffix(name, ".suspect") || strings.HasSuffix(name, ".stale"):
+			to = name + ".discarded"
+		default:
+			continue
 		}
+		if err := os.Rename(filepath.Join(o.dir, name), filepath.Join(o.dir, to)); err != nil {
+			return n, err
+		}
+		n++
+	}
+	if n > 0 {
+		o.audit("resolve", "")
 	}
 	return n, nil
+}
+
+// audit appends one line (time, verb, id) to audit.log. Nothing stops another
+// seat on the same host from running these verbs; the log makes it visible.
+func (o *Outbox) audit(verb, id string) {
+	f, err := os.OpenFile(filepath.Join(o.dir, "audit.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(o.now().UTC().Format("2006-01-02T15:04:05Z") + " " + verb + " " + id + "\n")
+}
+
+// Abandon ends an unknown record of a verb with no dedup contract: the owner's
+// status port or a named reviewer has checked the outcome. The record is kept,
+// terminal, and never resent. A dedup verb is reconciled instead.
+func (o *Outbox) Abandon(operationID string) error {
+	recs, err := o.List()
+	if err != nil {
+		return err
+	}
+	for _, r := range recs {
+		if r.OperationID != operationID {
+			continue
+		}
+		var sr StoredRequest
+		if r.State != StateUnknown || strictDecode(r.Request, &sr) != nil || sr.Dedup != "" {
+			return errors.New("only an unknown record of a verb with no dedup contract can be abandoned")
+		}
+		if err := o.SetState(r, StateAbandoned); err != nil {
+			return err
+		}
+		o.audit("abandon", operationID)
+		return nil
+	}
+	return errors.New("no such record")
 }
 
 func digestOf(canon []byte) string {
@@ -283,7 +363,7 @@ func (o *Outbox) Enqueue(service, verb, id string, req StoredRequest) (Record, e
 	if err != nil {
 		return Record{}, err
 	}
-	if bad > 0 {
+	if bad > 0 && !req.Unordered {
 		return Record{}, ErrHeld
 	}
 	digest := digestOf(canon)
@@ -301,7 +381,11 @@ func (o *Outbox) Enqueue(service, verb, id string, req StoredRequest) (Record, e
 		}
 		used += len(r.Request)
 	}
-	if len(recs) >= o.maxRecords || used+len(canon) > o.maxBytes {
+	limit := o.maxRecords
+	if !req.Unordered {
+		limit -= o.maxRecords * ReservedRecords / MaxRecords
+	}
+	if len(recs) >= limit || used+len(canon) > o.maxBytes {
 		return Record{}, ErrFull
 	}
 	rec := Record{
@@ -370,10 +454,13 @@ func (o *Outbox) SetState(rec Record, state string) error {
 
 // Remove deletes a delivered record.
 func (o *Outbox) Remove(rec Record) error {
-	return os.Remove(filepath.Join(o.dir, fileName(rec.Seq, rec.OperationID)))
+	if err := os.Remove(filepath.Join(o.dir, fileName(rec.Seq, rec.OperationID))); err != nil {
+		return err
+	}
+	return o.syncDir(o.dir)
 }
 
-// Purge removes the refused records, after a person has looked at them.
+// Purge removes the refused and abandoned records, after a person has looked at them.
 func (o *Outbox) Purge() (int, error) {
 	recs, err := o.List()
 	if err != nil {
@@ -381,12 +468,15 @@ func (o *Outbox) Purge() (int, error) {
 	}
 	n := 0
 	for _, r := range recs {
-		if r.State == StateRefused {
+		if r.State == StateRefused || r.State == StateAbandoned {
 			if err := o.Remove(r); err != nil {
 				return n, err
 			}
 			n++
 		}
+	}
+	if n > 0 {
+		o.audit("purge", "")
 	}
 	return n, nil
 }
@@ -400,6 +490,8 @@ type Stats struct {
 	Unknown   int
 	Refused   int
 	Bad       int
+	Abandoned int
+	Aside     int // .suspect and .stale files: terminal, shown, never read
 	NearFull  bool
 }
 
@@ -420,10 +512,19 @@ func (o *Outbox) Stats() (Stats, error) {
 			s.Unknown++
 		case StateRefused:
 			s.Refused++
+		case StateAbandoned:
+			s.Abandoned++
 		}
 		if t, err := time.Parse("2006-01-02T15:04:05Z", r.Created); err == nil {
 			if age := o.now().Sub(t); age > s.OldestAge {
 				s.OldestAge = age
+			}
+		}
+	}
+	if ents, err := os.ReadDir(o.dir); err == nil {
+		for _, e := range ents {
+			if strings.HasSuffix(e.Name(), ".suspect") || strings.HasSuffix(e.Name(), ".stale") {
+				s.Aside++
 			}
 		}
 	}
@@ -468,11 +569,19 @@ func (o *Outbox) DrainBefore(service string, seq uint64, send func(Record) Resul
 		if seq != 0 && r.Seq >= seq {
 			return sent, nil
 		}
-		if r.State != StateQueued {
-			if r.State == StateRefused {
-				continue
-			}
+		var sr StoredRequest
+		if strictDecode(r.Request, &sr) != nil {
 			return sent, nil
+		}
+		if r.State == StateRefused || r.State == StateAbandoned || sr.Unordered && r.State == StateUnknown {
+			continue
+		}
+		if r.State != StateQueued {
+			return sent, nil
+		}
+		if sr.Dedup == "" {
+			// A verb with no dedup contract is never spooled and never drained.
+			continue
 		}
 		if err := o.SetState(r, StateUnknown); err != nil {
 			return sent, err

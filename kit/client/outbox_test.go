@@ -295,8 +295,9 @@ func TestO8FullOutbox(t *testing.T) {
 	}
 }
 
-// O9: a failed fsync is durability unknown: the write refuses, the file is
-// kept aside as .suspect (not deleted), and the order is held until resolved.
+// O9: a failed fsync is durability unknown: the write refuses and the file is
+// kept aside as .suspect (not deleted). It was never sent, so it is terminal and
+// does NOT hold the order; resolve may only discard it.
 func TestO9FailedFsync(t *testing.T) {
 	for _, which := range []string{"file", "dir"} {
 		ob := outbox(t)
@@ -318,19 +319,25 @@ func TestO9FailedFsync(t *testing.T) {
 				t.Fatalf("%s: an unmarked temporary file: %s", which, e.Name())
 			}
 		}
-		if suspect != 1 || !ob.Held() {
+		if suspect != 1 || ob.Held() {
 			t.Fatalf("%s: suspect %d held %v", which, suspect, ob.Held())
 		}
 		ob.syncFile = func(f *os.File) error { return f.Sync() }
 		ob.syncDir = func(string) error { return nil }
-		if _, err := ob.Enqueue("zmsg", "send", "op-2", req(`{}`)); !errors.Is(err, ErrHeld) {
-			t.Fatalf("%s: a write was accepted while held: %v", which, err)
-		}
-		if n, err := ob.Resolve(); err != nil || n != 1 || ob.Held() {
-			t.Fatalf("%s: resolve %d %v held %v", which, n, err, ob.Held())
-		}
 		if _, err := ob.Enqueue("zmsg", "send", "op-2", req(`{}`)); err != nil {
-			t.Fatalf("%s: after resolve: %v", which, err)
+			t.Fatalf("%s: a suspect file must not hold the order: %v", which, err)
+		}
+		if st, _ := ob.Stats(); st.Aside != 1 {
+			t.Fatalf("%s: doctor should list the file set aside: %+v", which, st)
+		}
+		if n, err := ob.Resolve(); err != nil || n != 1 {
+			t.Fatalf("%s: resolve %d %v", which, n, err)
+		}
+		if recs, _ := ob.List(); len(recs) != 1 {
+			t.Fatalf("%s: resolve must never requeue a suspect file: %v", which, recs)
+		}
+		if ents, _ := os.ReadDir(ob.dir); !hasSuffixFile(ents, ".discarded") {
+			t.Fatalf("%s: a discarded file should be kept renamed", which)
 		}
 	}
 	ob := outbox(t)
@@ -339,6 +346,15 @@ func TestO9FailedFsync(t *testing.T) {
 	if res := valid(t, call(f.client(ob), writeReq("op-1", false))); reason(res) != "outbox" || f.count() != 0 {
 		t.Fatalf("a write that cannot be retained must not be sent: %s hits %d", res.JSON(), f.count())
 	}
+}
+
+func hasSuffixFile(ents []os.DirEntry, suffix string) bool {
+	for _, e := range ents {
+		if strings.HasSuffix(e.Name(), suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // O10: a torn record is moved aside, shown by doctor, never read, and HOLDS the
@@ -372,15 +388,16 @@ func TestO10TornRecordHoldsTheOrder(t *testing.T) {
 	if n, _ := c.Drain(context.Background()); n != 1 {
 		t.Fatalf("after resolve the queue drains: %d", n)
 	}
-	// O17: a temporary file left by a crash is kept aside at open and holds the order.
+	// O17: a temporary file left by a crash is kept aside at open, terminal, and
+	// does not hold the order.
 	tmp := filepath.Join(ob.dir, ".tmp-crash")
 	os.WriteFile(tmp, []byte("x"), 0o600)
 	ob2, err := OpenOutbox(ob.dir, "seat-a", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(tmp + ".suspect"); err != nil || !ob2.Held() {
-		t.Fatalf("the crash temporary file should be kept aside and hold: %v", err)
+	if _, err := os.Stat(tmp + ".suspect"); err != nil || ob2.Held() {
+		t.Fatalf("the crash temporary file should be kept aside and not hold: %v held %v", err, ob2.Held())
 	}
 	// A record from another incarnation is not read.
 	other := outbox(t)
@@ -736,5 +753,177 @@ func TestDoctorShowsAHold(t *testing.T) {
 	d := f.client(ob).Doctor(context.Background(), "zmsg", "/v1/health", "aud")
 	if !d.Held || d.Outbox == nil || d.Outbox.Bad != 1 {
 		t.Fatalf("%+v", d)
+	}
+}
+
+func nudgeReq(id string) Request {
+	return Request{Service: "zmsg", Verb: "nudge", Method: "POST", Path: "/v1/nudge", Audience: "aud", OperationID: id, Body: []byte(`{"seat":"a"}`)}
+}
+
+func stopReq(id string) Request {
+	r := nudgeReq(id)
+	r.Verb, r.Path, r.Unordered = "stop", "/v1/stop", true
+	return r
+}
+
+// C24: a non-dedup write that sent nothing deletes its record, with a directory fsync.
+func TestC24NonDedupWriteLeavesNoRecord(t *testing.T) {
+	ob := outbox(t)
+	dirs := 0
+	ob.syncDir = func(string) error { dirs++; return nil }
+	res := valid(t, call(dead(t, ob), nudgeReq("op-1")))
+	recs, _ := ob.List()
+	before := dirs
+	if res.Outcome != OutcomeUnavailable || reason(res) != "offline" || res.Exit() != kit.ExitUnavailable || len(recs) != 0 {
+		t.Fatalf("%s %v", res.JSON(), recs)
+	}
+	if before < 3 { // enqueue, unknown, delete
+		t.Fatalf("the delete was not made durable: %d directory syncs", before)
+	}
+}
+
+// C25: a leftover queued record of a non-dedup verb is set aside at open: never drained, not holding.
+func TestC25StaleQueuedNonDedupRecord(t *testing.T) {
+	ob := outbox(t)
+	if _, err := ob.Enqueue("zmsg", "nudge", "op-1", StoredRequest{Method: "POST", Path: "/v1/nudge", Audience: "aud", Body: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	enqueue(t, ob, "op-2") // a dedup record
+	ob2, err := OpenOutbox(ob.dir, "seat-a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := ob2.List()
+	ents, _ := os.ReadDir(ob.dir)
+	if len(recs) != 1 || recs[0].OperationID != "op-2" || !hasSuffixFile(ents, ".stale") || ob2.Held() {
+		t.Fatalf("%v", recs)
+	}
+	if st, _ := ob2.Stats(); st.Aside != 1 {
+		t.Fatalf("%+v", st)
+	}
+	f := newFake(t, nil)
+	if n, _ := f.client(ob2).Drain(context.Background()); n != 1 || f.seen["op-1"] != 0 {
+		t.Fatalf("the stale record was drained: %d %v", n, f.seen)
+	}
+}
+
+// C26: a non-dedup record left unknown is never resent; abandon ends it, keeping it.
+func TestC26AbandonEndsAnUnknownNonDedupRecord(t *testing.T) {
+	f := newFake(t, lostAnswer)
+	ob := outbox(t)
+	res := valid(t, call(f.client(ob), nudgeReq("op-1")))
+	if res.Outcome != OutcomeDispatchUnknown {
+		t.Fatalf("%s", res.JSON())
+	}
+	f.mode = nil
+	c := f.client(ob)
+	hits := f.count()
+	if r := valid(t, c.Reconcile(context.Background(), "op-1")); r.Outcome != OutcomeRefused || reason(r) != "not_spoolable" || f.count() != hits {
+		t.Fatalf("reconcile of a non-dedup verb: %s", r.JSON())
+	}
+	if n, _ := c.Drain(context.Background()); n != 0 || f.count() != hits {
+		t.Fatal("a drain sent a non-dedup record")
+	}
+	// An ordered write behind it is blocked.
+	if r := valid(t, call(c, nudgeReq("op-2"))); reason(r) != "blocked" || f.count() != hits {
+		t.Fatalf("%s", r.JSON())
+	}
+	if err := ob.Abandon("op-1"); err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := ob.List()
+	if len(recs) != 1 || recs[0].State != StateAbandoned {
+		t.Fatalf("the record must be kept: %v", recs)
+	}
+	if r := valid(t, call(c, nudgeReq("op-2"))); r.Outcome != OutcomeOK {
+		t.Fatalf("after abandon the next write goes: %s", r.JSON())
+	}
+	// The same key again is refused, not resent.
+	hits = f.count()
+	if r := valid(t, call(c, nudgeReq("op-1"))); r.Outcome != OutcomeRefused || f.count() != hits {
+		t.Fatalf("%s", r.JSON())
+	}
+	if err := ob.Abandon("op-2"); err == nil {
+		t.Fatal("a record that is not unknown cannot be abandoned")
+	}
+	if err := ob.Abandon("nope"); err == nil {
+		t.Fatal("no such record")
+	}
+	ob2 := outbox(t)
+	enqueue(t, ob2, "op-d")
+	ob2.SetState(mustFirst(t, ob2), StateUnknown)
+	if err := ob2.Abandon("op-d"); err == nil {
+		t.Fatal("a dedup record is reconciled, not abandoned")
+	}
+	if k, _ := ob.Purge(); k != 1 {
+		t.Fatalf("purge should remove the abandoned record: %d", k)
+	}
+}
+
+// C23: an unordered verb is still recorded and sent behind an unknown record, a
+// .bad file, and a full ordinary outbox (reserved room).
+func TestC23UnorderedVerbIsNeverBlocked(t *testing.T) {
+	f := newFake(t, lostAnswer)
+	ob := outbox(t)
+	valid(t, call(f.client(ob), nudgeReq("op-1"))) // unknown, ordered
+	f.mode = nil
+	os.WriteFile(filepath.Join(ob.dir, fileName(9, "op-9")), []byte("{"), 0o600) // a .bad file
+	c := f.client(ob)
+	if r := valid(t, call(c, nudgeReq("op-2"))); reason(r) != "blocked" {
+		t.Fatalf("an ordered write should be blocked: %s", r.JSON())
+	}
+	if r := valid(t, call(c, stopReq("op-stop"))); r.Outcome != OutcomeOK {
+		t.Fatalf("a stop must go: %s", r.JSON())
+	}
+	// reserved room
+	ob2 := outbox(t)
+	ob2.maxRecords = 1000
+	for i := 0; i < 1000-ReservedRecords; i++ {
+		ob2.writeRaw(t, i+1)
+	}
+	if _, err := ob2.Enqueue("zmsg", "send", "op-ord", req(`{}`)); !errors.Is(err, ErrFull) {
+		t.Fatalf("an ordinary write should hit the bound before the reserve: %v", err)
+	}
+	un := req(`{}`)
+	un.Unordered = true
+	if _, err := ob2.Enqueue("zmsg", "stop", "op-un", un); err != nil {
+		t.Fatalf("the reserved room is for unordered verbs: %v", err)
+	}
+}
+
+func (o *Outbox) writeRaw(t *testing.T, n int) {
+	t.Helper()
+	rec := Record{Schema: RecordSchema, Sender: o.sender, Incarnation: o.incarnation, Seq: uint64(n), Service: "other", Verb: "v",
+		OperationID:   "fill-" + string(rune('a'+n%26)) + "-" + strings.Repeat("x", n%7) + string(rune('a'+(n/26)%26)) + string(rune('a'+(n/676)%26)),
+		PayloadDigest: "sha256:0", Request: json.RawMessage(`{"audience":"","body":{},"dedup":"d","method":"POST","path":"/","unordered":false}`),
+		Created: "2026-10-17T03:00:00Z", State: StateRefused}
+	if err := o.write(rec); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// O20: the owner verbs leave an audit line.
+func TestO20AuditLog(t *testing.T) {
+	ob := outbox(t)
+	enqueue(t, ob, "op-1")
+	ob.SetState(mustFirst(t, ob), StateRefused)
+	ob.Purge()
+	os.WriteFile(filepath.Join(ob.dir, fileName(9, "op-9")), []byte("{"), 0o600)
+	ob.List()
+	ob.Resolve()
+	raw, _ := os.ReadFile(filepath.Join(ob.dir, "audit.log"))
+	if !strings.Contains(string(raw), " purge ") || !strings.Contains(string(raw), " resolve ") {
+		t.Fatalf("%q", raw)
+	}
+	st, _ := os.Stat(filepath.Join(ob.dir, "audit.log"))
+	if st.Mode().Perm() != 0o600 {
+		t.Fatal(st.Mode())
+	}
+}
+
+func TestDoctorShowsTheBinary(t *testing.T) {
+	f := newFake(t, nil)
+	if d := f.client(outbox(t)).Doctor(context.Background(), "zmsg", "/v1/health", "aud"); d.Binary == "" {
+		t.Fatal("doctor should show the binary's own path")
 	}
 }

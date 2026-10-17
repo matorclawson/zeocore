@@ -241,3 +241,26 @@ CLIENT: doctor hides a hold	client/call.go	s/d\.Held = c\.Outbox\.Held\(\)//	./c
 CLIENT: doctor does not say dev	client/call.go	s/, Dev: DevBuild\}/}/	./client/
 CLIENT: not_ready is not exit 7 in the helper	client/result.go	s/Outcome: OutcomeNotReady, Reason: str\(\"not_ready\"\)/Outcome: OutcomeRefused, Reason: str(\"endpoint\")/	./client/
 CLIENT: records of other services are drained	client/outbox.go	s/if service != "" \&\& r\.Service != service \{/if false {/	./client/
+CLIENT: a stale non-dedup queued record is not set aside	client/outbox.go	s/strictDecode\(r\.Request, \&sr\) == nil \&\& sr\.Dedup == \"\" \{/strictDecode(r.Request, \&sr) == nil \&\& false {/	./client/
+CLIENT: a suspect file holds the order	client/outbox.go	s/if strings\.HasSuffix\(name, \"\.bad\"\) \{/if strings.HasSuffix(name, \".bad\") || strings.HasSuffix(name, \".suspect\") {/	./client/
+CLIENT: a discarded file is renamed like a resolved one	client/outbox.go	s/to = name \+ \"\.discarded\"/to = name + \".resolved\"/	./client/
+CLIENT: a dedup record can be abandoned	client/outbox.go	s/ \|\| sr\.Dedup != \"\" \{/ {/	./client/
+CLIENT: a record that is not unknown can be abandoned	client/outbox.go	s/if r\.State != StateUnknown \|\| strictDecode/if strictDecode/	./client/
+CLIENT: abandon leaves no audit line	client/outbox.go	s/o\.audit\(\"abandon\", operationID\)//	./client/
+CLIENT: a drain sends a non-dedup record	client/outbox.go	s/if sr\.Dedup == \"\" \{\n\t\t\t\/\/ A verb with no dedup contract is never spooled and never drained\.\n\t\t\tcontinue/if false {\n\t\t\tcontinue	./client/
+CLIENT: an unknown unordered record blocks a drain	client/outbox.go	s/ \|\| sr\.Unordered \&\& r\.State == StateUnknown//	./client/
+CLIENT: an abandoned record blocks a drain	client/outbox.go	s/r\.State == StateRefused \|\| r\.State == StateAbandoned/r.State == StateRefused/	./client/
+CLIENT: a hold blocks an unordered write	client/outbox.go	s/if bad > 0 \&\& !req\.Unordered \{/if bad > 0 {/	./client/
+CLIENT: no room is reserved for unordered verbs	client/outbox.go	s/\t\tlimit -= o\.maxRecords \* ReservedRecords \/ MaxRecords\n//	./client/
+CLIENT: a delete is not made durable	client/outbox.go	s/return err\n\t\}\n\treturn o\.syncDir\(o\.dir\)\n\}\n\n\/\/ Purge/return err\n\t}\n\treturn nil\n}\n\n\/\/ Purge/	./client/
+CLIENT: purge keeps abandoned records	client/outbox.go	s/if r\.State == StateRefused \|\| r\.State == StateAbandoned \{/if r.State == StateRefused {/	./client/
+CLIENT: purge leaves no audit line	client/outbox.go	s/o\.audit\(\"purge\", \"\"\)//	./client/
+CLIENT: resolve leaves no audit line	client/outbox.go	s/o\.audit\(\"resolve\", \"\"\)//	./client/
+CLIENT: doctor does not list files set aside	client/outbox.go	s/s\.Aside\+\+/_ = s/	./client/
+CLIENT: an unordered write waits behind the queue	client/call.go	s/if !r\.Unordered \&\& c\.ahead\(rec\) \{/if c.ahead(rec) {/	./client/
+CLIENT: an unordered record blocks later writes	client/call.go	s/ \&\& !unorderedRecord\(o\)//	./client/
+CLIENT: an abandoned record may be sent again	client/call.go	s/case StateRefused, StateAbandoned:/case StateRefused:/	./client/
+CLIENT: the unordered flag is not stored	client/call.go	s/Dedup: r\.Dedup, Unordered: r\.Unordered, Body: r\.Body,/Dedup: r.Dedup, Body: r.Body,/	./client/
+CLIENT: the unordered flag is lost on a resend	client/call.go	s/Dedup: sr\.Dedup, Unordered: sr\.Unordered,/Dedup: sr.Dedup,/	./client/
+CLIENT: reconcile leaves no audit line	client/call.go	s/c\.Outbox\.audit\(\"reconcile\", operationID\)//	./client/
+CLIENT: doctor hides the binary	client/call.go	s/\td\.Binary, _ = os\.Executable\(\)\n//	./client/

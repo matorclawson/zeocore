@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"os"
 	"strings"
 	"time"
 )
@@ -50,8 +51,11 @@ type Request struct {
 	// versioned contract that de-duplicates by key with a stored result; a
 	// write is spoolable only with it, and key-idempotent (reconcilable) only
 	// with it.
-	Spool           bool
-	Dedup           string
+	Spool bool
+	Dedup string
+	// Unordered marks a verb the owner declares outside the sequence order (at
+	// least stop): written ahead, but never held behind other records.
+	Unordered       bool
 	RequireDelivery bool
 	// ExpectSchema, if set, is the schema id the answer must carry.
 	ExpectSchema string
@@ -212,7 +216,7 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 		return c.result(r, OutcomeRefused, false, "not_spoolable")
 	}
 	rec, err := c.Outbox.Enqueue(r.Service, r.Verb, r.OperationID, StoredRequest{
-		Method: r.Method, Path: r.Path, Audience: r.Audience, Dedup: r.Dedup, Body: r.Body,
+		Method: r.Method, Path: r.Path, Audience: r.Audience, Dedup: r.Dedup, Unordered: r.Unordered, Body: r.Body,
 	})
 	switch {
 	case errors.Is(err, ErrFull):
@@ -231,11 +235,11 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 		res := c.result(r, OutcomeDispatchUnknown, true, "dispatch_unknown")
 		res.SpoolID = spool
 		return res
-	case StateRefused:
+	case StateRefused, StateAbandoned:
 		return c.result(r, OutcomeRefused, false, "outbox")
 	}
 	// Per service and sender, a new write never overtakes what is ahead of it.
-	if c.ahead(rec) {
+	if !r.Unordered && c.ahead(rec) {
 		_, _ = c.Outbox.DrainBefore(rec.Service, rec.Seq, func(old Record) Result { return c.sendRecord(ctx, old, authz) })
 		if c.ahead(rec) {
 			if r.Spool && !r.RequireDelivery {
@@ -281,6 +285,11 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 	return res
 }
 
+func unorderedRecord(r Record) bool {
+	var sr StoredRequest
+	return strictDecode(r.Request, &sr) == nil && sr.Unordered
+}
+
 // ahead says whether a record of the same service is queued or unknown ahead
 // of rec. (A hold is refused earlier, when the record is enqueued.)
 func (c *Client) ahead(rec Record) bool {
@@ -289,7 +298,7 @@ func (c *Client) ahead(rec Record) bool {
 		return true
 	}
 	for _, o := range recs {
-		if o.Service == rec.Service && o.Seq < rec.Seq && o.State != StateRefused {
+		if o.Service == rec.Service && o.Seq < rec.Seq && o.State != StateRefused && o.State != StateAbandoned && !unorderedRecord(o) {
 			return true
 		}
 	}
@@ -330,7 +339,7 @@ func (c *Client) recordRequest(rec Record) (Request, error) {
 	}
 	return Request{
 		Service: rec.Service, Verb: rec.Verb, Method: sr.Method, Path: sr.Path, Body: sr.Body,
-		OperationID: rec.OperationID, Audience: sr.Audience, Dedup: sr.Dedup,
+		OperationID: rec.OperationID, Audience: sr.Audience, Dedup: sr.Dedup, Unordered: sr.Unordered,
 	}, nil
 }
 
@@ -372,6 +381,7 @@ func (c *Client) Reconcile(ctx context.Context, operationID string) Result {
 				return fail(OutcomeRefused, "credential")
 			}
 		}
+		c.Outbox.audit("reconcile", operationID)
 		res := c.sendRecord(ctx, rec, authz)
 		res.Service, res.Verb = rec.Service, rec.Verb
 		switch res.Outcome {
@@ -517,12 +527,14 @@ type Doctor struct {
 	Answers        bool
 	Outbox         *Stats
 	Dev            bool
+	Binary         string
 	Held           bool
 }
 
 // Doctor probes the service once with the probe policy.
 func (c *Client) Doctor(ctx context.Context, service, healthPath, audience string) Doctor {
 	d := Doctor{Service: service, Origin: c.Endpoint.Origin, Source: c.Endpoint.Source, CredentialPins: c.Endpoint.Credential, Dev: DevBuild}
+	d.Binary, _ = os.Executable()
 	if c.Outbox != nil {
 		if s, err := c.Outbox.Stats(); err == nil {
 			d.Outbox = &s
