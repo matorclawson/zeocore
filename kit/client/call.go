@@ -68,14 +68,16 @@ type Client struct {
 	// not a seat, and is never put in a Result or an error.
 	Credential func() (string, error)
 	Outbox     *Outbox
-	Sleep      func(time.Duration)
-	Jitter     func(time.Duration) time.Duration
+	// Service is the service this client reaches; a drain sends only its records.
+	Service string
+	Sleep   func(time.Duration)
+	Jitter  func(time.Duration) time.Duration
 }
 
 var errPin = errors.New("the server key does not match the pin")
 
 func (c *Client) httpClient(p Policy) *http.Client {
-	cfg := &tls.Config{RootCAs: c.Roots, MinVersion: tls.VersionTLS12}
+	cfg := &tls.Config{RootCAs: c.Roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}}
 	if c.Endpoint.SPKI != "" {
 		want := c.Endpoint.SPKI
 		cfg.VerifyConnection = func(cs tls.ConnectionState) error {
@@ -96,6 +98,10 @@ func (c *Client) httpClient(p Policy) *http.Client {
 			DialContext:         (&net.Dialer{Timeout: p.Connect}).DialContext,
 			TLSHandshakeTimeout: p.Connect,
 			TLSClientConfig:     cfg,
+			ForceAttemptHTTP2:   false,
+			// An empty, non-nil map turns HTTP/2 off: its transport has retry paths
+			// of its own that keep-alive settings do not govern.
+			TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
@@ -186,7 +192,7 @@ func (c *Client) readLoop(ctx context.Context, r Request, p Policy, authz string
 	for attempt := 0; ; attempt++ {
 		res = c.once(ctx, r, p, authz)
 		again := attempt < len(p.Backoff) && !res.Sent && ctx.Err() == nil &&
-			(res.Outcome == OutcomeUnavailable && *res.Reason != "tls" || res.Outcome == OutcomeTimeout && ctx.Err() == nil)
+			(res.Outcome == OutcomeUnavailable || res.Outcome == OutcomeTimeout)
 		if !again {
 			return res
 		}
@@ -213,6 +219,8 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 		return c.result(r, OutcomeRefused, false, "outbox_full")
 	case errors.Is(err, ErrKeyConflict):
 		return c.result(r, OutcomeRefused, false, "key_conflict")
+	case errors.Is(err, ErrHeld):
+		return c.result(r, OutcomeRefused, false, "blocked")
 	case err != nil:
 		return c.result(r, OutcomeRefused, false, "outbox")
 	}
@@ -226,50 +234,76 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 	case StateRefused:
 		return c.result(r, OutcomeRefused, false, "outbox")
 	}
-	res := c.once(ctx, r, p, authz)
-	switch res.Outcome {
-	case OutcomeDispatchUnknown:
-		_ = c.Outbox.SetState(rec, StateUnknown)
-		res.SpoolID = spool
-	case OutcomeUnavailable, OutcomeTimeout:
-		if res.Sent {
-			break
+	// Per service and sender, a new write never overtakes what is ahead of it.
+	if c.ahead(rec) {
+		_, _ = c.Outbox.DrainBefore(rec.Service, rec.Seq, func(old Record) Result { return c.sendRecord(ctx, old, authz) })
+		if c.ahead(rec) {
+			if r.Spool && !r.RequireDelivery {
+				out := c.result(r, OutcomeSpooled, false, "")
+				out.SpoolID = spool
+				return out
+			}
+			_ = c.Outbox.Remove(rec)
+			return c.result(r, OutcomeRefused, false, "blocked")
 		}
-		if r.Spool && !r.RequireDelivery {
+	}
+	// Durably `unknown` BEFORE any byte is emitted: a crash before this proves
+	// no emission, and a crash after it leaves the record unknown.
+	if err := c.Outbox.SetState(rec, StateUnknown); err != nil {
+		return c.result(r, OutcomeRefused, false, "outbox")
+	}
+	res := c.once(ctx, r, p, authz)
+	switch {
+	case res.Outcome == OutcomeDispatchUnknown:
+		res.SpoolID = spool
+	case res.Outcome == OutcomeOK:
+		_ = c.Outbox.Remove(rec)
+	case !res.Sent:
+		// Nothing left this process: the record goes back to queued, or goes.
+		if r.Spool && !r.RequireDelivery && (res.Outcome == OutcomeUnavailable || res.Outcome == OutcomeTimeout) {
+			_ = c.Outbox.SetState(rec, StateQueued)
 			out := c.result(r, OutcomeSpooled, false, "")
 			out.SpoolID = spool
 			return out
 		}
 		_ = c.Outbox.Remove(rec)
 		switch {
-		case r.Spool && r.RequireDelivery:
+		case r.Spool && r.RequireDelivery && (res.Outcome == OutcomeUnavailable || res.Outcome == OutcomeTimeout):
 			return c.result(r, OutcomeUnavailable, false, "require_delivery")
 		case res.Outcome == OutcomeUnavailable && *res.Reason == "unavailable":
 			return c.result(r, OutcomeUnavailable, false, "offline")
 		}
 	default:
-		// The service answered: the record has done its job.
+		// The service answered definitively (refused, invalid, not found) or the
+		// call could not complete after send: a definitive answer ends the record.
 		_ = c.Outbox.Remove(rec)
-		if res.Outcome == OutcomeOK {
-			c.drainAfter(ctx, r.Service, authz)
-		}
 	}
 	return res
+}
+
+// ahead says whether a record of the same service is queued or unknown ahead
+// of rec. (A hold is refused earlier, when the record is enqueued.)
+func (c *Client) ahead(rec Record) bool {
+	recs, err := c.Outbox.List()
+	if err != nil {
+		return true
+	}
+	for _, o := range recs {
+		if o.Service == rec.Service && o.Seq < rec.Seq && o.State != StateRefused {
+			return true
+		}
+	}
+	return false
 }
 
 // drainAfter drains this service's queued records once, best effort, after a
 // call to it succeeded.
 func (c *Client) drainAfter(ctx context.Context, service, authz string) {
-	recs, err := c.Outbox.List()
-	if err != nil {
-		return
-	}
-	for _, r := range recs {
-		if r.State == StateQueued && r.Service == service {
-			_, _ = c.drain(ctx, authz)
-			return
-		}
-	}
+	// The implicit drain has its own deadline and changes neither the result
+	// nor the exit of the call that triggered it.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), Write.Total)
+	defer cancel()
+	_, _ = c.drain(ctx, service, authz)
 }
 
 // Drain sends the queued records. Only one drain runs at a time.
@@ -282,11 +316,11 @@ func (c *Client) Drain(ctx context.Context) (int, error) {
 		}
 		authz = v
 	}
-	return c.drain(ctx, authz)
+	return c.drain(ctx, c.Service, authz)
 }
 
-func (c *Client) drain(ctx context.Context, authz string) (int, error) {
-	return c.Outbox.Drain(func(rec Record) Result { return c.sendRecord(ctx, rec, authz) })
+func (c *Client) drain(ctx context.Context, service, authz string) (int, error) {
+	return c.Outbox.DrainBefore(service, 0, func(rec Record) Result { return c.sendRecord(ctx, rec, authz) })
 }
 
 func (c *Client) recordRequest(rec Record) (Request, error) {
@@ -404,7 +438,9 @@ func (c *Client) transportError(ctx context.Context, r Request, sent bool, err e
 	// A DNS failure is the default case below: nothing was sent.
 	switch {
 	case isTLS(err):
-		return c.result(r, OutcomeUnavailable, false, "tls")
+		// A verification failure is a refusal, not an outage: scripts read exit 6
+		// as "try again".
+		return c.result(r, OutcomeRefused, false, "tls")
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		switch {
 		case sent && !r.Read:
@@ -480,15 +516,18 @@ type Doctor struct {
 	CredentialPins bool
 	Answers        bool
 	Outbox         *Stats
+	Dev            bool
+	Held           bool
 }
 
 // Doctor probes the service once with the probe policy.
 func (c *Client) Doctor(ctx context.Context, service, healthPath, audience string) Doctor {
-	d := Doctor{Service: service, Origin: c.Endpoint.Origin, Source: c.Endpoint.Source, CredentialPins: c.Endpoint.Credential}
+	d := Doctor{Service: service, Origin: c.Endpoint.Origin, Source: c.Endpoint.Source, CredentialPins: c.Endpoint.Credential, Dev: DevBuild}
 	if c.Outbox != nil {
 		if s, err := c.Outbox.Stats(); err == nil {
 			d.Outbox = &s
 		}
+		d.Held = c.Outbox.Held()
 	}
 	if c.Endpoint.Local || c.Endpoint.Origin == "" {
 		return d
@@ -503,3 +542,11 @@ func (c *Client) Doctor(ctx context.Context, service, healthPath, audience strin
 	d.Answers = res.Outcome == OutcomeOK
 	return d
 }
+
+// ReplyKey is the operation id of a reply: derived from the id of the message
+// it answers, the same every time, so a reply spooled twice is one record and
+// one effect at the service, even if the outbox is recreated in between.
+func ReplyKey(messageID string) string { return "reply-" + messageID }
+
+// ValidOperationID reports whether an operation id is acceptable.
+func ValidOperationID(id string) bool { return idRe.MatchString(id) }

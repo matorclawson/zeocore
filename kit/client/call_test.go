@@ -1,11 +1,14 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,7 +99,7 @@ func TestT3TrustComesOnlyFromTheGivenRoots(t *testing.T) {
 	c := f.client(nil)
 	c.Roots = x509.NewCertPool() // empty: nothing is trusted
 	res := valid(t, call(c, readReq()))
-	if res.Outcome != OutcomeUnavailable || reason(res) != "tls" || res.Sent || f.count() != 0 {
+	if res.Outcome != OutcomeRefused || reason(res) != "tls" || res.Sent || res.Exit() != kit.ExitRefused || f.count() != 0 {
 		t.Fatalf("%s", res.JSON())
 	}
 	c.Roots = f.roots
@@ -113,7 +116,7 @@ func TestT4SPKIPin(t *testing.T) {
 	sleeps := 0
 	c.Sleep = func(time.Duration) { sleeps++ }
 	res := valid(t, call(c, readReq()))
-	if res.Outcome != OutcomeUnavailable || reason(res) != "tls" || res.Sent || sleeps != 0 || f.count() != 0 {
+	if res.Outcome != OutcomeRefused || reason(res) != "tls" || res.Sent || res.Exit() != kit.ExitRefused || sleeps != 0 || f.count() != 0 {
 		t.Fatalf("%s sleeps %d hits %d", res.JSON(), sleeps, f.count())
 	}
 	c.Endpoint.SPKI = f.spki()
@@ -122,12 +125,61 @@ func TestT4SPKIPin(t *testing.T) {
 	}
 }
 
-// T5: exactly one request reaches the server for a write whose answer is lost.
+// T5: a POST carrying a key whose connection is dropped after the headers:
+// exactly one request reaches the server, and the outcome is dispatch_unknown.
 func TestT5NoTransparentReplay(t *testing.T) {
 	f := newFake(t, lostAnswer)
-	valid(t, call(f.client(outbox(t)), writeReq("op-1", false)))
-	if f.count() != 1 {
-		t.Fatalf("%d requests reached the server", f.count())
+	res := valid(t, call(f.client(outbox(t)), writeReq("op-1", false)))
+	if f.count() != 1 || res.Outcome != OutcomeDispatchUnknown {
+		t.Fatalf("%d requests reached the server: %s", f.count(), res.JSON())
+	}
+	// The request has no GetBody, so net/http could not replay it either.
+	req, err := http.NewRequest("POST", "https://h", io.NopCloser(bytes.NewReader([]byte("x"))))
+	if err != nil || req.GetBody != nil {
+		t.Fatalf("a wrapped reader must leave GetBody unset: %v", err)
+	}
+}
+
+// T4b: a handshake reset by the peer is an outage, not a refusal.
+func TestT4bAHandshakeResetIsUnavailable(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close() // reset before any TLS record
+		}
+	}()
+	f := newFake(t, nil)
+	c := f.client(nil)
+	c.Endpoint.Origin = "https://" + ln.Addr().String()
+	res := valid(t, call(c, readReq()))
+	if res.Outcome != OutcomeUnavailable || res.Sent || res.Exit() != kit.ExitUnavailable {
+		t.Fatalf("%s", res.JSON())
+	}
+}
+
+// T11: a server that offers HTTP/2 is spoken to in HTTP/1.1.
+func TestT11HTTP11Only(t *testing.T) {
+	var proto string
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proto = r.Proto
+		_, _ = w.Write([]byte(`{"schema":"fake/v1"}`))
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	c := &Client{Endpoint: Endpoint{Origin: strings.ToLower(srv.URL), Source: SourceHost, Audience: "aud"}, Roots: roots, Sleep: func(time.Duration) {}}
+	if res := valid(t, call(c, readReq())); res.Outcome != OutcomeOK || proto != "HTTP/1.1" {
+		t.Fatalf("%s proto %q", res.JSON(), proto)
 	}
 }
 

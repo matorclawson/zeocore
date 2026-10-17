@@ -99,22 +99,66 @@ func TestO4OneDrainAtATime(t *testing.T) {
 	<-done
 }
 
-// O5: a drain interrupted after the server accepted resends the same key; one effect.
-func TestO5InterruptedDrainIsOneEffect(t *testing.T) {
+// O5: a call or drain interrupted after the service accepted leaves the record
+// unknown: no drain resends it, reconcile does, with the same key; one effect.
+func TestO5InterruptedAfterAcceptIsUnknownAndReconciled(t *testing.T) {
+	f := newFake(t, nil)
+	ob := outbox(t)
+	rec := enqueue(t, ob, "op-1")
+	c := f.client(ob)
+	// The crash: unknown was synced, the service accepted, Remove never ran.
+	if err := ob.SetState(rec, StateUnknown); err != nil {
+		t.Fatal(err)
+	}
+	if res := c.sendRecord(context.Background(), rec, secret); res.Outcome != OutcomeOK {
+		t.Fatalf("%s", res.JSON())
+	}
+	if n, err := c.Drain(context.Background()); err != nil || n != 0 || f.seen["op-1"] != 1 {
+		t.Fatalf("a drain resent an unknown record: %d %v seen %v", n, err, f.seen)
+	}
+	res := valid(t, c.Reconcile(context.Background(), "op-1"))
+	left, _ := ob.List()
+	if res.Outcome != OutcomeOK || len(left) != 0 || f.seen["op-1"] != 2 {
+		t.Fatalf("%s left %v seen %v (the service deduplicates by the key)", res.JSON(), left, f.seen)
+	}
+}
+
+// O14 to O16: the crash boundaries.
+func TestO14ToO16CrashBoundaries(t *testing.T) {
+	// O14: a crash before unknown is synced: the record is queued, nothing was
+	// emitted, and the next drain sends it.
 	f := newFake(t, nil)
 	ob := outbox(t)
 	enqueue(t, ob, "op-1")
-	c := f.client(ob)
-	recs, _ := ob.List()
-	if res := c.sendRecord(context.Background(), recs[0], secret); res.Outcome != OutcomeOK { // accepted; the crash is before Remove
-		t.Fatalf("%s", res.JSON())
+	if n, _ := f.client(ob).Drain(context.Background()); n != 1 || f.seen["op-1"] != 1 {
+		t.Fatalf("O14: %d %v", n, f.seen)
 	}
-	if n, err := c.Drain(context.Background()); err != nil || n != 1 {
-		t.Fatalf("%d %v", n, err)
+	// O15: a crash after the unknown sync and before emission: unknown, not drained.
+	ob2 := outbox(t)
+	rec := enqueue(t, ob2, "op-2")
+	ob2.SetState(rec, StateUnknown)
+	hits := f.count()
+	if n, _ := f.client(ob2).Drain(context.Background()); n != 0 || f.count() != hits {
+		t.Fatalf("O15: %d", n)
 	}
-	left, _ := ob.List()
-	if len(left) != 0 || f.seen["op-1"] != 2 {
-		t.Fatalf("left %v; the service saw the key %d times (and deduplicates by it)", left, f.seen["op-1"])
+	// O16: a drain's send marks unknown before the send runs.
+	ob3 := outbox(t)
+	enqueue(t, ob3, "op-3")
+	var during string
+	ob3.Drain(func(r Record) Result {
+		recs, _ := ob3.List()
+		during = recs[0].State
+		return Result{Outcome: OutcomeDispatchUnknown, Sent: true}
+	})
+	if during != StateUnknown {
+		t.Fatalf("O16: the record was %q while the send ran", during)
+	}
+	// A failure that proves nothing was sent puts it back to queued.
+	ob4 := outbox(t)
+	enqueue(t, ob4, "op-4")
+	ob4.Drain(func(Record) Result { return Result{Outcome: OutcomeUnavailable} })
+	if recs, _ := ob4.List(); recs[0].State != StateQueued {
+		t.Fatalf("a send that sent nothing should leave the record queued: %v", recs[0].State)
 	}
 }
 
@@ -163,9 +207,9 @@ func TestO7RefusedIsTerminalAndPurged(t *testing.T) {
 	enqueue(t, ob, "op-2")
 	n, _ := ob.Drain(func(r Record) Result {
 		if r.OperationID == "op-1" {
-			return Result{Outcome: OutcomeRefused}
+			return Result{Outcome: OutcomeRefused, Sent: true}
 		}
-		return Result{Outcome: OutcomeOK}
+		return Result{Outcome: OutcomeOK, Sent: true}
 	})
 	left, _ := ob.List()
 	if n != 1 || len(left) != 1 || left[0].State != StateRefused {
@@ -205,7 +249,7 @@ func TestADrainMarksAnUnknownDispatchAndStops(t *testing.T) {
 	ob := outbox(t)
 	enqueue(t, ob, "op-1")
 	enqueue(t, ob, "op-2")
-	n, _ := ob.Drain(func(Record) Result { return Result{Outcome: OutcomeDispatchUnknown} })
+	n, _ := ob.Drain(func(Record) Result { return Result{Outcome: OutcomeDispatchUnknown, Sent: true} })
 	left, _ := ob.List()
 	if n != 0 || len(left) != 2 || left[0].State != StateUnknown || left[1].State != StateQueued {
 		t.Fatalf("n=%d left=%v", n, left)
@@ -251,7 +295,8 @@ func TestO8FullOutbox(t *testing.T) {
 	}
 }
 
-// O9: a failed fsync refuses visibly and leaves no temporary file.
+// O9: a failed fsync is durability unknown: the write refuses, the file is
+// kept aside as .suspect (not deleted), and the order is held until resolved.
 func TestO9FailedFsync(t *testing.T) {
 	for _, which := range []string{"file", "dir"} {
 		ob := outbox(t)
@@ -264,10 +309,28 @@ func TestO9FailedFsync(t *testing.T) {
 			t.Fatalf("%s: %v", which, err)
 		}
 		ents, _ := os.ReadDir(ob.dir)
+		suspect := 0
 		for _, e := range ents {
-			if strings.HasPrefix(e.Name(), ".tmp-") {
-				t.Fatalf("%s: temporary file left: %s", which, e.Name())
+			if strings.HasSuffix(e.Name(), ".suspect") {
+				suspect++
 			}
+			if strings.HasPrefix(e.Name(), ".tmp-") && !strings.HasSuffix(e.Name(), ".suspect") {
+				t.Fatalf("%s: an unmarked temporary file: %s", which, e.Name())
+			}
+		}
+		if suspect != 1 || !ob.Held() {
+			t.Fatalf("%s: suspect %d held %v", which, suspect, ob.Held())
+		}
+		ob.syncFile = func(f *os.File) error { return f.Sync() }
+		ob.syncDir = func(string) error { return nil }
+		if _, err := ob.Enqueue("zmsg", "send", "op-2", req(`{}`)); !errors.Is(err, ErrHeld) {
+			t.Fatalf("%s: a write was accepted while held: %v", which, err)
+		}
+		if n, err := ob.Resolve(); err != nil || n != 1 || ob.Held() {
+			t.Fatalf("%s: resolve %d %v held %v", which, n, err, ob.Held())
+		}
+		if _, err := ob.Enqueue("zmsg", "send", "op-2", req(`{}`)); err != nil {
+			t.Fatalf("%s: after resolve: %v", which, err)
 		}
 	}
 	ob := outbox(t)
@@ -278,8 +341,9 @@ func TestO9FailedFsync(t *testing.T) {
 	}
 }
 
-// O10: a torn record is moved aside, shown by doctor, never read.
-func TestO10TornRecord(t *testing.T) {
+// O10: a torn record is moved aside, shown by doctor, never read, and HOLDS the
+// sender's order: later records and new writes wait; the ordinal is not skipped.
+func TestO10TornRecordHoldsTheOrder(t *testing.T) {
 	ob := outbox(t)
 	enqueue(t, ob, "op-1")
 	torn := filepath.Join(ob.dir, fileName(7, "op-7"))
@@ -288,27 +352,43 @@ func TestO10TornRecord(t *testing.T) {
 	}
 	recs, _ := ob.List()
 	s, _ := ob.Stats()
-	if len(recs) != 1 || s.Bad != 1 {
+	if len(recs) != 1 || s.Bad != 1 || !ob.Held() {
 		t.Fatalf("%v %+v", recs, s)
 	}
 	if _, err := os.Stat(torn + ".bad"); err != nil {
 		t.Fatal("the torn file should be moved aside")
 	}
-	// A temporary file from a crash is removed when the outbox is opened.
+	f := newFake(t, nil)
+	c := f.client(ob)
+	if n, err := c.Drain(context.Background()); !errors.Is(err, ErrHeld) || n != 0 || f.count() != 0 {
+		t.Fatalf("a held outbox drained: %d %v", n, err)
+	}
+	if res := valid(t, call(c, writeReq("op-new", false))); reason(res) != "blocked" || f.count() != 0 {
+		t.Fatalf("%s", res.JSON())
+	}
+	if n, err := ob.Resolve(); err != nil || n != 1 || ob.Held() {
+		t.Fatalf("%d %v", n, err)
+	}
+	if n, _ := c.Drain(context.Background()); n != 1 {
+		t.Fatalf("after resolve the queue drains: %d", n)
+	}
+	// O17: a temporary file left by a crash is kept aside at open and holds the order.
 	tmp := filepath.Join(ob.dir, ".tmp-crash")
 	os.WriteFile(tmp, []byte("x"), 0o600)
-	if _, err := OpenOutbox(ob.dir, "seat-a", nil); err != nil {
+	ob2, err := OpenOutbox(ob.dir, "seat-a", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(tmp); err == nil {
-		t.Fatal("a crash temporary file survived the open")
+	if _, err := os.Stat(tmp + ".suspect"); err != nil || !ob2.Held() {
+		t.Fatalf("the crash temporary file should be kept aside and hold: %v", err)
 	}
 	// A record from another incarnation is not read.
 	other := outbox(t)
 	enqueue(t, other, "op-1")
 	raw, _ := os.ReadFile(filepath.Join(other.dir, fileName(1, "op-1")))
-	os.WriteFile(filepath.Join(ob.dir, fileName(1, "op-1")), raw, 0o600)
-	if recs, _ := ob.List(); len(recs) != 0 {
+	ob3 := outbox(t)
+	os.WriteFile(filepath.Join(ob3.dir, fileName(1, "op-1")), raw, 0o600)
+	if recs, _ := ob3.List(); len(recs) != 0 {
 		t.Fatalf("%v", recs)
 	}
 }
@@ -317,9 +397,12 @@ func TestO10TornRecord(t *testing.T) {
 func TestO11PathInjectingIDs(t *testing.T) {
 	ob := outbox(t)
 	for _, id := range []string{"../x", "a/b", "a\x00b", "", "a b", strings.Repeat("a", 65), "x.json"} {
-		if _, err := ob.Enqueue("zmsg", "send", id, req(`{}`)); err == nil {
-			t.Errorf("%q should refuse", id)
+		if _, err := ob.Enqueue("zmsg", "send", id, req(`{}`)); err == nil || !strings.Contains(err.Error(), "operation id") {
+			t.Errorf("%q should be refused as an operation id, got %v", id, err)
 		}
+	}
+	if ents, _ := os.ReadDir(ob.dir); len(ents) > 3 {
+		t.Errorf("a refused id left files: %v", ents)
 	}
 }
 
@@ -500,5 +583,158 @@ func TestReconcileRefusesAQueuedRecord(t *testing.T) {
 	res := valid(t, f.client(ob).Reconcile(context.Background(), "op-1"))
 	if res.Outcome != OutcomeRefused || f.count() != 0 {
 		t.Fatalf("%s hits %d", res.JSON(), f.count())
+	}
+}
+
+// C20 to C22: a new write never overtakes what is ahead of it.
+func TestC20ToC22NoOvertaking(t *testing.T) {
+	// C20: queued records ahead are drained first; the new write then goes.
+	f := newFake(t, nil)
+	ob := outbox(t)
+	enqueue(t, ob, "op-old")
+	if res := valid(t, call(f.client(ob), writeReq("op-new", false))); res.Outcome != OutcomeOK || f.seen["op-old"] != 1 || f.seen["op-new"] != 1 {
+		t.Fatalf("%s %v", res.JSON(), f.seen)
+	}
+	// C20b: if the queue cannot be drained, the new write is queued behind (it may
+	// spool) or refused blocked (it may not).
+	g := dead(t, outbox(t))
+	enqueue(t, g.Outbox, "op-old")
+	res := valid(t, call(g, writeReq("op-new", true)))
+	if res.Outcome != OutcomeSpooled {
+		t.Fatalf("queued behind: %s", res.JSON())
+	}
+	recs, _ := g.Outbox.List()
+	if len(recs) != 2 || recs[0].OperationID != "op-old" || recs[1].OperationID != "op-new" {
+		t.Fatalf("%v", recs)
+	}
+	res = valid(t, call(g, writeReq("op-other", false)))
+	if res.Outcome != OutcomeRefused || reason(res) != "blocked" {
+		t.Fatalf("%s", res.JSON())
+	}
+	if recs, _ := g.Outbox.List(); len(recs) != 2 {
+		t.Fatalf("a refused write left a record: %v", recs)
+	}
+	// C21: --require-delivery with records ahead is refused blocked.
+	r := writeReq("op-rd", true)
+	r.RequireDelivery = true
+	if res := valid(t, call(g, r)); reason(res) != "blocked" {
+		t.Fatalf("%s", res.JSON())
+	}
+	// C22: an unknown record ahead blocks every later write.
+	h := newFake(t, lostAnswer)
+	obh := outbox(t)
+	valid(t, call(h.client(obh), writeReq("op-1", true)))
+	h.mode = nil
+	hits := h.count()
+	if res := valid(t, call(h.client(obh), writeReq("op-2", false))); reason(res) != "blocked" || h.count() != hits {
+		t.Fatalf("%s hits %d -> %d", res.JSON(), hits, h.count())
+	}
+}
+
+// O18: a derived reply key spooled twice, with the outbox recreated between,
+// is the same key at the service.
+func TestO18DerivedKeysSurviveANewIncarnation(t *testing.T) {
+	if ReplyKey("msg-9") != "reply-msg-9" || !ValidOperationID(ReplyKey("msg-9")) {
+		t.Fatal(ReplyKey("msg-9"))
+	}
+	f := newFake(t, nil)
+	r := writeReq(ReplyKey("msg-9"), false)
+	one := f.client(outbox(t))
+	valid(t, call(one, r))
+	two := f.client(outbox(t)) // a different directory, a different incarnation
+	valid(t, call(two, r))
+	if f.seen["reply-msg-9"] != 2 {
+		t.Fatalf("the service should see the same key twice: %v", f.seen)
+	}
+	if one.Outbox.incarnation == two.Outbox.incarnation {
+		t.Fatal("the incarnations should differ")
+	}
+}
+
+// O19: the implicit drain changes neither the result nor the exit of the call.
+func TestO19ImplicitDrainDoesNotChangeTheCall(t *testing.T) {
+	f := newFake(t, func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Header.Get("Idempotency-Key") == "op-old" {
+			w.WriteHeader(500)
+			return true
+		}
+		return false
+	})
+	ob := outbox(t)
+	enqueue(t, ob, "op-old")
+	res := valid(t, call(f.client(ob), readReq()))
+	recs, _ := ob.List()
+	if res.Outcome != OutcomeOK || res.Exit() != kit.ExitOK || len(recs) != 1 || recs[0].State != StateUnknown {
+		t.Fatalf("%s %v", res.JSON(), recs)
+	}
+}
+
+// While a write is on the wire its record is already unknown, durably.
+func TestTheRecordIsUnknownWhileTheWriteIsInFlight(t *testing.T) {
+	ob := outbox(t)
+	var during string
+	f := newFake(t, func(w http.ResponseWriter, r *http.Request) bool {
+		recs, _ := ob.List()
+		if len(recs) == 1 {
+			during = recs[0].State
+		}
+		return false
+	})
+	if res := valid(t, call(f.client(ob), writeReq("op-1", false))); res.Outcome != OutcomeOK {
+		t.Fatalf("%s", res.JSON())
+	}
+	if during != StateUnknown {
+		t.Fatalf("the record was %q while the request was in flight", during)
+	}
+	if left, _ := ob.List(); len(left) != 0 {
+		t.Fatalf("%v", left)
+	}
+}
+
+// The implicit drain has its own deadline: it is not cut short by what is left
+// of the triggering call's.
+func TestTheImplicitDrainHasItsOwnDeadline(t *testing.T) {
+	old := Read
+	t.Cleanup(func() { Read = old })
+	Read = Policy{Connect: time.Second, Total: 120 * time.Millisecond}
+	f := newFake(t, func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Header.Get("Idempotency-Key") == "op-old" {
+			time.Sleep(250 * time.Millisecond)
+		}
+		return false
+	})
+	ob := outbox(t)
+	enqueue(t, ob, "op-old")
+	valid(t, call(f.client(ob), readReq()))
+	if left, _ := ob.List(); len(left) != 0 {
+		t.Fatalf("the drain was cut short by the read's deadline: %v", left)
+	}
+}
+
+// Records of another service neither block a write nor are sent by this client.
+func TestRecordsOfAnotherServiceNeitherBlockNorAreSent(t *testing.T) {
+	f := newFake(t, nil)
+	ob := outbox(t)
+	if _, err := ob.Enqueue("other", "send", "op-x", req(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	dead := f.client(ob)
+	res := valid(t, call(dead, writeReq("op-1", false)))
+	left, _ := ob.List()
+	if res.Outcome != OutcomeOK || f.seen["op-x"] != 0 || len(left) != 1 || left[0].OperationID != "op-x" {
+		t.Fatalf("%s %v %v", res.JSON(), left, f.seen)
+	}
+	if n, _ := f.client(ob).Drain(context.Background()); n != 0 || f.seen["op-x"] != 0 {
+		t.Fatalf("this client drained another service's record: %d %v", n, f.seen)
+	}
+}
+
+func TestDoctorShowsAHold(t *testing.T) {
+	f := newFake(t, nil)
+	ob := outbox(t)
+	os.WriteFile(filepath.Join(ob.dir, fileName(3, "op-3")), []byte("{"), 0o600)
+	d := f.client(ob).Doctor(context.Background(), "zmsg", "/v1/health", "aud")
+	if !d.Held || d.Outbox == nil || d.Outbox.Bad != 1 {
+		t.Fatalf("%+v", d)
 	}
 }

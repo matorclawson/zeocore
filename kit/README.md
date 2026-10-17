@@ -62,23 +62,26 @@ binary: the shapes of the four documents, every exit code it can reach, single-d
 purity, and that every command `help` lists exists. zeocore runs it against the sample app; an app
 adopts it in its own tests.
 
-## client (DRAFT, ZEOCORE-SOW-35 section 10)
+## client (DRAFT, ZEOCORE-SOW-35 rev e)
 
 `kit/client` is the shared client contract: how a tool finds a service that may run on this host or on
 another, and what it does when the service does not answer. It is a **draft** until the council's joint
 review of the messenger, runtime and client designs rules; nothing in it is adopted, and no name in it is
 final. Standard library only.
 
-- `Resolve(service, getenv, hostFile)`: `ZEO_<S>_ENDPOINT`, then the per-host `zeo.endpoints/v1` file,
-  else a refusal. A set variable wins, even empty (empty is malformed). The value is the exact word
-  `local` or an `https://` URL with no userinfo, query, fragment, space or control character. There is no
-  default and no fallback: a missing or malformed configuration never becomes `local`.
-- `Client.Call`: a read fails closed (no cache) and retries at most twice, only before any response byte.
-  A write is never retried inside one call: it completes, is refused, is spooled (only if the owner marked
-  the verb spoolable), or is `dispatch_unknown` with its operation id retained.
-- `Result` (`zeo.client-result/v1`) and its exit mapping onto the closed table: `dispatch_unknown` is exit 1,
-  never 6, so a script cannot resend it. `spooled` is exit 0: read the outcome.
-- `Outbox`: a 0700 directory on the host's internal disk, one 0600 canonical-JSON record per write, at most
-  1000 records and 8 MiB, the same operation id is one record, drained in sequence order; the server
-  deduplicates by key.
-
+- **The root-owned host file decides** (`LoadHost`, `Resolve`). Its owner, mode, parents, symlinks and size
+  are checked at read time, and a failure refuses (`host_config`); the credential, the CA bundle and the
+  credential file get the same checks. A variable can only select an origin the file lists. **A release
+  build with no host file refuses**; only a binary built with `-tags zeodev` takes a variable, and it
+  never attaches the credential or runs a privileged local verb.
+- **Transport:** no redirects, no environment proxy, HTTP/1.1 only, trust roots from the bundle (never
+  `SSL_CERT_*`), an optional key pin. A TLS verification failure is a refusal (exit 3), not an outage.
+- **Calls:** a read fails closed (no cache), retries at most twice before any byte is sent, inside one
+  deadline. A write is stored in the outbox first, made `unknown` durably before any byte is emitted, and
+  never retried inside one call: it completes, is refused, is spooled (only if asked and the owner's
+  contract de-duplicates by key), or is `dispatch_unknown` with its operation id and spool id.
+- **Ordering:** a new write never overtakes queued or unknown records of the same service; a torn or
+  suspect file holds the order until `Resolve`. An unknown record is resent only by `Reconcile`, with the
+  same key.
+- **Result:** `zeo.client-result/v1` with a closed reason set per outcome and its exit mapping;
+  `dispatch_unknown` is exit 1, never 6.

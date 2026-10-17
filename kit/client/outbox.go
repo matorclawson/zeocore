@@ -95,6 +95,7 @@ var (
 	ErrKeyConflict = errors.New("the same key with a different payload")
 	ErrDrainBusy   = errors.New("another drain is running")
 	ErrDisk        = errors.New("the outbox could not be written durably")
+	ErrHeld        = errors.New("the outbox order is held: a file needs a person to look at it")
 )
 
 // OpenOutbox opens dir, creating it with mode 0700 if it is missing. The path
@@ -135,11 +136,13 @@ func OpenOutbox(dir, sender string, now func() time.Time) (*Outbox, error) {
 	if err := o.loadIncarnation(); err != nil {
 		return nil, err
 	}
-	// A temporary file left by a crash is not a record.
+	// An unfinished temporary file from a crash is not a record, but deleting
+	// it would not prove that no durable sequence intent exists: it is kept
+	// aside and holds the order until a person resolves it.
 	if ents, err := os.ReadDir(dir); err == nil {
 		for _, e := range ents {
 			if strings.HasPrefix(e.Name(), ".tmp-") {
-				_ = os.Remove(filepath.Join(dir, e.Name()))
+				_ = os.Rename(filepath.Join(dir, e.Name()), filepath.Join(dir, e.Name()+".suspect"))
 			}
 		}
 	}
@@ -200,7 +203,7 @@ func (o *Outbox) list() ([]Record, int, error) {
 	bad := 0
 	for _, e := range ents {
 		name := e.Name()
-		if strings.HasSuffix(name, ".bad") {
+		if strings.HasSuffix(name, ".bad") || strings.HasSuffix(name, ".suspect") {
 			bad++
 			continue
 		}
@@ -220,6 +223,34 @@ func (o *Outbox) list() ([]Record, int, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
 	return out, bad, nil
+}
+
+// Held says whether a torn, unparsable or suspect file holds the order. While
+// it does, no later record is sent and no new write is accepted: the missing
+// ordinal is never skipped.
+func (o *Outbox) Held() bool {
+	_, bad, err := o.list()
+	return err != nil || bad > 0
+}
+
+// Resolve clears a hold after a person has looked at the held files. They are
+// kept, renamed .resolved, for the record.
+func (o *Outbox) Resolve() (int, error) {
+	ents, err := os.ReadDir(o.dir)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, e := range ents {
+		name := e.Name()
+		if strings.HasSuffix(name, ".bad") || strings.HasSuffix(name, ".suspect") {
+			if err := os.Rename(filepath.Join(o.dir, name), filepath.Join(o.dir, name+".resolved")); err != nil {
+				return n, err
+			}
+			n++
+		}
+	}
+	return n, nil
 }
 
 func digestOf(canon []byte) string {
@@ -248,9 +279,12 @@ func (o *Outbox) Enqueue(service, verb, id string, req StoredRequest) (Record, e
 		return Record{}, ErrDisk
 	}
 	defer unlock()
-	recs, _, err := o.list()
+	recs, bad, err := o.list()
 	if err != nil {
 		return Record{}, err
+	}
+	if bad > 0 {
+		return Record{}, ErrHeld
 	}
 	digest := digestOf(canon)
 	var next uint64 = 1
@@ -297,7 +331,9 @@ func (o *Outbox) write(rec Record) error {
 		return err
 	}
 	name := tmp.Name()
-	fail := func(err error) error { tmp.Close(); _ = os.Remove(name); return err }
+	// A failed write or fsync is durability UNKNOWN, not "nothing written":
+	// the file is kept aside as .suspect and holds the order.
+	fail := func(err error) error { tmp.Close(); _ = os.Rename(name, name+".suspect"); return err }
 	if err := tmp.Chmod(0o600); err != nil {
 		return fail(err)
 	}
@@ -308,14 +344,19 @@ func (o *Outbox) write(rec Record) error {
 		return fail(err)
 	}
 	if err := tmp.Close(); err != nil {
-		_ = os.Remove(name)
+		_ = os.Rename(name, name+".suspect")
 		return err
 	}
-	if err := os.Rename(name, filepath.Join(o.dir, fileName(rec.Seq, rec.OperationID))); err != nil {
-		_ = os.Remove(name)
+	final := filepath.Join(o.dir, fileName(rec.Seq, rec.OperationID))
+	if err := os.Rename(name, final); err != nil {
+		_ = os.Rename(name, name+".suspect")
 		return err
 	}
-	return o.syncDir(o.dir)
+	if err := o.syncDir(o.dir); err != nil {
+		_ = os.Rename(final, final+".suspect")
+		return err
+	}
+	return nil
 }
 
 // SetState changes a record's state.
@@ -391,42 +432,64 @@ func (o *Outbox) Stats() (Stats, error) {
 }
 
 // Drain sends queued records in sequence order, one at a time, under a lock
-// so that only one drain runs. A record is removed only after send reports
-// ok. A refusal marks the record refused and the drain goes on. A dispatch of
-// unknown outcome marks it unknown and stops. Any other failure stops with
-// the record still queued. A record that is not queued stops the drain: an
-// unresolved unknown record blocks the sender's later records, so order is
-// kept and an unknown dispatch is never resent by a drain.
+// so that only one drain runs. Before each send the record is made `unknown`,
+// durably: a crash before that proves no emission, and one after it leaves the
+// record unknown, never to be resent by a drain. After the send: ok removes
+// the record; a failure that proves nothing was sent puts it back to queued
+// and stops; a refusal marks it refused and the drain goes on; anything else
+// leaves it unknown and stops. A record that is not queued stops the drain (a
+// refused one is skipped): an unresolved unknown record blocks the sender's
+// later records, so order is kept. A hold stops it too.
 func (o *Outbox) Drain(send func(Record) Result) (sent int, err error) {
+	return o.DrainBefore("", 0, send)
+}
+
+// DrainBefore is Drain limited to one service's records ("" means all) and to
+// those ahead of sequence number seq (0 means all), so a new write can clear
+// what is ahead of it without sending itself. Records of other services are
+// neither sent nor a block: order is kept per service and sender.
+func (o *Outbox) DrainBefore(service string, seq uint64, send func(Record) Result) (sent int, err error) {
 	unlock, err := o.lock(".drain.lock", false)
 	if err != nil {
 		return 0, err
 	}
 	defer unlock()
-	recs, err := o.List()
+	recs, bad, err := o.list()
 	if err != nil {
 		return 0, err
 	}
+	if bad > 0 {
+		return 0, ErrHeld
+	}
 	for _, r := range recs {
+		if service != "" && r.Service != service {
+			continue
+		}
+		if seq != 0 && r.Seq >= seq {
+			return sent, nil
+		}
 		if r.State != StateQueued {
 			if r.State == StateRefused {
 				continue
 			}
 			return sent, nil
 		}
+		if err := o.SetState(r, StateUnknown); err != nil {
+			return sent, err
+		}
 		res := send(r)
-		switch res.Outcome {
-		case OutcomeOK:
+		switch {
+		case res.Outcome == OutcomeOK:
 			if err := o.Remove(r); err != nil {
 				return sent, err
 			}
 			sent++
-		case OutcomeRefused, OutcomeInvalid:
+		case res.Outcome == OutcomeRefused && res.Sent || res.Outcome == OutcomeInvalid || res.Outcome == OutcomeNotFound:
 			if err := o.SetState(r, StateRefused); err != nil {
 				return sent, err
 			}
-		case OutcomeDispatchUnknown:
-			return sent, o.SetState(r, StateUnknown)
+		case !res.Sent:
+			return sent, o.SetState(r, StateQueued)
 		default:
 			return sent, nil
 		}

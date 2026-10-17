@@ -17,13 +17,15 @@ const MaxHostFile = 64 << 10
 
 // HostEntry is one service in the host file.
 type HostEntry struct {
-	Origin     *string  `json:"origin"`
-	Local      bool     `json:"local"`
-	Audience   string   `json:"audience"`
-	SPKI       *string  `json:"spki_sha256"`
-	AllowEnv   bool     `json:"allow_env"`
-	EnvOrigins []string `json:"env_origins"`
-	EnvLocal   bool     `json:"env_local"`
+	Origin   *string `json:"origin"`
+	Local    bool    `json:"local"`
+	Audience string  `json:"audience"`
+	// CredentialFile is the root-owned file that holds the per-host credential.
+	CredentialFile *string  `json:"credential_file"`
+	SPKI           *string  `json:"spki_sha256"`
+	AllowEnv       bool     `json:"allow_env"`
+	EnvOrigins     []string `json:"env_origins"`
+	EnvLocal       bool     `json:"env_local"`
 }
 
 // HostConfig is the root-owned, authoritative endpoint configuration.
@@ -144,6 +146,14 @@ func LoadHost(f FS, path string) (*HostConfig, error) {
 				return nil, hostRefusal("the host config entry for " + name + " is malformed")
 			}
 		}
+		if e.Origin != nil && e.SPKI == nil && cfg.CABundle == nil {
+			return nil, hostRefusal("a credentialed entry needs a ca_bundle or an spki_sha256")
+		}
+		if e.CredentialFile != nil {
+			if err := f.checkPath(*e.CredentialFile, MaxHostFile); err != nil {
+				return nil, hostRefusal("a credential file is not a root-owned regular file")
+			}
+		}
 		for _, o := range e.EnvOrigins {
 			if _, err := parseOrigin(o); err != nil {
 				return nil, hostRefusal("the host config entry for " + name + " is malformed")
@@ -158,6 +168,22 @@ func LoadHost(f FS, path string) (*HostConfig, error) {
 		return nil, hostRefusal("ca_bundle is required on this platform")
 	}
 	return &cfg, nil
+}
+
+// CredentialFromFile reads the per-host credential from its root-owned file,
+// checking the path again at read time. The credential proves the host, not a
+// seat; it is never printed.
+func CredentialFromFile(f FS, path string) func() (string, error) {
+	return func() (string, error) {
+		if err := f.checkPath(path, MaxHostFile); err != nil {
+			return "", err
+		}
+		raw, err := f.ReadFile(path)
+		if err != nil {
+			return "", hostRefusal("the credential cannot be read")
+		}
+		return strings.TrimSpace(string(raw)), nil
+	}
 }
 
 // systemRootsIgnoreEnv says whether the platform's verifier is immune to

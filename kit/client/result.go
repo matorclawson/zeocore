@@ -32,10 +32,10 @@ var Reasons = map[Outcome][]string{
 	OutcomeSpooled: nil,
 	OutcomeInvalid: {"usage", "request", "operation_id"},
 	OutcomeRefused: {"endpoint", "host_config", "not_configured", "origin", "credential", "auth", "stopped",
-		"key_conflict", "not_spoolable", "outbox_full", "outbox", "no_outbox"},
+		"tls", "key_conflict", "not_spoolable", "outbox_full", "outbox", "no_outbox", "busy", "blocked"},
 	OutcomeNotFound:        {"not_found"},
 	OutcomeTimeout:         {"timeout"},
-	OutcomeUnavailable:     {"unavailable", "offline", "tls", "require_delivery", "server_error", "response_invalid"},
+	OutcomeUnavailable:     {"unavailable", "offline", "require_delivery", "server_error", "response_invalid"},
 	OutcomeDispatchUnknown: {"dispatch_unknown", "timeout_after_send", "server_error", "redirect", "response_invalid"},
 	OutcomeNotReady:        {"not_ready"},
 }
@@ -129,4 +129,10 @@ func ParseResult(raw []byte) (Result, error) {
 		return Result{}, &Refusal{"request", "not a result document"}
 	}
 	return r, nil
+}
+
+// NotReady is the result of `doctor` when a prerequisite fails, for example a
+// release build with no host config.
+func NotReady(service string) Result {
+	return Result{Service: service, Verb: "doctor", Outcome: OutcomeNotReady, Reason: str("not_ready"), Transport: "remote"}
 }

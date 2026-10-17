@@ -156,6 +156,7 @@ func (f *fake) client(ob *Outbox) *Client {
 		Roots:      f.roots,
 		Credential: func() (string, error) { return secret, nil },
 		Outbox:     ob,
+		Service:    "zmsg",
 		Sleep:      func(time.Duration) {},
 		Jitter:     func(d time.Duration) time.Duration { return d },
 	}
@@ -216,4 +217,12 @@ var hitsCounter atomic.Int64
 
 func pemOf(f *fake) []byte {
 	return pemEncode(f.srv.Certificate().Raw)
+}
+
+// devMode stands the test in a binary built with the zeodev tag.
+func devMode(t *testing.T) {
+	t.Helper()
+	old := DevBuild
+	DevBuild = true
+	t.Cleanup(func() { DevBuild = old })
 }

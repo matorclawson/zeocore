@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+// DevBuild says whether this binary was built with the zeodev tag. Only such a
+// binary accepts an endpoint from the environment when there is no host file.
+// It is a variable so that a test can stand in either kind of build.
+var DevBuild = devBuild
+
 // Source says where an endpoint came from.
 type Source string
 
@@ -69,6 +74,9 @@ func Resolve(service string, getenv func(string) (string, bool), host *HostConfi
 	name := EnvName(service)
 	v, set := getenv(name)
 	if host == nil {
+		if !DevBuild {
+			return Endpoint{}, &Refusal{"not_configured", "no host config for " + service + ": a release build does not use " + name}
+		}
 		if !set {
 			return Endpoint{}, &Refusal{"not_configured", "no endpoint for " + service + ": set " + name + " or install the host config"}
 		}
@@ -111,6 +119,10 @@ func Resolve(service string, getenv func(string) (string, bool), host *HostConfi
 	o, _ := parseOrigin(*e.Origin)
 	return Endpoint{Origin: o, Source: SourceHost, Audience: e.Audience, SPKI: spki, Credential: true}, nil
 }
+
+// PrivilegedLocalAllowed says whether the tool may run the service's privileged
+// --local verbs: never for a local binding that came from a development build.
+func (e Endpoint) PrivilegedLocalAllowed() bool { return e.Local && e.Source != SourceDev }
 
 func listed(origin string, e HostEntry) bool {
 	if e.Origin != nil {
