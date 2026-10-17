@@ -105,6 +105,8 @@ type App struct {
 	Subjects []Subject
 	// StateDir is where apply writes its backup and undo plan; required with Subjects.
 	StateDir string
+	// Updater gives the app update, rollback and recover.
+	Updater *Updater
 }
 
 var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -116,7 +118,7 @@ func (a *App) kitVerbs() []Command {
 		{Name: "version", Summary: "Version, source commit and signature state.", Output: SchemaVersion, Exits: []ExitCode{ExitFailed}, Run: a.runVersion},
 		{Name: "doctor", Summary: "Check every prerequisite, in order; each failure names its next step.", Output: SchemaDoctor, Exits: []ExitCode{ExitFailed, ExitNotReady}, Run: a.runDoctor},
 		{Name: "status", Summary: "What runs, at which version, healthy or not, live or not.", Output: SchemaStatus, Exits: []ExitCode{ExitFailed}, Run: a.runStatus},
-	}, a.planCommands()...)
+	}, append(a.planCommands(), a.updateCommands()...)...)
 }
 
 // Validate refuses an app that cannot be registered: a missing hook, a bad or
@@ -135,6 +137,9 @@ func (a *App) Validate() error {
 		return errors.New("kit: the Status hook is required")
 	}
 	if err := a.validateSubjects(); err != nil {
+		return err
+	}
+	if err := a.validateUpdater(); err != nil {
 		return err
 	}
 	seen := map[string]bool{}
@@ -307,6 +312,9 @@ func (a *App) schemas() []string {
 	all := map[string]bool{SchemaHelp: true, SchemaVersion: true, SchemaDoctor: true, SchemaStatus: true}
 	if len(a.Subjects) > 0 {
 		all[SchemaPlan], all[SchemaApply] = true, true
+	}
+	if a.Updater != nil || len(a.Subjects) > 0 {
+		all[SchemaUpdate] = true // recover prints it, with or without an updater
 	}
 	for _, s := range a.Schemas {
 		all[s] = true
