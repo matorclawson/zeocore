@@ -10,5 +10,5 @@ import (
 )
 
 func main() {
-	os.Exit(sampleapp.New(os.Getenv("ZEO_KIT_SAMPLE_FAIL_DOCTOR") == "1").Run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(sampleapp.NewWithState(os.Getenv("ZEO_KIT_SAMPLE_FAIL_DOCTOR") == "1", os.Getenv("ZEO_KIT_SAMPLE_DIR")).Run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
 }

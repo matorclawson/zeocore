@@ -100,18 +100,23 @@ type App struct {
 	Status func(context.Context) (Status, error)
 	// Schemas names the documents the app's own commands print.
 	Schemas []string
+	// Subjects are the things plan and apply work on. With none, the app has
+	// no plan or apply verb.
+	Subjects []Subject
+	// StateDir is where apply writes its backup and undo plan; required with Subjects.
+	StateDir string
 }
 
 var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // kitVerbs are the verbs every app has. An app never changes them.
 func (a *App) kitVerbs() []Command {
-	return []Command{
+	return append([]Command{
 		{Name: "help", Summary: "List the commands.", Output: SchemaHelp, Exits: nil, Run: a.runHelp},
 		{Name: "version", Summary: "Version, source commit and signature state.", Output: SchemaVersion, Exits: []ExitCode{ExitFailed}, Run: a.runVersion},
 		{Name: "doctor", Summary: "Check every prerequisite, in order; each failure names its next step.", Output: SchemaDoctor, Exits: []ExitCode{ExitFailed, ExitNotReady}, Run: a.runDoctor},
 		{Name: "status", Summary: "What runs, at which version, healthy or not, live or not.", Output: SchemaStatus, Exits: []ExitCode{ExitFailed}, Run: a.runStatus},
-	}
+	}, a.planCommands()...)
 }
 
 // Validate refuses an app that cannot be registered: a missing hook, a bad or
@@ -122,10 +127,15 @@ func (a *App) Validate() error {
 		return fmt.Errorf("kit: app name %q must be lowercase letters, digits and dashes", a.Name)
 	case a.Version == "":
 		return errors.New("kit: app version is required")
+	case !wordRe.MatchString(a.Version):
+		return errors.New("kit: the app version must be printable ASCII without a quote, space or equals sign, because the RESULT line carries it")
 	case a.Doctor == nil:
 		return errors.New("kit: the Doctor hook is required")
 	case a.Status == nil:
 		return errors.New("kit: the Status hook is required")
+	}
+	if err := a.validateSubjects(); err != nil {
+		return err
 	}
 	seen := map[string]bool{}
 	for _, k := range a.kitVerbs() {
@@ -295,6 +305,9 @@ func singleDash(t string) error {
 
 func (a *App) schemas() []string {
 	all := map[string]bool{SchemaHelp: true, SchemaVersion: true, SchemaDoctor: true, SchemaStatus: true}
+	if len(a.Subjects) > 0 {
+		all[SchemaPlan], all[SchemaApply] = true, true
+	}
 	for _, s := range a.Schemas {
 		all[s] = true
 	}

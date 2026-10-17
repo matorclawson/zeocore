@@ -6,7 +6,8 @@
 // This package uses the standard library only: an app that links it takes no
 // third-party module.
 //
-// Slice 1 supplies the grammar, the exit table, the RESULT line and the
-// help, version, doctor and status verbs. update, rollback, plan and apply
-// are later slices.
+// Slices 1 and 2 supply the grammar, the exit table, the RESULT line, the
+// help, version, doctor and status verbs, and plan and apply over an app's
+// Subjects (the plan document, its plan_id, the stale check, the backup and
+// the undo). update, rollback and recover are later slices.
 package kit
