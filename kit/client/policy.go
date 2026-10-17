@@ -1,6 +1,9 @@
 package client
 
-import "time"
+import (
+	"math/rand/v2"
+	"time"
+)
 
 // Policy is a call's timeouts and retries. A configuration may lower any
 // value and never raise it (Clamp).
@@ -16,6 +19,14 @@ var (
 	Write = Policy{Connect: 3 * time.Second, Total: 15 * time.Second}
 	Probe = Policy{Connect: 2 * time.Second, Total: 3 * time.Second}
 )
+
+// Jitter adds up to half of d, so retries from many clients do not align.
+func Jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	return d + time.Duration(rand.Int64N(int64(d/2)+1))
+}
 
 // Clamp returns want with every value capped at the contract's value p.
 func (p Policy) Clamp(want Policy) Policy {

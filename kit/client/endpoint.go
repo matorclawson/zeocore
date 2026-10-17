@@ -1,122 +1,146 @@
 package client
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
-	"io/fs"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 // Source says where an endpoint came from.
 type Source string
 
-// The three sources of an endpoint.
+// The sources of an endpoint.
 const (
 	SourceEnv   Source = "env"
 	SourceHost  Source = "host"
+	SourceDev   Source = "dev"
 	SourceLocal Source = "local"
 )
 
 // EndpointsSchema names the per-host config document.
 const EndpointsSchema = "zeo.endpoints/v1"
 
-// Endpoint is the resolved place of a service: an https URL, or Local, which
-// means the caller runs the service's own --local verb.
+// Endpoint is the resolved place of a service.
 type Endpoint struct {
-	URL    string
-	Local  bool
-	Source Source
+	Origin   string // https://host[:port], host lower-cased; empty when Local
+	Local    bool
+	Source   Source
+	Audience string
+	SPKI     string
+	// Credential says the per-host credential may be attached: the origin is
+	// pinned by the root-owned host file. It is never true in development.
+	Credential bool
 }
 
 // Refusal is a resolution that refused. Message names the variable or the key
 // and never the value it refused.
 type Refusal struct {
-	Reason  string // "endpoint" or "not_configured"
+	Reason  string
 	Message string
 }
 
 func (r *Refusal) Error() string { return r.Message }
 
-var serviceRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+var serviceRe = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 
 // EnvName is the one override variable of a service: ZEO_<S>_ENDPOINT, with
-// every character that is not a letter or a digit written as an underscore.
+// each hyphen written as an underscore.
 func EnvName(service string) string {
-	var b strings.Builder
-	for _, r := range strings.ToUpper(service) {
-		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('_')
-		}
-	}
-	return "ZEO_" + b.String() + "_ENDPOINT"
+	return "ZEO_" + strings.ToUpper(strings.ReplaceAll(service, "-", "_")) + "_ENDPOINT"
 }
 
-// Resolve finds the endpoint of service. A variable that is SET, even empty,
-// wins and the host file is then not read; with none, the host file's entry
-// is used; with neither, it refuses: there is no default and no fallback, and
-// in particular a missing or malformed configuration never becomes "local".
-func Resolve(service string, getenv func(string) (string, bool), hostFile func() ([]byte, error)) (Endpoint, error) {
-	if !serviceRe.MatchString(service) {
+func validService(s string) bool { return len(s) <= 32 && serviceRe.MatchString(s) }
+
+// Resolve finds the endpoint of service. host is the validated host file, or
+// nil when it is absent (development).
+//
+// With a host file the entry decides. A variable is consulted only if the
+// entry allows it, and then it can only select an origin the file lists (or
+// local, if the file permits): a seat that plants a variable cannot choose
+// where the credential goes. Without a host file a variable is accepted, the
+// source is dev, and no credential is ever attached. There is no default and
+// no fallback: a missing or malformed configuration never becomes local.
+func Resolve(service string, getenv func(string) (string, bool), host *HostConfig) (Endpoint, error) {
+	if !validService(service) {
 		return Endpoint{}, &Refusal{"endpoint", "the service name is not valid"}
 	}
 	name := EnvName(service)
-	if v, ok := getenv(name); ok {
-		ep, err := parseValue(v, SourceEnv)
+	v, set := getenv(name)
+	if host == nil {
+		if !set {
+			return Endpoint{}, &Refusal{"not_configured", "no endpoint for " + service + ": set " + name + " or install the host config"}
+		}
+		if v == "local" {
+			return Endpoint{Local: true, Source: SourceDev}, nil
+		}
+		o, err := parseOrigin(v)
 		if err != nil {
 			return Endpoint{}, &Refusal{"endpoint", name + " is malformed"}
 		}
-		return ep, nil
+		return Endpoint{Origin: o, Source: SourceDev}, nil
 	}
-	raw, err := hostFile()
-	if errors.Is(err, fs.ErrNotExist) {
-		return Endpoint{}, &Refusal{"not_configured", "no endpoint for " + service + ": set " + name + " or the host config"}
-	}
-	if err != nil {
-		return Endpoint{}, &Refusal{"endpoint", "the host endpoint config cannot be read"}
-	}
-	var doc struct {
-		Schema   string            `json:"schema"`
-		Services map[string]string `json:"services"`
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&doc); err != nil || doc.Schema != EndpointsSchema || dec.More() {
-		return Endpoint{}, &Refusal{"endpoint", "the host endpoint config is malformed"}
-	}
-	v, ok := doc.Services[service]
+	e, ok := host.Services[service]
 	if !ok {
-		return Endpoint{}, &Refusal{"not_configured", "no endpoint for " + service + ": set " + name + " or the host config"}
+		return Endpoint{}, &Refusal{"not_configured", "no endpoint for " + service + " in the host config"}
 	}
-	ep, err := parseValue(v, SourceHost)
-	if err != nil {
-		return Endpoint{}, &Refusal{"endpoint", "the host config entry for " + service + " is malformed"}
+	spki := ""
+	if e.SPKI != nil {
+		spki = strings.ToLower(*e.SPKI)
 	}
-	return ep, nil
+	if set && e.AllowEnv {
+		if v == "local" {
+			if !e.EnvLocal {
+				return Endpoint{}, &Refusal{"origin", name + " names local, which the host config does not permit"}
+			}
+			return Endpoint{Local: true, Source: SourceEnv, Audience: e.Audience}, nil
+		}
+		o, err := parseOrigin(v)
+		if err != nil {
+			return Endpoint{}, &Refusal{"endpoint", name + " is malformed"}
+		}
+		if !listed(o, e) {
+			return Endpoint{}, &Refusal{"origin", name + " names an origin the host config does not list"}
+		}
+		return Endpoint{Origin: o, Source: SourceEnv, Audience: e.Audience, SPKI: spki, Credential: true}, nil
+	}
+	if e.Local {
+		return Endpoint{Local: true, Source: SourceHost, Audience: e.Audience}, nil
+	}
+	o, _ := parseOrigin(*e.Origin)
+	return Endpoint{Origin: o, Source: SourceHost, Audience: e.Audience, SPKI: spki, Credential: true}, nil
 }
 
-// parseValue accepts the exact word local, or an https URL with a host and no
-// userinfo, query, fragment, space or control character. Nothing is trimmed
-// or case-folded.
-func parseValue(v string, src Source) (Endpoint, error) {
-	if v == "local" {
-		return Endpoint{Local: true, Source: src}, nil
-	}
-	if !strings.HasPrefix(v, "https://") {
-		return Endpoint{}, errors.New("not https")
-	}
-	for i := 0; i < len(v); i++ {
-		if v[i] <= ' ' || v[i] >= 0x7f || v[i] == '?' || v[i] == '#' {
-			return Endpoint{}, errors.New("bad character")
+func listed(origin string, e HostEntry) bool {
+	if e.Origin != nil {
+		if p, err := parseOrigin(*e.Origin); err == nil && p == origin {
+			return true
 		}
 	}
-	u, err := url.Parse(v)
-	if err != nil || u.Host == "" || u.User != nil || u.Hostname() == "" {
-		return Endpoint{}, errors.New("bad url")
+	for _, o := range e.EnvOrigins {
+		if p, err := parseOrigin(o); err == nil && p == origin {
+			return true
+		}
 	}
-	return Endpoint{URL: strings.TrimRight(v, "/"), Source: src}, nil
+	return false
+}
+
+// parseOrigin accepts https://host[:port] with printable ASCII and nothing
+// else: originRe admits no userinfo, path, query, fragment or space. The host
+// is lower-cased; nothing else is changed.
+func parseOrigin(v string) (string, error) {
+	if !originRe.MatchString(v) {
+		return "", errors.New("not an origin")
+	}
+	u, err := url.Parse(v)
+	if err != nil || u.Hostname() == "" || strings.HasSuffix(u.Host, ":") {
+		return "", errors.New("not an origin")
+	}
+	if p := u.Port(); p != "" {
+		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
+			return "", errors.New("bad port")
+		}
+	}
+	return "https://" + strings.ToLower(u.Host), nil
 }

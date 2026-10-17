@@ -87,45 +87,135 @@ RESULT totals refuse reserved keys	result.go	s/seen := map\[string\]bool\{"from"
 doctor prints an empty list, not null	verbs.go	s/if checks == nil \{/if false {/	./...
 an unhealthy status names itself on stderr	verbs.go	s/\t\tfmt\.Fprintf\(c\.Stderr, "%s: status: not healthy[^\n]*\n//	./...
 RESULT: undo is escaped to ASCII	result.go	s/strconv\.QuoteToASCII\(r\.Undo\)/strconv.Quote(r.Undo)/	./...
-CLIENT: an empty variable falls through to the file	client/endpoint.go	s/if v, ok := getenv\(name\); ok \{/if v, ok := getenv(name); ok \&\& v != \"\" {/	./client/
-CLIENT: a value need not be https	client/endpoint.go	s/if !strings\.HasPrefix\(v, \"https:\/\/\"\) \{/if false {/	./client/
-CLIENT: userinfo is accepted	client/endpoint.go	s/u\.User != nil/false/	./client/
-CLIENT: a query or fragment is accepted	client/endpoint.go	s/ \|\| v\[i\] == '\?' \|\| v\[i\] == '#'//	./client/
-CLIENT: a space or control character is accepted	client/endpoint.go	s/v\[i\] <= ' ' \|\| v\[i\] >= 0x7f/v[i] < 0/	./client/
-CLIENT: a missing host file is a malformed one	client/endpoint.go	s/errors\.Is\(err, fs\.ErrNotExist\)/(errors.Is(err, fs.ErrNotExist) \&\& false)/	./client/
-CLIENT: the host file may hold unknown fields	client/endpoint.go	s/dec\.DisallowUnknownFields\(\)//	./client/
-CLIENT: the host file schema is not checked	client/endpoint.go	s/ \|\| doc\.Schema != EndpointsSchema//	./client/
-CLIENT: data after the host document is accepted	client/endpoint.go	s/ \|\| dec\.More\(\)//	./client/
-CLIENT: an unlisted service is not not_configured	client/endpoint.go	s/v, ok := doc\.Services\[service\]\n\tif !ok \{/v, ok := doc.Services[service]\n\tif false \&\& !ok {/	./client/
-CLIENT: a service name is not validated	client/endpoint.go	s/if !serviceRe\.MatchString\(service\) \{/if false {/	./client/
-CLIENT: the variable name keeps punctuation	client/endpoint.go	s/b\.WriteByte\('_'\)/b.WriteRune(r)/	./client/
-CLIENT: an unknown dispatch exits 6	client/result.go	s/default:\n\t\treturn kit\.ExitFailed/default:\n\t\treturn kit.ExitUnavailable/	./client/
+CLIENT: a variable beats the host file without permission	client/endpoint.go	s/if set \&\& e\.AllowEnv \{/if set {/	./client/
+CLIENT: an unlisted origin is accepted	client/endpoint.go	s/if !listed\(o, e\) \{/if false {/	./client/
+CLIENT: local from the environment needs no permission	client/endpoint.go	s/if !e\.EnvLocal \{/if false {/	./client/
+CLIENT: a dev origin carries the credential	client/endpoint.go	s/return Endpoint\{Origin: o, Source: SourceDev\}, nil/return Endpoint{Origin: o, Source: SourceDev, Credential: true}, nil/	./client/
+CLIENT: no variable in dev is not not_configured	client/endpoint.go	s/if !set \{\n\t\t\treturn Endpoint\{\}, \&Refusal\{\"not_configured\"/if false {\n\t\t\treturn Endpoint{}, \&Refusal{\"not_configured\"/	./client/
+CLIENT: an unlisted service is not not_configured	client/endpoint.go	s/e, ok := host\.Services\[service\]\n\tif !ok \{/e, ok := host.Services[service]\n\tif false \&\& !ok {/	./client/
+CLIENT: a service name may be longer than 32	client/endpoint.go	s/len\(s\) <= 32 \&\& //	./client/
+CLIENT: a service name may hold punctuation	client/endpoint.go	s/\^\[a-z\]\[a-z0-9\]\*\(-\[a-z0-9\]\+\)\*\$/^[a-z][a-z0-9_.-]*\$/	./client/
+CLIENT: an origin is not checked against the grammar	client/endpoint.go	s/if !originRe\.MatchString\(v\) \{/if false {/	./client/
+CLIENT: a host is not lower-cased	client/endpoint.go	s/strings\.ToLower\(u\.Host\)/u.Host/	./client/
+CLIENT: a port is not checked	client/endpoint.go	s/n < 1 \|\| n > 65535/n < -1 || n > 99999/	./client/
+CLIENT: an empty port is accepted	client/endpoint.go	s/ \|\| strings\.HasSuffix\(u\.Host, ":"\)//	./client/
+CLIENT: the host file owner is not checked	client/host.go	s/!ok \|\| uid != 0/!ok || uid < 0/	./client/
+CLIENT: a group-writable host file is accepted	client/host.go	s/Perm\(\)\&0o022 != 0/Perm()\&0o002 != 0/	./client/
+CLIENT: an other-writable host file is accepted	client/host.go	s/Perm\(\)\&0o022 != 0/Perm()\&0o020 != 0/	./client/
+CLIENT: a symlink in the host path is accepted	client/host.go	s/fi\.Mode\(\)\&fs\.ModeSymlink != 0/false/	./client/
+CLIENT: a host file need not be regular	client/host.go	s/!fi\.Mode\(\)\.IsRegular\(\) \|\| //	./client/
+CLIENT: a host file may be any size	client/host.go	s/ \|\| fi\.Size\(\) > max//	./client/
+CLIENT: a parent need not be a directory	client/host.go	s/\} else if !fi\.IsDir\(\) \{/} else if false {/	./client/
+CLIENT: the host path need not be absolute and clean	client/host.go	s/if !filepath\.IsAbs\(path\) \|\| filepath\.Clean\(path\) != path \{/if false {/	./client/
+CLIENT: the host file schema is not checked	client/host.go	s/ \|\| cfg\.Schema != EndpointsSchema//	./client/
+CLIENT: a service name in the host file is not validated	client/host.go	s/if !validService\(name\) \{/if false {/	./client/
+CLIENT: an entry may hold both origin and local, or neither	client/host.go	s/\(e\.Origin == nil\) == !e\.Local/false/	./client/
+CLIENT: an origin entry needs no audience	client/host.go	s/ \|\| e\.Audience == \"\"//	./client/
+CLIENT: an env origin is not validated	client/host.go	s/for _, o := range e\.EnvOrigins \{\n\t\t\tif _, err := parseOrigin\(o\); err != nil \{/for _, o := range e.EnvOrigins {\n\t\t\tif _, err := parseOrigin(o); err != nil \&\& false {/	./client/
+CLIENT: the CA bundle is not checked	client/host.go	s/if err := f\.checkPath\(\*cfg\.CABundle, MaxHostFile\*64\); err != nil \{/if err := f.checkPath(*cfg.CABundle, MaxHostFile*64); err != nil \&\& false {/	./client/
+CLIENT: a bundle is not required where the verifier reads the environment	client/host.go	s/\} else if !systemRootsIgnoreEnv\(\) \{/} else if false {/	./client/
+CLIENT: a bundle with no certificate is accepted	client/host.go	s/if !pool\.AppendCertsFromPEM\(raw\) \{/if !pool.AppendCertsFromPEM(raw) \&\& false {/	./client/
+CLIENT: a duplicate key is accepted	client/strict.go	s/if seen\[key\] \{/if false {/	./client/
+CLIENT: an unknown field is accepted	client/strict.go	s/dec\.DisallowUnknownFields\(\)//	./client/
+CLIENT: data after the document is accepted	client/strict.go	s/if _, err := dec\.Token\(\); !errors\.Is\(err, io\.EOF\) \{/if _, err := dec.Token(); !errors.Is(err, io.EOF) \&\& false {/g	./client/
+CLIENT: an unknown outcome has an exit	client/result.go	s/default:\n\t\treturn kit\.ExitFailed/default:\n\t\treturn kit.ExitUnavailable/	./client/
+CLIENT: not_found is not exit 4	client/result.go	s/return kit\.ExitNotFound/return kit.ExitFailed/	./client/
+CLIENT: timeout is not exit 5	client/result.go	s/return kit\.ExitTimeout/return kit.ExitFailed/	./client/
+CLIENT: doctor not ready is not exit 7	client/result.go	s/return kit\.ExitNotReady/return kit.ExitFailed/	./client/
+CLIENT: refused is not exit 3	client/result.go	s/return kit\.ExitRefused/return kit.ExitFailed/	./client/
+CLIENT: invalid is not exit 2	client/result.go	s/return kit\.ExitUsage/return kit.ExitFailed/	./client/
 CLIENT: spooled is not exit 0	client/result.go	s/case OutcomeOK, OutcomeSpooled:/case OutcomeOK:/	./client/
-CLIENT: the result names no schema	client/result.go	s/\tr\.Schema = ResultSchema\n//	./client/
-CLIENT: a config can raise a timeout	client/policy.go	s/want\.Connect < p\.Connect/want.Connect != p.Connect/	./client/
-CLIENT: a read is retried after bytes were sent	client/call.go	s/ \&\& !last\.Sent//	./client/
-CLIENT: sent is never set	client/call.go	s/sent = true/sent = false/g	./client/
-CLIENT: a sent write is not unknown	client/call.go	s/case sent \&\& !r\.Read:/case false:/	./client/
-CLIENT: a 5xx answer to a write is not unknown	client/call.go	s/case !r\.Read:\n\t\t\/\/ A 5xx/case false:\n\t\t\/\/ A 5xx/	./client/
-CLIENT: a 401 is not refused	client/call.go	s/case resp\.StatusCode == 401:/case false:/	./client/
-CLIENT: a stop answer is not refused	client/call.go	s/case resp\.StatusCode == 403:/case false:/	./client/
-CLIENT: a timeout is called unavailable	client/call.go	s/case timedOut:/case timedOut \&\& false:/	./client/
-CLIENT: a non-spoolable write is spooled	client/call.go	s/if !r\.Spoolable \|\| c\.Outbox == nil \{/if c.Outbox == nil {/	./client/
-CLIENT: a full outbox is not reported	client/call.go	s/case errors\.Is\(err, ErrFull\):/case false:/	./client/
-CLIENT: no idempotency key is sent	client/call.go	s/req\.Header\.Set\(\"Idempotency-Key\", r\.OperationID\)//	./client/
+CLIENT: any reason is valid	client/result.go	s/if a == \*r\.Reason \{/if a != \"\" {/	./client/
+CLIENT: a reason on ok is valid	client/result.go	s/return len\(allowed\) == 0/return true/	./client/
+CLIENT: a result is not validated when read back	client/result.go	s/ \|\| !r\.Valid\(\) \{/ {/	./client/
+CLIENT: the result names no schema	client/result.go	s/\tr\.Schema = ResultSchema\n\tif r\.Transport/\tif r.Transport/	./client/
+CLIENT: a config can raise a connect timeout	client/policy.go	s/want\.Connect < p\.Connect/want.Connect != p.Connect/	./client/
+CLIENT: a config can raise a total timeout	client/policy.go	s/want\.Total < p\.Total/want.Total != p.Total/	./client/
+CLIENT: jitter exceeds half	client/policy.go	s/int64\(d\/2\)\+1/int64(d)+1/	./client/
+CLIENT: jitter is none	client/policy.go	s/rand\.Int64N\(int64\(d\/2\)\+1\)/rand.Int64N(1)/	./client/
+CLIENT: the proxy comes from the environment	client/call.go	s/Proxy:\s+nil,[^\n]*/Proxy: http.ProxyFromEnvironment,/	./client/
+CLIENT: redirects are followed	client/call.go	s/return http\.ErrUseLastResponse/return nil/	./client/
+CLIENT: the pin is not checked	client/call.go	s/hex\.EncodeToString\(sum\[:\]\) != want/hex.EncodeToString(sum[:]) != want \&\& false/	./client/
+CLIENT: the given roots are not used	client/call.go	s/RootCAs: c\.Roots, //	./client/
+CLIENT: a TLS failure is not classed as one	client/call.go	s/case isTLS\(err\):/case false:/	./client/
+CLIENT: a path without a slash is accepted	client/call.go	s/!strings\.HasPrefix\(r\.Path, \"\/\"\) \|\| //	./client/	accepted: the same path also fails in http.NewRequest, which is also invalid; the check keeps the refusal independent of it
 CLIENT: a path with .. is accepted	client/call.go	s/strings\.Contains\(r\.Path, \"\.\.\"\)/false/	./client/
-CLIENT: a write needs no operation id	client/call.go	s/if !r\.Read \&\& !idRe\.MatchString\(r\.OperationID\) \{/if false {/	./client/
+CLIENT: a method is not checked	client/call.go	s/!validMethod\(r\.Method\)/false/	./client/
+CLIENT: a request size is not bounded	client/call.go	s/len\(r\.Body\) > MaxRequest/false/	./client/
+CLIENT: an envelope size is not bounded	client/call.go	s/len\(r\.Envelope\.Body\) > MaxEnvelope/false/	./client/
+CLIENT: an operation id is not checked	client/call.go	s/if !idRe\.MatchString\(r\.OperationID\) \{/if false {/	./client/
+CLIENT: a write body need not be JSON	client/call.go	s/if !json\.Valid\(r\.Body\) \{/if false {/	./client/
+CLIENT: a local endpoint is called over HTTP	client/call.go	s/c\.Endpoint\.Local \|\| //	./client/
+CLIENT: the audience is not checked	client/call.go	s/r\.Audience == \"\" \|\| r\.Audience != c\.Endpoint\.Audience/false/	./client/
+CLIENT: a credential error is ignored	client/call.go	s/if err != nil \{\n\t\t\t\treturn c\.result\(r, OutcomeRefused, false, \"credential\"\)/if err != nil \&\& false {\n\t\t\t\treturn c.result(r, OutcomeRefused, false, \"credential\")/	./client/
+CLIENT: a read is retried after bytes were sent	client/call.go	s/!res\.Sent \&\& //	./client/
+CLIENT: a TLS failure is retried	client/call.go	s/\*res\.Reason != \"tls\"/true/	./client/
+CLIENT: a backoff longer than the time left is waited	client/call.go	s/time\.Until\(dl\) <= wait/time.Until(dl) < -wait/	./client/
+CLIENT: a write without an outbox is sent	client/call.go	s/if c\.Outbox == nil \{\n\t\treturn c\.result\(r, OutcomeRefused, false, \"no_outbox\"\)/if false {\n\t\treturn c.result(r, OutcomeRefused, false, \"no_outbox\")/	./client/
+CLIENT: a write may spool without a dedup contract	client/call.go	s/if r\.Spool \&\& r\.Dedup == \"\" \{/if false {/	./client/
+CLIENT: a full outbox is not reported	client/call.go	s/case errors\.Is\(err, ErrFull\):/case false:/	./client/
+CLIENT: a key conflict is not reported	client/call.go	s/case errors\.Is\(err, ErrKeyConflict\):/case false:/	./client/
+CLIENT: an unknown record is sent again by a call	client/call.go	s/case StateUnknown:/case \"never\":/	./client/
+CLIENT: a refused record is sent again by a call	client/call.go	s/case StateRefused:/case \"never\":/	./client/
 CLIENT: an unknown dispatch is not retained	client/call.go	s/_ = c\.Outbox\.SetState\(rec, StateUnknown\)/_ = rec/	./client/
+CLIENT: --require-delivery is ignored	client/call.go	s/if r\.Spool \&\& !r\.RequireDelivery \{/if r.Spool {/	./client/
+CLIENT: require_delivery is not reported	client/call.go	s/case r\.Spool \&\& r\.RequireDelivery:/case false:/	./client/
+CLIENT: offline is not reported	client/call.go	s/res\.Outcome == OutcomeUnavailable \&\& \*res\.Reason == \"unavailable\"/false/	./client/
+CLIENT: a record is kept after the service answered	client/call.go	s/\t\t_ = c\.Outbox\.Remove\(rec\)\n\t\tif res\.Outcome == OutcomeOK \{/\t\t_ = rec\n\t\tif res.Outcome == OutcomeOK {/	./client/
+CLIENT: a successful write does not drain	client/call.go	s/if res\.Outcome == OutcomeOK \{\n\t\t\tc\.drainAfter\(ctx, r\.Service, authz\)/if false {\n\t\t\tc.drainAfter(ctx, r.Service, authz)/	./client/
+CLIENT: a successful read does not drain	client/call.go	s/if res\.Outcome == OutcomeOK \&\& c\.Outbox != nil \{/if false {/	./client/
+CLIENT: a drain takes another service's records	client/call.go	s/ \&\& r\.Service == service//	./client/
+CLIENT: reconcile resends a verb without dedup	client/call.go	s/ \|\| r\.Dedup == \"\" \{/ || r.Dedup == \"\" \&\& false {/	./client/
+CLIENT: reconcile resends a record that is not unknown	client/call.go	s/err != nil \|\| rec\.State != StateUnknown/err != nil/	./client/
+CLIENT: reconcile does not mark a refusal	client/call.go	s/case OutcomeRefused, OutcomeInvalid, OutcomeNotFound:/case OutcomeInvalid:/	./client/
+CLIENT: reconcile keeps a delivered record	client/call.go	s/case OutcomeOK:\n\t\t\t_ = c\.Outbox\.Remove\(rec\)/case OutcomeOK:\n\t\t\t_ = rec/	./client/
+CLIENT: a deadline is not a timeout	client/call.go	s/case errors\.Is\(ctx\.Err\(\), context\.DeadlineExceeded\):\n\t\tswitch/case false:\n\t\tswitch/	./client/
+CLIENT: a write timeout after send is a plain timeout	client/call.go	s/case sent \&\& !r\.Read:\n\t\t\treturn c\.result\(r, OutcomeDispatchUnknown, true, \"timeout_after_send\"\)/case false:\n\t\t\treturn c.result(r, OutcomeDispatchUnknown, true, \"timeout_after_send\")/	./client/
+CLIENT: a lost answer to a write is plain unavailable	client/call.go	s/case sent \&\& !r\.Read:\n\t\treturn c\.result\(r, OutcomeDispatchUnknown, true, \"dispatch_unknown\"\)/case false:\n\t\treturn c.result(r, OutcomeDispatchUnknown, true, \"dispatch_unknown\")/	./client/
+CLIENT: a redirect is followed in the answer	client/call.go	s/case status >= 300 \&\& status < 400:/case false:/	./client/
+CLIENT: a 401 is not refused	client/call.go	s/case status == 401:/case false:/	./client/
+CLIENT: a stop answer is not refused	client/call.go	s/case status == 403:/case false:/	./client/
+CLIENT: a 404 is not not_found	client/call.go	s/case status == 404:/case false:/	./client/
+CLIENT: a 400 or 422 is not invalid	client/call.go	s/case status == 400 \|\| status == 422:/case false:/	./client/
+CLIENT: a 5xx answer to a write is not unknown	client/call.go	s/\t\tif r\.Read \{\n\t\t\treturn c\.result\(r, OutcomeUnavailable, true, \"server_error\"\)\n\t\t\}/\t\tif true {\n\t\t\treturn c.result(r, OutcomeUnavailable, true, \"server_error\")\n\t\t}/	./client/
+CLIENT: a bad answer to a write is not unknown	client/call.go	s/\t\t\tif r\.Read \{\n\t\t\t\treturn c\.result\(r, OutcomeUnavailable, true, \"response_invalid\"\)/\t\t\tif true {\n\t\t\t\treturn c.result(r, OutcomeUnavailable, true, \"response_invalid\")/	./client/
+CLIENT: an answer is not size-bounded	client/call.go	s/len\(raw\) == 0 \|\| len\(raw\) > MaxResponse/len(raw) == 0/	./client/
+CLIENT: a duplicate key in an answer is accepted	client/call.go	s/ \|\| noDuplicateKeys\(raw\) != nil//	./client/
+CLIENT: an answer need not carry a schema	client/call.go	s/head\.Schema == \"\" \|\| //	./client/
+CLIENT: the expected schema is not checked	client/call.go	s/\(expect != \"\" \&\& head\.Schema != expect\)/false/	./client/
+CLIENT: a read error is ignored	client/call.go	s/if readErr != nil \|\| len\(raw\)/if len(raw)/	./client/
+CLIENT: no idempotency key is sent	client/call.go	s/req\.Header\.Set\(\"Idempotency-Key\", r\.OperationID\)//	./client/
+CLIENT: the envelope is not carried	client/call.go	s/\"Zeo-Envelope\"/\"X-Other\"/	./client/
+CLIENT: no credential is sent	client/call.go	s/req\.Header\.Set\(\"Authorization\", authz\)//	./client/
+CLIENT: a body can be replayed by net/http	client/call.go	s/io\.NopCloser\(bytes\.NewReader\(body\)\)/bytes.NewReader(body)/	./client/	accepted: a one-request transport per call and no keep-alive means a reused connection never exists to replay on; this guard is defence in depth and no in-process test can reach the replay
+CLIENT: keep-alive is on	client/call.go	s/DisableKeepAlives:\s+true,/DisableKeepAlives: false,/	./client/	accepted: see the replay mutation: a new transport per call leaves no connection to reuse
+CLIENT: doctor says it answers when it does not	client/call.go	s/d\.Answers = res\.Outcome == OutcomeOK/d.Answers = res.Outcome != \"\"/	./client/
 CLIENT: an outbox path may be relative or unclean	client/outbox.go	s/if !filepath\.IsAbs\(dir\) \|\| filepath\.Clean\(dir\) != dir \{/if false {/	./client/
+CLIENT: an outbox sender is not validated	client/outbox.go	s/if !idRe\.MatchString\(sender\) \{/if false {/	./client/
 CLIENT: an outbox path may hold a symlink	client/outbox.go	s/err != nil \|\| real != dir/err != nil || (real != dir \&\& false)/	./client/
 CLIENT: an outbox directory may be open to others	client/outbox.go	s/ \|\| st\.Mode\(\)\.Perm\(\)\&0o077 != 0//	./client/
-CLIENT: the sender is not validated	client/outbox.go	s/if !idRe\.MatchString\(sender\) \{/if false {/	./client/
+CLIENT: a bad incarnation is accepted	client/outbox.go	s/if len\(id\) != 32 \{/if false {/	./client/
+CLIENT: a crash temporary file survives an open	client/outbox.go	s/if strings\.HasPrefix\(e\.Name\(\), \"\.tmp-\"\) \{/if false {/	./client/
+CLIENT: a record from another incarnation is read	client/outbox.go	s/ \|\| r\.Incarnation != o\.incarnation//	./client/
+CLIENT: a record with an unsafe id is read	client/outbox.go	s/\n\t\t\t!idRe\.MatchString\(r\.OperationID\) \|\| name != fileName\(r\.Seq, r\.OperationID\) \{/\n\t\t\tfalse {/	./client/
+CLIENT: a record under the wrong name is read	client/outbox.go	s/ \|\| name != fileName\(r\.Seq, r\.OperationID\)//	./client/
+CLIENT: a torn record is not moved aside	client/outbox.go	s/_ = os\.Rename\(path, path\+\"\.bad\"\)//	./client/
+CLIENT: an operation id is not checked by the outbox	client/outbox.go	s/if !idRe\.MatchString\(id\) \{\n\t\treturn Record\{\}, errors\.New\(\"the operation id is not valid\"\)/if false {\n\t\treturn Record{}, errors.New(\"the operation id is not valid\")/	./client/
+CLIENT: a key conflict is accepted	client/outbox.go	s/if r\.PayloadDigest != digest \{/if false {/	./client/
 CLIENT: a repeated operation id is a second record	client/outbox.go	s/if r\.OperationID == id \{/if false {/	./client/
 CLIENT: the record bound is not kept	client/outbox.go	s/len\(recs\) >= o\.maxRecords \|\|/false ||/	./client/
-CLIENT: the byte bound is not kept	client/outbox.go	s/bytes\+len\(canon\) > o\.maxBytes/false/	./client/
+CLIENT: the byte bound is not kept	client/outbox.go	s/used\+len\(canon\) > o\.maxBytes/false/	./client/
+CLIENT: sequence numbers are not unique	client/outbox.go	s/if r\.Seq >= next \{/if false {/	./client/
+CLIENT: the allocator is not locked	client/outbox.go	s/if err := syscall\.Flock\(int\(f\.Fd\(\)\), how\); err != nil \{/if false {/	./client/	accepted: the allocator lock keeps concurrent writers apart, but whether two goroutines race inside a few microseconds is a matter of timing no test can force; removing the lock also removes the drain lock, which O4 does kill (see the next row)
 CLIENT: a record file is world-readable	client/outbox.go	s/tmp\.Chmod\(0o600\)/tmp.Chmod(0o644)/	./client/
-CLIENT: a drain goes past a record that is not queued	client/outbox.go	s/if r\.State != StateQueued \{/if false {/	./client/
+CLIENT: a failed file fsync is ignored	client/outbox.go	s/if err := o\.syncFile\(tmp\); err != nil \{/if err := o.syncFile(tmp); err != nil \&\& false {/	./client/
+CLIENT: a failed directory fsync is ignored	client/outbox.go	s/return o\.syncDir\(o\.dir\)/_ = o.syncDir(o.dir)\n\treturn nil/	./client/
+CLIENT: a failed write leaves its temporary file	client/outbox.go	s/fail := func\(err error\) error \{ tmp\.Close\(\); _ = os\.Remove\(name\); return err \}/fail := func(err error) error { tmp.Close(); return err }/	./client/
+CLIENT: purge removes records that are not refused	client/outbox.go	s/if r\.State == StateRefused \{\n\t\t\tif err := o\.Remove\(r\)/if true {\n\t\t\tif err := o.Remove(r)/	./client/
+CLIENT: doctor never says the outbox is near full	client/outbox.go	s/s\.NearFull = s\.Count >= o\.maxRecords\*9\/10 \|\|/s.NearFull = false ||/	./client/
+CLIENT: a drain goes past a record that is not queued	client/outbox.go	s/\t\t\treturn sent, nil\n\t\t\}\n\t\tres := send\(r\)/\t\t\tcontinue\n\t\t}\n\t\tres := send(r)/	./client/
+CLIENT: a refused record stops a drain	client/outbox.go	s/if r\.State == StateRefused \{\n\t\t\t\tcontinue\n\t\t\t\}/if r.State == StateRefused {\n\t\t\t\treturn sent, nil\n\t\t\t}/	./client/
 CLIENT: a drain goes on after a failure	client/outbox.go	s/default:\n\t\t\treturn sent, nil\n\t\t\}/default:\n\t\t}/	./client/
 CLIENT: a refusal does not mark the record	client/outbox.go	s/case OutcomeRefused, OutcomeInvalid:/case OutcomeInvalid:/	./client/
 CLIENT: an unknown dispatch is not marked in a drain	client/outbox.go	s/return sent, o\.SetState\(r, StateUnknown\)/return sent, nil/	./client/
-CLIENT: doctor never says the outbox is near full	client/outbox.go	s/s\.NearFull = s\.Count >= o\.maxRecords\*9\/10 \|\|/s.NearFull = false ||/	./client/
+CLIENT: more than one drain may run	client/outbox.go	s/unlock, err := o\.lock\(\"\.drain\.lock\", false\)/unlock, err := func() (func(), error) { return func() {}, nil }()/	./client/
