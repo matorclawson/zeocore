@@ -67,7 +67,9 @@ type Result struct {
 }
 
 var (
-	wordRe   = regexp.MustCompile(`^[^\s"=]+$`)
+	// wordRe is printable ASCII without a quote or an equals sign, so no
+	// control character, no Unicode space and no line separator can pass.
+	wordRe   = regexp.MustCompile(`^[!#-<>-~]+$`)
 	reasonRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 	keyRe    = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 )
@@ -103,17 +105,22 @@ func (r Result) Line() (string, error) {
 	if r.Reason != "" {
 		fmt.Fprintf(&b, " reason=%s", r.Reason)
 	}
+	seen := map[string]bool{"from": true, "to": true, "reason": true, "undo": true}
 	for _, p := range r.Totals {
 		if !keyRe.MatchString(p.Key) || !wordRe.MatchString(p.Value) {
 			return "", fmt.Errorf("kit: RESULT total %q must be key=value with one-word parts", p.Key)
 		}
+		if seen[p.Key] {
+			return "", fmt.Errorf("kit: RESULT total key %q is reserved or repeated", p.Key)
+		}
+		seen[p.Key] = true
 		fmt.Fprintf(&b, " %s=%s", p.Key, p.Value)
 	}
 	if r.Undo != "" {
 		if strings.ContainsAny(r.Undo, "\n\r") {
 			return "", errors.New("kit: RESULT undo must be one line")
 		}
-		fmt.Fprintf(&b, " undo=%s", strconv.Quote(r.Undo))
+		fmt.Fprintf(&b, " undo=%s", strconv.QuoteToASCII(r.Undo))
 	}
 	return b.String(), nil
 }

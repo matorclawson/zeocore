@@ -26,13 +26,19 @@ An app adds verbs beside the kit's and never changes them: a command named `help
 ## What every app gets
 
 - **Grammar:** `<binary> <verb> [subject] [--flag value] [--json]`. Double-dash flags only: a
-  single-dash flag is refused with exit 2 and a message naming the double-dash form. `--json`
+  single-dash flag is refused with exit 2 and a message naming the double-dash form (`-h` points at `--help`). `--json`
   prints one document on stdout and nothing else, `schema` first. Nothing prompts: the kit never
   reads stdin. `<binary> --help` is `help`.
 - **Exit codes:** 0 ok, 1 failed, 2 usage, 3 refused, 4 not_found, 5 timeout, 6 unavailable,
   7 not_ready. `help --json` prints the table.
 - **RESULT line:** `RESULT <app> <verb> <outcome> from=<v> to=<v> [reason=<token>] [undo="<cmd>"]`,
-  built by `kit.Result.Line`, which refuses a line that breaks the grammar.
+  built by `kit.Result.Line`, which refuses a line that breaks the grammar. Words are printable
+  ASCII without `"` or `=`; `from=` and `to=` are left out when empty (a verb with no versions,
+  or a refusal before the versions are known); a report verb's totals are further `key=value`
+  pairs that may not reuse `from`, `to`, `reason` or `undo`.
+- **Errors:** an error message never echoes an argument: a flag or command name is named only when
+  it is a plain name, and any other argument is not shown, so no argument can forge a RESULT line.
+  A command can only end with a code of the table, and never with 0 and a message.
 - **Documents:** `zeo.help/v1`, `zeo.version/v1`, `zeo.doctor/v1` (a check may be `skipped`),
   `zeo.status/v1` (with `live` and `counts`). `help --json` is built from the command table, so it
   cannot list a command that does not exist.

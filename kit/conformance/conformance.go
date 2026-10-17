@@ -1,7 +1,10 @@
 // Package conformance is the suite an app runs against its own binary to prove
-// it speaks zeo-cli/v1: the shapes of help, version, doctor and status, every
-// exit code it can reach, single-dash refusal, --json purity and the RESULT
-// line grammar. zeocore runs it against a sample app; zeocouncil adopts it.
+// it speaks zeo-cli/v1: the shapes of help, version, doctor and status, the
+// exit table's rows and the exit codes 0, 2 and 7 (and 1 for a failing check),
+// single-dash refusal, and --json purity. ResultLine checks a RESULT line
+// against the grammar; the suite does not run an app's state-changing verbs, so
+// it never captures a RESULT line itself. zeocore runs it against a sample app;
+// zeocouncil adopts it.
 package conformance
 
 import (
@@ -93,7 +96,9 @@ func firstKey(t *testing.T, label, stdout string) string {
 	return key
 }
 
-var resultRe = regexp.MustCompile(`^RESULT [^\s"=]+ [^\s"=]+ (ok|refused|failed|undone|recovery_required)( [a-z][a-z0-9_]*=([^\s"=]+|"([^"\\]|\\.)*"))*$`)
+// word is printable ASCII without a quote or an equals sign, so no control
+// character, Unicode space or line separator is ever part of a RESULT line.
+var resultRe = regexp.MustCompile(`^RESULT [!#-<>-~]+ [!#-<>-~]+ (ok|refused|failed|undone|recovery_required)( [a-z][a-z0-9_]*=([!#-<>-~]+|"([ !#-\[\]-~]|\\[ -~])*"))*$`)
 
 // ResultLine reports whether a line follows the RESULT grammar of rev d section 5.
 func ResultLine(line string) bool { return resultRe.MatchString(line) }
@@ -120,6 +125,12 @@ func Run(t *testing.T, cfg Config) {
 		exits, _ := doc["exits"].([]any)
 		if len(exits) != 8 {
 			t.Fatalf("exit table has %d rows, want 8", len(exits))
+		}
+		for i, row := range exits {
+			m, _ := row.(map[string]any)
+			if code, ok := m["code"].(float64); !ok || int(code) != i {
+				t.Fatalf("exit table row %d is %v; the table is codes 0 to 7 in order", i, row)
+			}
 		}
 		list, _ := doc["commands"].([]any)
 		have := map[string]bool{}
@@ -153,11 +164,21 @@ func Run(t *testing.T, cfg Config) {
 		}
 	})
 	t.Run("every_command_in_help_exists", func(t *testing.T) {
+		// An unknown command also exits 2, so exit 2 alone proves nothing.
+		// The control is a command that cannot exist: its refusal must not be
+		// the one a real command gives for an unknown flag.
+		control := run(t, cfg, nil, "zz-no-such-command-zz", "--no-such-flag")
+		if control.code != 2 {
+			t.Fatalf("an unknown command exits %d, want 2", control.code)
+		}
 		for _, c := range commands {
 			name := c["name"].(string)
 			o := run(t, cfg, nil, name, "--no-such-flag")
 			if o.code != 2 {
-				t.Errorf("%s --no-such-flag: exit %d, want 2 (a listed command must exist and refuse an unknown flag)", name, o.code)
+				t.Errorf("%s --no-such-flag: exit %d, want 2", name, o.code)
+			}
+			if !strings.Contains(o.stderr, "flag") || o.stderr == control.stderr {
+				t.Errorf("%s --no-such-flag: stderr %q does not refuse the flag; a listed command must exist", name, o.stderr)
 			}
 		}
 	})
@@ -183,9 +204,14 @@ func Run(t *testing.T, cfg Config) {
 		if (o.code == 0) != ready || (o.code != 0 && o.code != 7) {
 			t.Fatalf("doctor exit %d disagrees with ready=%v", o.code, ready)
 		}
-		for _, ck := range doc["checks"].([]any) {
-			m := ck.(map[string]any)
-			if ok, _ := m["ok"].(bool); !ok && m["skipped"] != true && m["next"] == "" {
+		checks, isList := doc["checks"].([]any)
+		if !isList {
+			t.Fatalf("doctor checks is %v, want a list (empty is [], never null)", doc["checks"])
+		}
+		for _, ck := range checks {
+			m, _ := ck.(map[string]any)
+			next, _ := m["next"].(string)
+			if ok, _ := m["ok"].(bool); !ok && m["skipped"] != true && next == "" {
 				t.Errorf("failing check %v names no next step", m["name"])
 			}
 		}

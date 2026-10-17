@@ -8,6 +8,7 @@ import (
 	"io"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -114,8 +115,8 @@ var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 func (a *App) kitVerbs() []Command {
 	return append([]Command{
 		{Name: "help", Summary: "List the commands.", Output: SchemaHelp, Exits: nil, Run: a.runHelp},
-		{Name: "version", Summary: "Version, source commit and signature state.", Output: SchemaVersion, Run: a.runVersion},
-		{Name: "doctor", Summary: "Check every prerequisite, in order; each failure names its next step.", Output: SchemaDoctor, Exits: []ExitCode{ExitNotReady}, Run: a.runDoctor},
+		{Name: "version", Summary: "Version, source commit and signature state.", Output: SchemaVersion, Exits: []ExitCode{ExitFailed}, Run: a.runVersion},
+		{Name: "doctor", Summary: "Check every prerequisite, in order; each failure names its next step.", Output: SchemaDoctor, Exits: []ExitCode{ExitFailed, ExitNotReady}, Run: a.runDoctor},
 		{Name: "status", Summary: "What runs, at which version, healthy or not, live or not.", Output: SchemaStatus, Exits: []ExitCode{ExitFailed}, Run: a.runStatus},
 	}, append(a.planCommands(), a.updateCommands()...)...)
 }
@@ -151,6 +152,11 @@ func (a *App) Validate() error {
 			return fmt.Errorf("kit: command %q is a kit verb or declared twice; an app adds verbs beside the kit's, never changes them", c.Name)
 		case c.Run == nil:
 			return fmt.Errorf("kit: command %q has no Run", c.Name)
+		}
+		for _, e := range c.Exits {
+			if !e.inTable() || e == ExitOK {
+				return fmt.Errorf("kit: command %q lists exit code %d, which is not a failure code in the exit table", c.Name, e)
+			}
 		}
 		seen[c.Name] = true
 		fs := map[string]bool{"json": true}
@@ -190,11 +196,40 @@ func (a *App) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return int(ExitOK)
 	}
 	var e *Error
-	if errors.As(err, &e) && e.Message == "" {
+	if errors.As(err, &e) && !e.Code.inTable() || e != nil && e.Code == ExitOK {
+		// The table stays closed, and a failure is never exit 0.
+		fmt.Fprintf(stderr, "%s: a command ended with exit code %d, which is not a failure code in the exit table\n", a.Name, e.Code)
+		return int(ExitFailed)
+	}
+	if e != nil && e.Message == "" {
 		return int(e.Code)
 	}
-	fmt.Fprintf(stderr, "%s: %s\n", a.Name, err)
+	fmt.Fprintf(stderr, "%s: %s\n", a.Name, oneLine(err.Error()))
 	return int(codeOf(err))
+}
+
+// oneLine makes a message safe to print as one line: every rune that is not
+// printable, a newline or an escape among them, becomes "?", so no message can
+// start a line of its own, least of all a RESULT line.
+func oneLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if strconv.IsPrint(r) {
+			return r
+		}
+		return '?'
+	}, s)
+}
+
+// flagNameRe is what a flag or command name looks like. Only a string that
+// matches is ever echoed in an error: anything else is named by its position.
+var flagNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+// shown returns s when it is a plain name, and says it is not shown otherwise.
+func shown(s string) string {
+	if flagNameRe.MatchString(s) {
+		return s
+	}
+	return "(not a plain name; not shown)"
 }
 
 func (a *App) dispatch(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -209,11 +244,11 @@ func (a *App) dispatch(ctx context.Context, args []string, stdout, stderr io.Wri
 		if !strings.HasPrefix(verb, "--") {
 			return singleDash(verb)
 		}
-		return Usagef("flags go after the command: `%s <command> %s`", a.Name, verb)
+		return Usagef("flags go after the command: `%s <command> --flag`", a.Name)
 	}
 	cmd, ok := a.lookup(verb)
 	if !ok {
-		return Usagef("unknown command %q; run `%s help`", verb, a.Name)
+		return Usagef("unknown command %s; run `%s help`", shown(verb), a.Name)
 	}
 	known := map[string]Flag{"json": {Name: "json", Summary: "Print one JSON document.", TakesValue: false}}
 	for _, f := range cmd.Flags {
@@ -231,7 +266,7 @@ func (a *App) dispatch(ctx context.Context, args []string, stdout, stderr io.Wri
 			name, val, hasVal := strings.Cut(t[2:], "=")
 			f, ok := known[name]
 			if !ok {
-				return Usagef("unknown flag --%s for %s; run `%s help --json`", name, verb, a.Name)
+				return Usagef("unknown flag --%s for %s; run `%s help --json`", shown(name), verb, a.Name)
 			}
 			if f.TakesValue && !hasVal {
 				if i+1 >= len(rest) {
@@ -262,7 +297,13 @@ func (a *App) dispatch(ctx context.Context, args []string, stdout, stderr io.Wri
 // singleDash refuses a single-dash flag and names the double-dash form.
 func singleDash(t string) error {
 	name, _, _ := strings.Cut(strings.TrimLeft(t, "-"), "=")
-	return Usagef("single-dash flag %s is not accepted; use --%s", strings.SplitN(t, "=", 2)[0], name)
+	switch {
+	case name == "h":
+		return Usagef("single-dash flag -h is not accepted; use --help")
+	case flagNameRe.MatchString(name):
+		return Usagef("single-dash flag -%s is not accepted; use --%s", name, name)
+	}
+	return Usagef("a single-dash flag is not accepted; every flag is --name (run `help --json`)")
 }
 
 func (a *App) schemas() []string {

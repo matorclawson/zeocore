@@ -150,6 +150,7 @@ func (a *App) runStatus(c *Context) error {
 		}
 	}
 	if !st.Healthy {
+		fmt.Fprintf(c.Stderr, "%s: status: not healthy (state=%s)\n", a.Name, st.State)
 		return ExitOnly(ExitFailed)
 	}
 	return nil
