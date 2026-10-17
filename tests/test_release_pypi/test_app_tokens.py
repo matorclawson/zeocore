@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from pydantic import SecretStr
 
-from zeo_core.integrations.github.app_tokens import (
+from zeo_core.release.app_tokens import (
     GITHUB_API,
     Access,
     AppTokenError,
@@ -269,7 +269,7 @@ def test_a_keychain_that_does_not_answer_is_unavailable(
 
 
 def test_the_key_file_must_be_the_users_own_0600_regular_file(tmp_path: Path) -> None:
-    from zeo_core.integrations.github.app_tokens import FileAppKeySource
+    from zeo_core.release.app_tokens import FileAppKeySource
 
     key = tmp_path / "merger.pem"
     key.write_text(PEM.get_secret_value())
