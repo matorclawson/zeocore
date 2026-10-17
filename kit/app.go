@@ -129,6 +129,8 @@ func (a *App) Validate() error {
 		return fmt.Errorf("kit: app name %q must be lowercase letters, digits and dashes", a.Name)
 	case a.Version == "":
 		return errors.New("kit: app version is required")
+	case !wordRe.MatchString(a.Version):
+		return errors.New("kit: the app version must be printable ASCII without a quote, space or equals sign, because the RESULT line carries it")
 	case a.Doctor == nil:
 		return errors.New("kit: the Doctor hook is required")
 	case a.Status == nil:
