@@ -213,6 +213,12 @@ class IntegrationLoadReport(BaseModel):
         default_factory=list, description="Warning messages encountered during loading"
     )
 
+    id_mismatches: list[str] = Field(
+        default_factory=list,
+        description="Entry-point names whose instance integration_id differs "
+        "('name -> integration_id'); report-only, never an error",
+    )
+
     errors: list[str] = Field(
         default_factory=list, description="Error messages encountered during loading"
     )
