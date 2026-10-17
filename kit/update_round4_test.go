@@ -3,6 +3,7 @@ package kit_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -172,5 +173,35 @@ func TestGuardRefusesDotDotEvenWhenHarmless(t *testing.T) {
 	mk(t, filepath.Join(base, "free"))
 	if err := u.Guard(base + "/free/../free/x"); err == nil {
 		t.Error("a path with .. was accepted")
+	}
+}
+
+// Round 5, P3-1: a protected path that does not exist yet is guarded under folded spellings.
+func TestGuardFoldsNamesPastTheFirstMissingComponent(t *testing.T) {
+	f := newFake2(t)
+	app := mk(t, filepath.Join(t.TempDir(), "app"))
+	u := f.app().Updater
+	u.Protected = []string{filepath.Join(app, "keys")}
+	if err := u.Guard(filepath.Join(app, "KEYS", "x")); err == nil {
+		t.Error("an upper-case spelling of a missing protected path was accepted")
+	}
+	u.Protected = []string{filepath.Join(app, "k\u00e9ys")}
+	if err := u.Guard(filepath.Join(app, "ke\u0301ys", "x")); err == nil {
+		t.Error("an NFD spelling of a missing NFC protected path was accepted")
+	}
+	if err := u.Guard(filepath.Join(app, "other")); err != nil {
+		t.Errorf("unrelated name refused: %v", err)
+	}
+}
+
+// Round 5, P3-3: a protected path that is a dangling link says so.
+func TestValidateNamesADanglingProtectedLink(t *testing.T) {
+	f := newFake2(t)
+	base := t.TempDir()
+	app := f.app()
+	app.Updater.Protected = []string{link(t, filepath.Join(base, "gone"), filepath.Join(base, "keys"))}
+	err := app.Validate()
+	if err == nil || !strings.Contains(err.Error(), "does not resolve") {
+		t.Fatalf("got %v", err)
 	}
 }
