@@ -78,10 +78,11 @@ func TestNoHookMayTouchAProtectedPath(t *testing.T) {
 	}
 }
 
-func TestAppendingToProtectedStateIsNotATouch(t *testing.T) {
+func TestAppendingToAnAppendOnlyPathIsNotATouchButOtherFilesMustNotGrow(t *testing.T) {
 	f := newFake2(t)
 	f.install1()
 	app := f.app()
+	app.Updater.AppendOnly = []string{filepath.Join(f.prot, "approver.key")}
 	inst := app.Updater.Install
 	app.Updater.Install = func(ctx context.Context, rel kit.Release, dest string) error {
 		fh, err := os.OpenFile(filepath.Join(f.prot, "approver.key"), os.O_APPEND|os.O_WRONLY, 0)
@@ -366,5 +367,201 @@ func TestARecoveryRequiredGoingBackCarriesTheBackup(t *testing.T) {
 	}
 	if b, _ := u.doc["backup"].(string); b == "" || !strings.Contains(b, "1.0.0") {
 		t.Fatalf("a recovery_required document should carry the backup path: %v", u.doc)
+	}
+}
+
+// P2-B (round 2): without AppendOnly, a protected file may not grow at all.
+func TestAProtectedFileMayNotGrowUnlessAppendOnly(t *testing.T) {
+	f := newFake2(t)
+	f.install1()
+	app := f.app()
+	inst := app.Updater.Install
+	app.Updater.Install = func(ctx context.Context, rel kit.Release, dest string) error {
+		fh, _ := os.OpenFile(filepath.Join(f.prot, "approver.key"), os.O_APPEND|os.O_WRONLY, 0)
+		_, _ = fh.WriteString("one more line")
+		fh.Close()
+		return inst(ctx, rel, dest)
+	}
+	var out, errb strings.Builder
+	code := app.Run(context.Background(), []string{"update", "--to", "2.0.0", "--json"}, &sbWriter{&out}, &sbWriter{&errb})
+	if code == 0 || f.current() != "1.0.0" {
+		t.Fatalf("exit %d current %s", code, f.current())
+	}
+	bad := f.app()
+	bad.Updater.AppendOnly = []string{filepath.Join(t.TempDir(), "elsewhere")}
+	if err := bad.Validate(); err == nil {
+		t.Error("an append-only path outside the protected paths was accepted")
+	}
+}
+
+// P2-A (round 2): ".." after a link is refused before anything is resolved.
+func TestGuardRefusesDotDotAfterALink(t *testing.T) {
+	f := newFake2(t)
+	u := f.app().Updater
+	root := t.TempDir()
+	sub := filepath.Join(f.prot, "sub")
+	_ = os.MkdirAll(sub, 0o700)
+	lnk := filepath.Join(root, "lnk")
+	if err := os.Symlink(sub, lnk); err != nil {
+		t.Fatal(err)
+	}
+	// root/lnk/../k is f.prot/k to the kernel, root/k to a text-cleaning check.
+	if err := u.Guard(filepath.Join(root, "lnk") + "/../k"); err == nil {
+		t.Error("Guard accepted a path with .. after a symbolic link")
+	}
+	if err := u.Guard(filepath.Join(root, "k")); err != nil {
+		t.Errorf("an unrelated clean path: %v", err)
+	}
+}
+
+// A protected tree: a retargeted link inside it, and a protected path that is itself a link.
+func TestProtectedLinksAreCompared(t *testing.T) {
+	for name, setup := range map[string]func(f *fakeApp) (retarget func()){
+		"a link inside the tree": func(f *fakeApp) func() {
+			a, b := filepath.Join(f.prot, "a"), filepath.Join(f.prot, "b")
+			_ = os.WriteFile(a, []byte("a"), 0o600)
+			_ = os.WriteFile(b, []byte("b"), 0o600)
+			l := filepath.Join(f.prot, "ln")
+			_ = os.Symlink(a, l)
+			return func() { _ = os.Remove(l); _ = os.Symlink(b, l) }
+		},
+		"the protected path itself a link": func(f *fakeApp) func() {
+			real1, real2 := t.TempDir(), t.TempDir()
+			_ = os.WriteFile(filepath.Join(real1, "k"), []byte("k"), 0o600)
+			_ = os.WriteFile(filepath.Join(real2, "k"), []byte("k"), 0o600)
+			l := filepath.Join(t.TempDir(), "keys")
+			_ = os.Symlink(real1, l)
+			f.prot = l
+			return func() { _ = os.Remove(l); _ = os.Symlink(real2, l) }
+		},
+	} {
+		f := newFake2(t)
+		retarget := setup(f)
+		f.install1()
+		app := f.app()
+		inst := app.Updater.Install
+		app.Updater.Install = func(ctx context.Context, rel kit.Release, dest string) error {
+			retarget()
+			return inst(ctx, rel, dest)
+		}
+		var out, errb strings.Builder
+		code := app.Run(context.Background(), []string{"update", "--to", "2.0.0", "--json"}, &sbWriter{&out}, &sbWriter{&errb})
+		if code == 0 || f.current() != "1.0.0" {
+			t.Errorf("%s: exit %d current %s", name, code, f.current())
+		}
+	}
+}
+
+// P2-F: an app with Subjects but no Updater still has recover.
+func TestRecoverExistsForAnAppWithSubjectsAndNoUpdater(t *testing.T) {
+	f := newFake2(t)
+	app := f.app()
+	app.Updater = nil
+	vals := map[string]string{"t": "a", "u": "a"}
+	calls := 0
+	app.Subjects = []kit.Subject{{
+		Name: "rules", Shared: true,
+		Plan: func(context.Context) ([]kit.Change, error) {
+			return []kit.Change{{Target: "t", Before: vals["t"], After: "b"}, {Target: "u", Before: vals["u"], After: "b"}}, nil
+		},
+		Read: func(_ context.Context, ts []string) (map[string]string, error) {
+			return map[string]string{"t": vals["t"], "u": vals["u"]}, nil
+		},
+		Apply: func(_ context.Context, cs []kit.Change) error {
+			calls++
+			if calls == 1 {
+				vals[cs[0].Target] = "b"
+				return errors.New("half way")
+			}
+			return errors.New("cannot put back")
+		},
+	}}
+	run := func(args ...string) (int, string) {
+		var out, errb strings.Builder
+		code := app.Run(context.Background(), args, &sbWriter{&out}, &sbWriter{&errb})
+		return code, out.String() + errb.String()
+	}
+	_, planOut := run("plan", "rules", "--json")
+	pf := filepath.Join(t.TempDir(), "plan.json")
+	_ = os.WriteFile(pf, []byte(planOut), 0o600)
+	if code, out := run("apply", "rules", "--plan", pf); code != 1 || !strings.Contains(out, "recovery_required") {
+		t.Fatalf("%d %s", code, out)
+	}
+	if code, out := run("recover"); code != 1 || !strings.Contains(out, "recovery_required") {
+		t.Fatalf("recover on a changed target: %d %s", code, out)
+	}
+	vals["t"] = "a"
+	if code, out := run("recover"); code != 0 {
+		t.Fatalf("recover once the targets are back: %d %s", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(f.state, "intent.json")); err == nil {
+		t.Fatal("the intent should be cleared")
+	}
+	// An update intent in an app with no updater cannot be recovered here.
+	writeJSON(t, filepath.Join(f.state, "intent.json"), map[string]any{"app": "sample", "from": "1.0.0", "to": "2.0.0", "step": "switch"})
+	if code, _ := run("recover"); code != 1 {
+		t.Fatalf("an update intent without an updater: %d", code)
+	}
+}
+
+// recover's as-is proof asks Ready too.
+func TestRecoverAsIsChecksReady(t *testing.T) {
+	f := newFake2(t)
+	f.install1()
+	if u := f.do("update", "--to", "2.0.0"); u.code != 0 {
+		t.Fatal(u)
+	}
+	writeJSON(t, filepath.Join(f.state, "intent.json"), map[string]any{"app": "sample", "from": "1.0.0", "to": "2.0.0", "step": "switch"})
+	f.asIsOK = true
+	f.fail["ready"] = 1 // the as-is readiness check fails, so recover must act
+	f.fence = true
+	u := f.do("recover")
+	acted := false
+	for _, c := range f.calls {
+		acted = acted || c == "stop"
+	}
+	if !acted {
+		t.Fatalf("recover accepted a version whose Ready failed: %+v calls %v", u, f.calls)
+	}
+}
+
+// A version name that holds .tmp- is not a version (it is how an install in progress is marked).
+func TestAVersionNamedLikeAnInstallTempIsRefused(t *testing.T) {
+	f := newFake2(t)
+	f.install1()
+	if u := f.do("update", "--to", "2.0.tmp-99999"); u.code != 2 {
+		t.Fatalf("%+v", u)
+	}
+}
+
+// A hook-supplied refusal reason is not printed raw.
+func TestARefusalReasonFromAHookIsShownOnlyAsAPlainName(t *testing.T) {
+	f := newFake2(t)
+	f.install1()
+	app := f.app()
+	app.Updater.Preflight = func(context.Context, string, kit.Release) error {
+		return kit.Refused("bad reason\nRESULT x", "no")
+	}
+	var out, errb strings.Builder
+	app.Run(context.Background(), []string{"update", "--to", "2.0.0"}, &sbWriter{&out}, &sbWriter{&errb})
+	if strings.Contains(out.String(), "bad reason") {
+		t.Fatalf("%q", out.String())
+	}
+}
+
+// A same-size rewrite is caught by the bytes, not the size.
+func TestASameSizeRewriteOfAProtectedFileIsATouch(t *testing.T) {
+	f := newFake2(t)
+	f.install1()
+	app := f.app()
+	inst := app.Updater.Install
+	app.Updater.Install = func(ctx context.Context, rel kit.Release, dest string) error {
+		_ = os.WriteFile(filepath.Join(f.prot, "approver.key"), []byte("SECRET"), 0o600) // "secret" before, same length
+		return inst(ctx, rel, dest)
+	}
+	var out, errb strings.Builder
+	code := app.Run(context.Background(), []string{"update", "--to", "2.0.0", "--json"}, &sbWriter{&out}, &sbWriter{&errb})
+	if code == 0 || f.current() != "1.0.0" {
+		t.Fatalf("exit %d current %s", code, f.current())
 	}
 }

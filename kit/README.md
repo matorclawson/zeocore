@@ -109,22 +109,29 @@ and back out on any failure.
 - **Live rule fails closed.** If `Status` cannot say whether the app is live, it is treated as live: the
   operation refuses with the live reason (`live`, or an app's own, e.g. `studio_live`) unless the app
   has an idle `Fence` and takes it.
-- **Protected paths.** `Guard` compares absolute paths with symbolic links resolved on both sides. The
-  kit also snapshots the protected paths before `Fetch` (or a rollback's preflight) and compares them
-  just before the switch and again after the new version is proved: any hook that touched one ends the
-  operation (before the switch: `failed`, nothing switched; after: switched back, `undone`). A protected
-  file may be appended to (append-only state); its first bytes may not change, and no entry may appear,
-  vanish or change mode.
+- **Protected paths.** `Guard` takes absolute paths without `..` (a `..` after a symbolic link would be
+  collapsed as text before the link is resolved, so it is refused outright) and resolves links on both
+  sides. The kit also snapshots the protected paths before `Fetch` (or a rollback's preflight) and
+  compares them just before the switch and again after the new version is proved: any hook that touched
+  one ends the operation. **A touched file is detected, not undone**: before the switch the operation
+  ends `failed` (nothing switched; the file stays as the hook left it); after, the version is switched
+  back (`undone`), also leaving the file as it is. Every protected file keeps its exact size and bytes,
+  except files under `Updater.AppendOnly` (append-only state), which may grow with their first bytes
+  unchanged. No entry may appear, vanish or change mode, and a symbolic link (inside the tree, or the
+  protected path itself) may not be retargeted.
 - **recover looks before it acts.** It first proves the version that is current as it stands (ready and
   verify, no stop). If one of the intent's two versions is running and proved, only the record is left,
-  and it is cleared. Only if that fails does it act: it applies the live rule, then goes through the two
+  and it is cleared. The app's `Ready` is asked with a zero time (a readiness event at any time counts)
+  and must still check the live process (its pid and a readiness event). Only if that fails does it act: it applies the live rule, then goes through the two
   versions, From first, and proves the first that passes. A `Down` migration must therefore be
   all-or-nothing: the intent does not record it. An unreadable intent is cleared once current is proved.
+- **recover exists for an app with `Subjects` and no `Updater`** (a half-done apply leaves an intent that only recover clears); an unfinished update cannot be recovered without an updater.
 - **An apply leaves an intent too.** A killed `Apply` hook, or a half-done apply the kit could not put
   back, blocks every later update, rollback or apply until `recover` reads the targets: all at their
   before values, or all at their after values, clears it; a mix stays `recovery_required` with the
   backup path in the document.
 - Refusals: `busy`, `recovery_required`, `current`, `downgrade`, `space`, the live reasons, `protected`.
+  A version name that holds `.tmp-` is not a version (that is how an install in progress is marked).
   Exits: 1 (failed), 2 (usage), 3 (refused). `update --check` writes nothing and takes no lock. A failure
   to create the lock or the state directory is `failed`, not `busy`. `--to` must be a version word; the
   value is not echoed. Hook error texts and intent fields are folded to one line. Install directories

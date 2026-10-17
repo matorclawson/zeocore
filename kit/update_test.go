@@ -509,12 +509,12 @@ func TestLiveRuleNeedsTheIdleFence(t *testing.T) {
 	f.ran("fetch", "fence", "preflight", "install", "stop", "start", "ready", "verify", "unfence")
 }
 
-func TestProtectedPathTouchedByAHookRefusesBeforeTheSwitch(t *testing.T) {
+func TestProtectedPathTouchedByAHookFailsBeforeTheSwitch(t *testing.T) {
 	f := newFake2(t)
 	f.install1()
 	f.touch = true
 	u := f.do("update")
-	if u.code != 3 || u.reason != "protected" || f.current() != "1.0.0" {
+	if u.code != 1 || u.outcome != "failed" || u.reason != "protected" || f.current() != "1.0.0" {
 		t.Fatalf("%+v current %s", u, f.current())
 	}
 	if _, err := os.Stat(filepath.Join(f.root, "versions", "2.0.0")); err == nil {

@@ -42,6 +42,10 @@ type Updater struct {
 	Root string
 	// Protected are paths no step may touch: key custody and append-only state.
 	Protected []string
+	// AppendOnly lists protected paths (files or trees) whose files may GROW
+	// during an operation: append-only state. Every other protected file keeps
+	// its exact size and bytes.
+	AppendOnly []string
 	// LiveReason is the refusal token when the app is live and holds no idle
 	// fence. Default "live"; a studio sets "studio_live".
 	LiveReason string
@@ -70,6 +74,13 @@ type Updater struct {
 }
 
 var versionRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$`)
+
+// validVersion is a version word that is safe as a path element. A name that
+// holds ".tmp-" is refused: that is how an install in progress is marked, and
+// the sweep of crashed installs would otherwise be able to remove it.
+func validVersion(v string) bool {
+	return versionRe.MatchString(v) && !strings.Contains(v, ".tmp-")
+}
 
 type step struct {
 	Name   string `json:"name"`
@@ -123,18 +134,24 @@ func (u *Updater) now() time.Time {
 }
 
 func (a *App) updateCommands() []Command {
+	exits := []ExitCode{ExitFailed, ExitRefused}
+	recoverCmd := Command{Name: "recover", Summary: "Prove one version is running after recovery_required, or read an unfinished apply's targets, then clear the lock.",
+		Output: SchemaUpdate, Exits: exits, Run: func(c *Context) error { return a.runChange(c, "recover") }}
 	if a.Updater == nil {
+		// An app with subjects but no updater still needs recover: a half-done
+		// apply leaves an intent that only recover clears.
+		if len(a.Subjects) > 0 {
+			return []Command{recoverCmd}
+		}
 		return nil
 	}
-	exits := []ExitCode{ExitFailed, ExitRefused}
 	return []Command{
 		{Name: "update", Summary: "Fetch, verify, install beside and switch to a release; back out on any failure.",
 			Flags:  []Flag{{Name: "to", Summary: "The version to install; default the newest.", TakesValue: true}, {Name: "check", Summary: "Stop after the preflight and change nothing."}},
 			Output: SchemaUpdate, Exits: exits, Run: func(c *Context) error { return a.runChange(c, "update") }},
 		{Name: "rollback", Summary: "Switch back to the previous version; refused across a state migration.",
 			Output: SchemaUpdate, Exits: exits, Run: func(c *Context) error { return a.runChange(c, "rollback") }},
-		{Name: "recover", Summary: "Prove one version is running after recovery_required, then clear the lock.",
-			Output: SchemaUpdate, Exits: exits, Run: func(c *Context) error { return a.runChange(c, "recover") }},
+		recoverCmd,
 	}
 }
 
@@ -161,6 +178,15 @@ func (a *App) validateUpdater() error {
 		}
 		if overlaps(u.Root, p) {
 			return fmt.Errorf("kit: protected path %q overlaps the install root", p)
+		}
+	}
+	for _, p := range u.AppendOnly {
+		in := false
+		for _, q := range u.Protected {
+			in = in || within(q, p)
+		}
+		if !filepath.IsAbs(p) || !in {
+			return fmt.Errorf("kit: append-only path %q must be absolute and inside a protected path", p)
 		}
 	}
 	return nil
@@ -204,6 +230,13 @@ func overlaps(a, b string) bool {
 func (u *Updater) Guard(path string) error {
 	if !filepath.IsAbs(path) {
 		return Refused("protected", "a path to guard must be absolute")
+	}
+	// ".." is refused outright: collapsing it as text before resolving a link
+	// would hide a path that the kernel opens elsewhere.
+	for _, el := range strings.Split(path, string(filepath.Separator)) {
+		if el == ".." {
+			return Refused("protected", "a path to guard must not contain ..")
+		}
 	}
 	for _, p := range u.Protected {
 		if overlaps(p, path) {
@@ -408,12 +441,20 @@ type fileState struct {
 	Mode fs.FileMode
 	Size int64
 	Sum  string // sha256 of the first Size bytes, for a regular file
+	Link string // the target of a symbolic link
 }
 
 func (u *Updater) snapshot() (protectedState, error) {
 	st := protectedState{}
 	for _, p := range u.Protected {
-		err := filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
+		// A protected path that is itself a link is followed: the entries are
+		// keyed by the resolved path, so a link retargeted elsewhere changes
+		// every key and is seen as a touch.
+		root := p
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			root = r
+		}
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if errors.Is(err, fs.ErrNotExist) {
 				st[path] = fileState{Mode: fs.ModeIrregular}
 				return nil
@@ -425,15 +466,20 @@ func (u *Updater) snapshot() (protectedState, error) {
 			if err != nil {
 				return err
 			}
-			fs := fileState{Mode: info.Mode()}
-			if info.Mode().IsRegular() {
+			state := fileState{Mode: info.Mode()}
+			switch {
+			case info.Mode().IsRegular():
 				sum, err := prefixSum(path, info.Size())
 				if err != nil {
 					return err
 				}
-				fs.Size, fs.Sum = info.Size(), sum
+				state.Size, state.Sum = info.Size(), sum
+			case info.Mode()&fs.ModeSymlink != 0:
+				if target, err := os.Readlink(path); err == nil {
+					state.Link = target
+				}
 			}
-			st[path] = fs
+			st[path] = state
 			return nil
 		})
 		if err != nil {
@@ -456,9 +502,19 @@ func prefixSum(path string, n int64) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+func (u *Updater) appendOnly(path string) bool {
+	for _, p := range u.AppendOnly {
+		if within(p, path) {
+			return true
+		}
+	}
+	return false
+}
+
 // touched says whether the protected paths changed since before: an entry that
-// vanished, appeared or changed mode, or a file whose first bytes changed or
-// that shrank. Growth of a regular file is not a touch.
+// vanished, appeared or changed mode or link target, or a file whose bytes
+// changed. Only a file under an AppendOnly path may grow, and then its first
+// bytes may not change.
 func (u *Updater) touched(before protectedState) (bool, error) {
 	now, err := u.snapshot()
 	if err != nil {
@@ -469,19 +525,17 @@ func (u *Updater) touched(before protectedState) (bool, error) {
 	}
 	for path, was := range before {
 		is, ok := now[path]
-		if !ok || is.Mode != was.Mode {
+		if !ok || is.Mode != was.Mode || is.Link != was.Link {
 			return true, nil
 		}
 		if was.Mode.IsRegular() {
-			if is.Size < was.Size {
+			if is.Size != was.Size && !u.appendOnly(path) {
 				return true, nil
 			}
-			if is.Size > was.Size {
-				sum, err := prefixSum(path, was.Size)
-				if err != nil || sum != was.Sum {
-					return true, nil
-				}
-			} else if is.Sum != was.Sum {
+			// The first Size bytes must be unchanged. A file that shrank cannot
+			// supply them (the read comes up short and fails), so it is a touch.
+			sum, err := prefixSum(path, was.Size)
+			if err != nil || sum != was.Sum {
 				return true, nil
 			}
 		}
@@ -569,7 +623,7 @@ func (r *run) finish(o Outcome, reason string, cause error) error {
 	} else {
 		fmt.Fprintf(r.c.Stdout, "%s %s: %s", r.a.Name, r.doc.Verb, o)
 		if reason != "" {
-			fmt.Fprintf(r.c.Stdout, " (%s)", reason)
+			fmt.Fprintf(r.c.Stdout, " (%s)", shown(reason))
 		}
 		fmt.Fprintln(r.c.Stdout)
 		if cause != nil {
@@ -598,7 +652,9 @@ func (a *App) runChange(c *Context, verb string) error {
 	u := a.Updater
 	r := &run{a: a, u: u, c: c, doc: updateDoc{Schema: SchemaUpdate, App: a.Name, Verb: verb, Steps: []step{}}}
 	_, r.doc.CheckOnly = c.Flag("check")
-	r.doc.From = u.currentVersion()
+	if u != nil {
+		r.doc.From = u.currentVersion()
+	}
 
 	// update --check writes nothing, so it takes no lock and creates no state.
 	if !(r.doc.CheckOnly && verb == "update") {
@@ -689,7 +745,7 @@ func (r *run) liveGate() (string, error) {
 func (r *run) update() error {
 	u, ctx := r.u, r.c.Context
 	to, _ := r.c.Flag("to")
-	if to != "" && !versionRe.MatchString(to) {
+	if to != "" && !validVersion(to) {
 		return Usagef("--to is not a version (letters, digits and . _ + - only, at most 64)")
 	}
 	if snap, err := u.snapshot(); err != nil {
@@ -702,7 +758,7 @@ func (r *run) update() error {
 	if err != nil {
 		return r.finish(OutcomeFailed, "fetch", err)
 	}
-	if !versionRe.MatchString(rel.Version) {
+	if !validVersion(rel.Version) {
 		err := fmt.Errorf("the release names version %q, which is not a safe path element", rel.Version)
 		return r.finish(OutcomeRefused, "version", err)
 	}
@@ -730,7 +786,7 @@ func (r *run) update() error {
 	}
 	if r.touchedProtected() {
 		_ = os.RemoveAll(dest)
-		return r.finish(OutcomeRefused, "protected", errors.New("a step touched a protected path; nothing was switched"))
+		return r.finish(OutcomeFailed, "protected", errors.New("a step touched a protected path; nothing was switched. The touch is detected, not undone"))
 	}
 	return r.switchOver(rel.Version, rel.Migrates, false)
 }
@@ -791,7 +847,7 @@ func (r *run) rollback() error {
 		r.protectedBefore = snap
 	}
 	h := r.a.readHistory()
-	if h.Previous == "" || !versionRe.MatchString(h.Previous) {
+	if h.Previous == "" || !validVersion(h.Previous) {
 		err := errors.New("there is no previous version to roll back to")
 		return r.finish(OutcomeRefused, "no_previous", err)
 	}
@@ -970,6 +1026,9 @@ func (r *run) recover() error {
 	if in.Kind == "apply" {
 		return r.recoverApply(in)
 	}
+	if u == nil {
+		return r.finish(OutcomeRecoveryRequired, "recovery_required", errors.New("this app has no updater, so an unfinished update cannot be recovered here"))
+	}
 	r.doc.From, r.doc.To = in.From, in.To
 	if snap, err := u.snapshot(); err != nil {
 		return r.finish(OutcomeFailed, "protected", err)
@@ -977,7 +1036,7 @@ func (r *run) recover() error {
 		r.protectedBefore = snap
 	}
 	// 1. Prove what is running now, without touching it.
-	if cur := u.currentVersion(); cur != "" && versionRe.MatchString(cur) &&
+	if cur := u.currentVersion(); cur != "" && validVersion(cur) &&
 		(in.Step == "unreadable" || cur == in.From || cur == in.To) {
 		err := r.proveAsIs(cur)
 		if err == nil && !r.touchedProtected() {
@@ -1004,7 +1063,7 @@ func (r *run) recover() error {
 	}
 	var lastErr error
 	for _, v := range []string{in.From, in.To} {
-		if v == "" || !versionRe.MatchString(v) {
+		if v == "" || !validVersion(v) {
 			continue
 		}
 		if _, err := os.Stat(u.versionDir(v)); err != nil {
@@ -1047,7 +1106,7 @@ func (r *run) recover() error {
 	if lastErr == nil {
 		lastErr = errors.New("neither version is installed")
 	}
-	if in.From != "" && versionRe.MatchString(in.From) {
+	if in.From != "" && validVersion(in.From) {
 		r.doc.Backup = u.versionDir(in.From)
 	}
 	return r.finish(OutcomeRecoveryRequired, "recovery_required", lastErr)
