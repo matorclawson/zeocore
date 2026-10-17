@@ -92,7 +92,7 @@ settings. For host-issued installation tokens, repair the host's refresh mechani
 
 ## GitHub App installation tokens (for an isolated principal)
 
-`zeo_core.integrations.github.app_tokens` mints installation tokens for a
+`zeo_core.release.app_tokens` mints installation tokens for a
 principal that holds its own GitHub App key, such as the merger. Under the
 operator's ruling the merger is a zeocore app, and its key is kept outside
 ZEOconnect. Install the `github-app` extra.
