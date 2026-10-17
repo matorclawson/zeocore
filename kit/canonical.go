@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // Canonical returns the RFC 8785 (JCS) form of one JSON document: keys sorted
@@ -20,6 +21,12 @@ import (
 // form, and strings with the minimal escapes. A duplicate key, trailing data
 // or a number that is not finite is an error.
 func Canonical(doc []byte) ([]byte, error) {
+	if !utf8.Valid(doc) {
+		return nil, errors.New("canonical: the document is not valid UTF-8")
+	}
+	if loneSurrogate(doc) {
+		return nil, errors.New("canonical: a string holds an unpaired surrogate escape")
+	}
 	dec := json.NewDecoder(bytes.NewReader(doc))
 	dec.UseNumber()
 	var out bytes.Buffer
@@ -32,8 +39,61 @@ func Canonical(doc []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+// MaxDigestBytes is the largest document Digest takes, the same bound as
+// `zeocore digest` (1 MiB).
+const MaxDigestBytes = 1 << 20
+
+// loneSurrogate reports a \uD800 to \uDFFF escape that is not half of a
+// valid pair. encoding/json turns such an escape into U+FFFD silently, where
+// the Python side (rfc8785) refuses it.
+func loneSurrogate(doc []byte) bool {
+	hex4 := func(i int) (rune, bool) {
+		if i+6 > len(doc) || doc[i] != '\\' || doc[i+1] != 'u' {
+			return 0, false
+		}
+		var r rune
+		for _, c := range doc[i+2 : i+6] {
+			switch {
+			case c >= '0' && c <= '9':
+				r = r<<4 | rune(c-'0')
+			case c >= 'a' && c <= 'f':
+				r = r<<4 | rune(c-'a'+10)
+			case c >= 'A' && c <= 'F':
+				r = r<<4 | rune(c-'A'+10)
+			default:
+				return 0, false
+			}
+		}
+		return r, true
+	}
+	for i := 0; i < len(doc); i++ {
+		if doc[i] != '\\' {
+			continue
+		}
+		if r, ok := hex4(i); ok {
+			switch {
+			case r >= 0xD800 && r < 0xDC00:
+				if low, ok := hex4(i + 6); !ok || low < 0xDC00 || low > 0xDFFF {
+					return true
+				}
+				i += 11
+				continue
+			case r >= 0xDC00 && r <= 0xDFFF:
+				return true
+			}
+			i += 5
+			continue
+		}
+		i++ // skip the escaped character
+	}
+	return false
+}
+
 // Digest is the sha256, in lowercase hex, of the canonical form of doc.
 func Digest(doc []byte) (string, error) {
+	if len(doc) > MaxDigestBytes {
+		return "", errors.New("canonical: the document is larger than 1 MiB")
+	}
 	c, err := Canonical(doc)
 	if err != nil {
 		return "", err

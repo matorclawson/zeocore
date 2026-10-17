@@ -1,6 +1,9 @@
 package kit
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 var digestVectors = []struct{ in, sha string }{
 	{"{\"b\":1,\"a\":[true,null,\"x\"]}", "54a65415ad370228851a1da4b31b6fd42dc58b19a50d35cae759325f7388ce64"},
@@ -25,6 +28,11 @@ var digestRefused = []string{
 	"1 2",
 	"",
 	"1e999",
+	"\"\xff\"",           // not valid UTF-8
+	"\"\\ud800\"",        // a lone high surrogate
+	"\"\\udc00\"",        // a lone low surrogate
+	"\"\\ud800\\u0041\"", // a high surrogate not followed by a low one
+	"\"\\ud800\\ue000\"", // a high surrogate followed by a non-surrogate
 }
 
 func TestDigestMatchesPythonZeocore(t *testing.T) {
@@ -44,5 +52,21 @@ func TestDigestRefusesWhatPythonRefuses(t *testing.T) {
 		if _, err := Digest([]byte(in)); err == nil {
 			t.Errorf("Digest(%q) accepted; `zeocore digest` refuses it", in)
 		}
+	}
+}
+
+func TestPairedSurrogatesAreAccepted(t *testing.T) {
+	if _, err := Digest([]byte(`"\ud83d\ude00 and \\ud800 stays an escaped backslash"`)); err != nil {
+		t.Fatalf("a valid pair, and a backslash that merely precedes the text: %v", err)
+	}
+}
+
+func TestDigestRefusesAnOversizedDocument(t *testing.T) {
+	big := `"` + strings.Repeat("a", MaxDigestBytes) + `"`
+	if _, err := Digest([]byte(big)); err == nil {
+		t.Error("a document over 1 MiB should be refused, as `zeocore digest` does")
+	}
+	if _, err := Digest([]byte(`"` + strings.Repeat("a", MaxDigestBytes-2) + `"`)); err != nil {
+		t.Errorf("exactly 1 MiB: %v", err)
 	}
 }

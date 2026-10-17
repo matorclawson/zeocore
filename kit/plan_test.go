@@ -22,6 +22,10 @@ type fakeState struct {
 	applied   int
 	readErr   error
 	readCalls int
+	// partial makes Apply write the first change and then fail; undoFails
+	// makes the second Apply (the put-back) fail too.
+	partial   bool
+	undoFails bool
 }
 
 func (f *fakeState) subject(name string, shared bool) kit.Subject {
@@ -50,6 +54,13 @@ func (f *fakeState) subject(name string, shared bool) kit.Subject {
 		},
 		Apply: func(_ context.Context, cs []kit.Change) error {
 			f.applied++
+			if f.partial && f.applied == 1 {
+				f.vals[cs[0].Target] = cs[0].After
+				return errors.New("disk full half way")
+			}
+			if f.partial && f.undoFails && f.applied == 2 {
+				return errors.New("put-back failed")
+			}
 			if f.applyErr != nil {
 				return f.applyErr
 			}
@@ -366,4 +377,241 @@ func signed(t *testing.T, app, subject string) string {
 		t.Fatal(err)
 	}
 	return `{"schema":"zeo.plan/v1","app":"` + app + `","subject":"` + subject + `","plan_id":"` + id + `","changes":[{"target":"a","before":"1","after":"9"}],"empty":false}`
+}
+
+// P1-1 (council, #135): Go's decoder matches keys without regard to case and lets
+// the last match win, so a plan file could show one list and apply another.
+func TestAPlanFileWithKeysInAnotherCaseIsRefused(t *testing.T) {
+	f := newFake()
+	app := planApp(t, f, true)
+	good, _ := os.ReadFile(writePlan(t, app))
+	evilBody := `{"app":"sample","subject":"rules","changes":[{"target":"a","before":"1","after":"OTHER"}]}`
+	evilID, err := kit.Digest([]byte(evilBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	put := func(body string) string {
+		p := filepath.Join(dir, "p.json")
+		_ = os.WriteFile(p, []byte(body), 0o600)
+		return p
+	}
+	cases := map[string]string{
+		"a Changes key beside changes": `{"schema":"zeo.plan/v1","app":"sample","subject":"rules","plan_id":"` + evilID +
+			`","changes":[{"target":"a","before":"1","after":"benign"}],"Changes":[{"target":"a","before":"1","after":"OTHER"}],"empty":false}`,
+		"an AFTER key inside a change": strings.Replace(string(good), `"after":"9"`, `"after":"9","AFTER":"X"`, 1),
+		"a SCHEMA key":                 strings.Replace(string(good), `"empty":false`, `"empty":false,"SCHEMA":"zeo.plan/v1"`, 1),
+		"a Plan_ID key":                strings.Replace(string(good), `"empty":false`, `"empty":false,"Plan_ID":"x"`, 1),
+	}
+	for name, body := range cases {
+		code, _, errs := run(t, app, "apply", "rules", "--plan", put(body))
+		if code != 2 {
+			t.Errorf("%s: exit %d, want 2 (%s)", name, code, errs)
+		}
+	}
+	if f.applied != 0 || f.vals["a"] != "1" {
+		t.Errorf("a refused plan changed state: applied %d, %v", f.applied, f.vals)
+	}
+}
+
+// P2-1: help --json lists every exit code a verb can reach.
+func TestHelpExitsCoverWhatPlanAndApplyCanReach(t *testing.T) {
+	f := newFake()
+	app := planApp(t, f, true)
+	_, out, _ := run(t, app, "help", "--json")
+	var h struct {
+		Commands []struct {
+			Name  string
+			Exits []int
+		}
+	}
+	if err := json.Unmarshal([]byte(out), &h); err != nil {
+		t.Fatal(err)
+	}
+	listed := func(verb string) map[int]bool {
+		for _, c := range h.Commands {
+			if c.Name == verb {
+				m := map[int]bool{0: true, 2: true}
+				for _, e := range c.Exits {
+					m[e] = true
+				}
+				return m
+			}
+		}
+		t.Fatalf("no verb %s", verb)
+		return nil
+	}
+	reached := map[string]map[int]bool{"plan": {}, "apply": {}}
+	note := func(verb string, code int) { reached[verb][code] = true }
+	// plan: ok, a failing Plan hook.
+	code, _, _ := run(t, app, "plan", "rules")
+	note("plan", code)
+	bad := planApp(t, newFake(), true)
+	bad.Subjects[0].Plan = func(context.Context) ([]kit.Change, error) { return nil, errors.New("no") }
+	code, _, _ = run(t, bad, "plan", "rules")
+	note("plan", code)
+	// apply: ok, hook failure (1), stale (3), missing plan file (4), usage (2).
+	plan := writePlan(t, app)
+	code, _, _ = run(t, app, "apply", "rules", "--plan", plan)
+	note("apply", code)
+	code, _, _ = run(t, app, "apply", "rules", "--plan", plan) // stale now
+	note("apply", code)
+	code, _, _ = run(t, app, "apply", "rules", "--plan", filepath.Join(t.TempDir(), "none.json"))
+	note("apply", code)
+	code, _, _ = run(t, app, "apply", "rules")
+	note("apply", code)
+	fail := newFake()
+	fail.applyErr = errors.New("x")
+	fa := planApp(t, fail, true)
+	code, _, _ = run(t, fa, "apply", "rules", "--plan", writePlan(t, fa))
+	note("apply", code)
+	for verb, codes := range reached {
+		for c := range codes {
+			if !listed(verb)[c] {
+				t.Errorf("%s can exit %d but help does not list it", verb, c)
+			}
+		}
+	}
+	if !reached["apply"][1] || !reached["apply"][3] || !reached["apply"][4] || !reached["plan"][1] {
+		t.Errorf("the scenarios did not reach the codes: %v", reached)
+	}
+}
+
+// P2-2: a hook that fails half way is not reported as "nothing changed".
+func TestAnApplyThatFailsHalfWayIsPutBackOrRecoveryRequired(t *testing.T) {
+	f := newFake()
+	f.partial = true
+	app := planApp(t, f, true)
+	code, out, errs := run(t, app, "apply", "rules", "--plan", writePlan(t, app), "--json")
+	if code != 1 || !strings.Contains(out, `"outcome":"undone"`) || f.vals["a"] != "1" || strings.Contains(out, `"undo"`) {
+		t.Fatalf("exit %d state %v\nstdout %s\nstderr %s", code, f.vals, out, errs)
+	}
+	g := newFake()
+	g.partial, g.undoFails = true, true
+	app = planApp(t, g, true)
+	code, out, errs = run(t, app, "apply", "rules", "--plan", writePlan(t, app), "--json")
+	if code != 1 || !strings.Contains(out, `"outcome":"recovery_required"`) || !strings.Contains(out, `"backup":"`) || !strings.Contains(out, `"undo":"`) ||
+		!strings.Contains(errs, "recovery_required") || g.vals["a"] != "9" {
+		t.Fatalf("exit %d state %v\nstdout %s\nstderr %s", code, g.vals, out, errs)
+	}
+	// A hook that fails before it writes anything stays plain failed.
+	h := newFake()
+	h.applyErr = errors.New("refused")
+	app = planApp(t, h, true)
+	code, out, _ = run(t, app, "apply", "rules", "--plan", writePlan(t, app), "--json")
+	if code != 1 || !strings.Contains(out, `"outcome":"failed"`) || strings.Contains(out, `"backup"`) || strings.Contains(out, `"undo"`) {
+		t.Fatalf("exit %d stdout %s", code, out)
+	}
+}
+
+// P2-3: a failed backup stops the apply before it changes anything.
+func TestAFailedBackupStopsTheApply(t *testing.T) {
+	f := newFake()
+	app := planApp(t, f, true)
+	plan := writePlan(t, app)
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.StateDir = file // MkdirAll under a regular file fails
+	code, out, errs := run(t, app, "apply", "rules", "--plan", plan)
+	if code != 1 || f.applied != 0 || f.vals["a"] != "1" || !strings.Contains(out+errs, "reason=backup") {
+		t.Fatalf("exit %d applied %d state %v\n%s%s", code, f.applied, f.vals, out, errs)
+	}
+}
+
+// P2-4: no error or output echoes input bytes raw.
+func TestNothingFromTheInputIsEchoedRaw(t *testing.T) {
+	f := newFake()
+	f.want = map[string]string{"a\n\x1b[31mINJECT": "x", "b": "2"}
+	f.vals["a\n\x1b[31mINJECT"] = ""
+	app := planApp(t, f, true)
+	app.Subjects[0].Plan = func(context.Context) ([]kit.Change, error) {
+		return []kit.Change{{Target: "a\n\x1b[31mINJECT", Before: "", After: "x"}}, nil
+	}
+	code, out, errs := run(t, app, "plan", "rules")
+	if code != 0 || strings.ContainsAny(out, "\x1b") || strings.Count(out, "\n") != 2 {
+		t.Fatalf("plan text echoed a raw target: %q", out)
+	}
+	_ = errs
+	if code, _, e := run(t, app, "apply", "no\x1b[31m-such"); code != 2 || strings.Contains(e, "\x1b") || strings.Contains(e, "31m") || strings.Contains(e, "such") {
+		t.Fatalf("an unknown subject was echoed: %d %q", code, e)
+	}
+	secret := filepath.Join(t.TempDir(), "secret-name-\x1b.json")
+	if code, _, e := run(t, app, "apply", "rules", "--plan", secret); code != 4 || strings.Contains(e, "secret-name") || strings.Contains(e, "\x1b") {
+		t.Fatalf("a plan path was echoed: %d %q", code, e)
+	}
+	// A hook error with control characters is folded.
+	g := newFake()
+	g.readErr = errors.New("bad\nREAD\x1b[0m")
+	app = planApp(t, g, true)
+	plan := writePlan(t, planApp(t, newFake(), true))
+	_ = plan
+	h := newFake()
+	app2 := planApp(t, h, true)
+	pf := writePlan(t, app2)
+	h.readErr = errors.New("bad\nREAD\x1b[0m")
+	_, _, e := run(t, app2, "apply", "rules", "--plan", pf)
+	if strings.Contains(e, "\x1b") || strings.Count(e, "\n") > 2 {
+		t.Fatalf("a hook error was echoed raw: %q", e)
+	}
+}
+
+// P3: a plan the kit could not hold exactly is refused.
+func TestAPlanThatCouldNotBeExactIsRefused(t *testing.T) {
+	f := newFake()
+	app := planApp(t, f, true)
+	app.Subjects[0].Plan = func(context.Context) ([]kit.Change, error) {
+		return []kit.Change{{Target: "a", Before: "\xff", After: "x"}}, nil
+	}
+	if code, _, _ := run(t, app, "plan", "rules"); code != 1 {
+		t.Errorf("a non-UTF-8 value: exit %d, want 1", code)
+	}
+	app.Subjects[0].Plan = func(context.Context) ([]kit.Change, error) {
+		return []kit.Change{{Target: "a", Before: "1", After: "2"}, {Target: "a", Before: "1", After: "3"}}, nil
+	}
+	if code, _, _ := run(t, app, "plan", "rules"); code != 1 {
+		t.Errorf("a duplicate target: exit %d, want 1", code)
+	}
+}
+
+func TestTheUndoPathIsQuotedAndStateDirIsAbsolute(t *testing.T) {
+	f := newFake()
+	app := planApp(t, f, true)
+	base := t.TempDir()
+	app.StateDir = filepath.Join(base, "state dir")
+	_, out, _ := run(t, app, "apply", "rules", "--plan", writePlan(t, planApp(t, newFake(), true)))
+	if !strings.Contains(out, "'"+filepath.Join(base, "state dir")) {
+		t.Fatalf("the undo path with a space should be quoted: %s", out)
+	}
+	rel := planApp(t, newFake(), true)
+	rel.StateDir = "relative/state"
+	if err := rel.Validate(); err == nil {
+		t.Error("a relative StateDir should be refused")
+	}
+	badv := planApp(t, newFake(), true)
+	badv.Version = "1.0 beta"
+	if err := badv.Validate(); err == nil {
+		t.Error("a version with a space cannot be carried by the RESULT line")
+	}
+}
+
+func TestTheBackupIsPrivate(t *testing.T) {
+	f := newFake()
+	app := planApp(t, f, true)
+	if code, _, _ := run(t, app, "apply", "rules", "--plan", writePlan(t, app)); code != 0 {
+		t.Fatal(code)
+	}
+	dir := filepath.Join(app.StateDir, "backups", "rules")
+	st, err := os.Stat(dir)
+	if err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("backup directory: %v %v", st, err)
+	}
+	ents, _ := os.ReadDir(dir)
+	if len(ents) != 1 {
+		t.Fatalf("%v", ents)
+	}
+	if fi, _ := ents[0].Info(); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("backup file mode %v", fi.Mode())
+	}
 }

@@ -2,9 +2,9 @@
 
 A Go module (`github.com/zeroemployeeorg/zeocore/kit`) that gives every zeo and dt app the same
 commands, grammar, exit codes and result line. The contract is zeoarchitect SOW-05 rev d with the
-Architect's section 14 ruling; the build plan is ZEOCORE-SOW-34. **Slice 1 of 7:** the grammar, the
-exit table, the `RESULT` line, and the `help`, `version`, `doctor` and `status` verbs, plus the
-conformance suite. `update`, `rollback`, `plan` and `apply` come in later slices.
+Architect's section 14 ruling; the build plan is ZEOCORE-SOW-34. **Slices 1 and 2 of 7:** the grammar,
+the exit table, the `RESULT` line, the `help`, `version`, `doctor` and `status` verbs, and `plan` and
+`apply`, plus the conformance suite. `update`, `rollback` and `recover` come in later slices.
 
 The kit uses the Go standard library only, so an app that links it takes no third-party module.
 
@@ -36,7 +36,8 @@ An app adds verbs beside the kit's and never changes them: a command named `help
   ASCII without `"` or `=`; `from=` and `to=` are left out when empty (a verb with no versions,
   or a refusal before the versions are known); a report verb's totals are further `key=value`
   pairs that may not reuse `from`, `to`, `reason` or `undo`.
-- **Errors:** an error message never echoes an argument: a flag or command name is named only when
+- **Errors:** an error message never echoes an argument, a plan file's path or contents, or a subject
+  that is not a plain name; a hook's error text is folded to one printable line. A flag or command name is named only when a flag or command name is named only when
   it is a plain name, and any other argument is not shown, so no argument can forge a RESULT line.
   A command can only end with a code of the table, and never with 0 and a message.
 - **Documents:** `zeo.help/v1`, `zeo.version/v1`, `zeo.doctor/v1` (a check may be `skipped`),
@@ -61,3 +62,32 @@ notices. `scripts/mutate.sh` is a copy of zeoarchitect's `scripts/mutate.sh` at 
 binary: the shapes of the four documents, every exit code it can reach, single-dash refusal, `--json`
 purity, and that every command `help` lists exists. zeocore runs it against the sample app; an app
 adopts it in its own tests.
+
+## plan and apply (slice 2)
+
+An app declares `Subjects` (things whose state it can read and change) and a `StateDir` (an absolute
+path where the backup goes). The kit adds `plan <subject>` and `apply <subject>`.
+
+- `plan` reads the state and prints a `zeo.plan/v1` document: `app`, `subject`, the `changes` (each
+  `target`, `before`, `after`, sorted by target) and a `plan_id`, the sha256 of
+  `{app, subject, changes}` as canonical JSON (RFC 8785), the same digest `zeocore digest` computes.
+  It changes nothing. A target or value that is not valid UTF-8, or a target named twice, is refused,
+  because the plan and its undo could not be exact.
+- `apply` re-reads the targets and refuses (`plan_stale`, exit 3) unless each still holds its `before`
+  value. For a `Shared` subject (org rules, council config, seat permissions) it runs only a reviewed
+  plan: `apply <subject> --plan FILE`. The file is read strictly: its schema, app and subject must
+  match, its `plan_id` must match its own body, and **its bytes must be exactly what the kit would
+  have printed**: Go's decoder matches keys without regard to case, so a file with `Changes` beside
+  `changes` is refused rather than shown one way and applied another. No message echoes the path.
+- A review binds the `plan_id`: anyone can recompute it, so it proves the file is self-consistent, not
+  who wrote it. An app that needs more compares the id with the one a reviewer approved.
+- Before it writes, `apply` stores the undo (the plan with `before` and `after` swapped) under
+  `StateDir/backups/<subject>/`, mode 0600 in a 0700 directory, and prints the command that applies it
+  (the path is shell-quoted when it needs it). The undo is itself checked by the stale test.
+- If the `Apply` hook fails, the kit reads the targets again. All still at `before`: `failed` (safe to
+  retry). Some moved: it puts them back and verifies (`undone`), or reports `recovery_required` with
+  the backup and the undo in the document.
+- **No operation lock yet.** `apply` takes none until slice 3; no app should ship `apply` for shared
+  state before then.
+- Exits: `plan` may exit 1; `apply` may exit 1, 3 and 4 (a missing plan file); both exit 2 on usage.
+
