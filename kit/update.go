@@ -215,63 +215,92 @@ func resolved(p string) string {
 	}
 }
 
-// chain returns the identity (stat, links followed) of every existing prefix of
-// an absolute path, walking it component by component. It reports dangling
-// true if a component is a symbolic link that does not resolve: the kernel
-// would create or open something there that no text comparison can name.
-func chain(path string) (infos []os.FileInfo, dangling bool) {
-	cur := string(filepath.Separator)
-	for _, el := range strings.Split(strings.TrimPrefix(path, cur), cur) {
-		if el == "" {
+// elem is one component of a fully resolved path: the identity of the directory
+// the kernel passes through, or, past the first component that does not exist
+// yet, only its name.
+type elem struct {
+	fi   os.FileInfo
+	name string
+}
+
+func sameElem(x, y elem) bool {
+	if x.fi != nil && y.fi != nil {
+		return os.SameFile(x.fi, y.fi)
+	}
+	return x.fi == nil && y.fi == nil && x.name == y.name
+}
+
+// walk resolves an absolute path the way the kernel does, component by
+// component: a link is replaced by its target (restarting from the root when
+// the target is absolute), ".." pops the directory reached so far, and every
+// existing component is recorded by file identity, so a case or Unicode
+// spelling the file system folds names the same directory. dangling is true
+// when a link does not resolve or the links loop (the stat fails): the kernel would create or
+// open something there that no comparison can name.
+func walk(path string) (out []elem, dangling bool) {
+	sep := string(filepath.Separator)
+	root, err := os.Stat(sep)
+	if err != nil {
+		return nil, true
+	}
+	out = []elem{{fi: root}}
+	cur := sep
+	todo := strings.Split(path, sep)
+	for hops := 0; len(todo) > 0; {
+		el := todo[0]
+		todo = todo[1:]
+		switch el {
+		case "", ".":
+			continue
+		case "..":
+			if len(out) > 1 {
+				out = out[:len(out)-1]
+				cur = filepath.Dir(cur)
+			}
 			continue
 		}
-		cur = filepath.Join(cur, el)
-		lfi, err := os.Lstat(cur)
+		next := filepath.Join(cur, el)
+		lfi, err := os.Lstat(next)
 		if err != nil {
-			return infos, false // the rest does not exist yet
+			out, cur = append(out, elem{name: el}), next
+			continue
 		}
-		fi, err := os.Stat(cur)
-		if err != nil {
-			if lfi.Mode()&fs.ModeSymlink != 0 {
-				return infos, true
-			}
-			return infos, false
+		if lfi.Mode()&fs.ModeSymlink == 0 {
+			out, cur = append(out, elem{fi: lfi}), next
+			continue
 		}
-		infos = append(infos, fi)
+		target, err := os.Readlink(next)
+		if _, serr := os.Stat(next); err != nil || serr != nil || hops >= 40 {
+			return out, true
+		}
+		hops++
+		if filepath.IsAbs(target) {
+			out, cur = out[:1], sep
+		}
+		todo = append(strings.Split(target, sep), todo...)
 	}
-	return infos, false
+	return out, false
+}
+
+func hasPrefix(p, q []elem) bool {
+	if len(p) > len(q) {
+		return false
+	}
+	for i := range p {
+		if !sameElem(p[i], q[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // overlaps says whether two absolute paths are the same or one is below the
-// other. It compares as written, with links resolved, and by FILE IDENTITY
-// (os.SameFile over every existing prefix), so a case or Unicode-normalisation
-// spelling that the file system folds, a link, or a hard-to-spell path to the
-// same directory cannot get past it.
+// other, comparing the directories the kernel would pass through (walk), not
+// the text. A path that cannot be resolved overlaps everything: it fails closed.
 func overlaps(a, b string) bool {
-	if within(a, b) || within(b, a) {
-		return true
-	}
-	ra, rb := resolved(a), resolved(b)
-	if within(ra, rb) || within(rb, ra) || within(a, rb) || within(rb, a) || within(ra, b) || within(b, ra) {
-		return true
-	}
-	ca, _ := chain(a)
-	cb, _ := chain(b)
-	if len(ca) == 0 || len(cb) == 0 {
-		return false
-	}
-	lastA, lastB := ca[len(ca)-1], cb[len(cb)-1]
-	for _, x := range ca {
-		if os.SameFile(x, lastB) {
-			return true // b is a, or a lies below b
-		}
-	}
-	for _, y := range cb {
-		if os.SameFile(y, lastA) {
-			return true // a is b, or b lies below a
-		}
-	}
-	return false
+	ea, da := walk(a)
+	eb, db := walk(b)
+	return da || db || hasPrefix(ea, eb) || hasPrefix(eb, ea)
 }
 
 // Guard refuses a path a step must not touch. Hooks call it before writing.
@@ -289,7 +318,7 @@ func (u *Updater) Guard(path string) error {
 	}
 	// A path through a symbolic link that does not resolve is refused: writing
 	// through it creates a file wherever the link points.
-	if _, dangling := chain(path); dangling {
+	if _, dangling := walk(path); dangling {
 		return Refused("protected", "a path goes through a symbolic link that does not resolve")
 	}
 	for _, p := range u.Protected {

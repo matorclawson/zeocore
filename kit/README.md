@@ -109,12 +109,16 @@ and back out on any failure.
 - **Live rule fails closed.** If `Status` cannot say whether the app is live, it is treated as live: the
   operation refuses with the live reason (`live`, or an app's own, e.g. `studio_live`) unless the app
   has an idle `Fence` and takes it.
-- **Guard compares by file identity.** It takes absolute paths without `..`, walks each existing prefix
-  and compares it with each protected path by `os.SameFile` (so a case or Unicode-normalisation spelling
-  the file system folds, or a link, names the same thing), and refuses a path that goes through a symbolic
-  link that does not resolve (a write through it would create a file wherever it points). **Guard is
-  advisory**: it checks a path, not the descriptor a hook later opens, so a link swapped after Guard
-  returns is not stopped by it. The snapshot is the backstop.
+- **Guard compares what the kernel would open.** It takes absolute paths without `..` and resolves each
+  path as the kernel does, component by component: a link is replaced by its target (an absolute target
+  restarts from the root), and every existing directory on the way is compared by `os.SameFile`, so a
+  case or Unicode-normalisation spelling the file system folds, or a link into a subdirectory, names the
+  same thing. Past the first component that does not exist yet only names are compared, so a new file
+  beside the protected tree is allowed. A link that does not resolve (or loops) is refused, and a
+  protected path that cannot be resolved refuses everything. **Guard is advisory**: it checks a path, not
+  the descriptor a hook later opens, so a link swapped after Guard returns is not stopped by it. A hard
+  link to a protected file is not caught by Guard when the protected path is a directory; the snapshot
+  catches the write. The snapshot is the backstop.
 - **Protected paths.** `Guard` takes absolute paths without `..` (a `..` after a symbolic link would be
   collapsed as text before the link is resolved, so it is refused outright) and resolves links on both
   sides. The kit also snapshots the protected paths before `Fetch` (or a rollback's preflight) and
