@@ -155,7 +155,6 @@ CLIENT: a write may spool without a dedup contract	client/call.go	s/if r\.Spool 
 CLIENT: a full outbox is not reported	client/call.go	s/case errors\.Is\(err, ErrFull\):/case false:/	./client/
 CLIENT: a key conflict is not reported	client/call.go	s/case errors\.Is\(err, ErrKeyConflict\):/case false:/	./client/
 CLIENT: an unknown record is sent again by a call	client/call.go	s/case StateUnknown:/case \"never\":/	./client/
-CLIENT: a refused record is sent again by a call	client/call.go	s/case StateRefused:/case \"never\":/	./client/
 CLIENT: --require-delivery is ignored	client/call.go	s/if r\.Spool \&\& !r\.RequireDelivery \{/if r.Spool {/	./client/
 CLIENT: require_delivery is not reported	client/call.go	s/case r\.Spool \&\& r\.RequireDelivery \&\&/case false \&\&/	./client/
 CLIENT: offline is not reported	client/call.go	s/res\.Outcome == OutcomeUnavailable \&\& \*res\.Reason == \"unavailable\"/false/	./client/
@@ -197,14 +196,12 @@ CLIENT: a torn record is not moved aside	client/outbox.go	s/_ = os\.Rename\(path
 CLIENT: an operation id is not checked by the outbox	client/outbox.go	s/if !idRe\.MatchString\(id\) \{\n\t\treturn Record\{\}, errors\.New\(\"the operation id is not valid\"\)/if false {\n\t\treturn Record{}, errors.New(\"the operation id is not valid\")/	./client/
 CLIENT: a key conflict is accepted	client/outbox.go	s/if r\.PayloadDigest != digest \{/if false {/	./client/
 CLIENT: a repeated operation id is a second record	client/outbox.go	s/if r\.OperationID == id \{/if false {/	./client/
-CLIENT: the record bound is not kept	client/outbox.go	s/len\(recs\) >= o\.maxRecords \|\|/false ||/	./client/
-CLIENT: the byte bound is not kept	client/outbox.go	s/used\+len\(canon\) > o\.maxBytes/false/	./client/
 CLIENT: sequence numbers are not unique	client/outbox.go	s/if r\.Seq >= next \{/if false {/	./client/
 CLIENT: the allocator is not locked	client/outbox.go	s/if err := syscall\.Flock\(int\(f\.Fd\(\)\), how\); err != nil \{/if false {/	./client/	accepted: the allocator lock keeps concurrent writers apart, but whether two goroutines race inside a few microseconds is a matter of timing no test can force; removing the lock also removes the drain lock, which O4 does kill (see the next row)
 CLIENT: a record file is world-readable	client/outbox.go	s/tmp\.Chmod\(0o600\)/tmp.Chmod(0o644)/	./client/
-CLIENT: purge removes records that are not refused	client/outbox.go	s/if r\.State == StateRefused \{\n\t\t\tif err := o\.Remove\(r\)/if true {\n\t\t\tif err := o.Remove(r)/	./client/
+CLIENT: purge removes records that are not refused	client/outbox.go	s/if r\.State == StateRefused \|\| r\.State == StateAbandoned \{/if true {/	./client/
 CLIENT: doctor never says the outbox is near full	client/outbox.go	s/s\.NearFull = s\.Count >= o\.maxRecords\*9\/10 \|\|/s.NearFull = false ||/	./client/
-CLIENT: a refused record stops a drain	client/outbox.go	s/if r\.State == StateRefused \{\n\t\t\t\tcontinue\n\t\t\t\}/if r.State == StateRefused {\n\t\t\t\treturn sent, nil\n\t\t\t}/	./client/
+CLIENT: a refused record stops a drain	client/outbox.go	s/(r\.State == StateRefused \|\| r\.State == StateAbandoned \|\| sr\.Unordered \&\& r\.State == StateUnknown) \{\n\t\t\tcontinue/$1 {\n\t\t\treturn sent, nil/	./client/
 CLIENT: more than one drain may run	client/outbox.go	s/unlock, err := o\.lock\(\"\.drain\.lock\", false\)/unlock, err := func() (func(), error) { return func() {}, nil }()/	./client/
 CLIENT: a release build accepts the environment with no host file	client/endpoint.go	s/if !DevBuild \{/if false {/	./client/
 CLIENT: a dev-build local binding may be privileged	client/endpoint.go	s/e\.Local \&\& e\.Source != SourceDev/e.Local/	./client/
@@ -216,7 +213,7 @@ CLIENT: HTTP/2 is allowed	client/call.go	s/NextProtos: \[\]string\{\"http\/1\.1\
 CLIENT: a write is not made unknown before it is sent	client/call.go	s/if err := c\.Outbox\.SetState\(rec, StateUnknown\); err != nil \{/if err := error(nil); err != nil {/	./client/
 CLIENT: records of other services block a write	client/call.go	s/o\.Service == rec\.Service \&\& //	./client/
 CLIENT: records behind a write block it	client/call.go	s/ \&\& o\.Seq < rec\.Seq//	./client/
-CLIENT: a new write overtakes the queue	client/call.go	s/\tif c\.ahead\(rec\) \{\n\t\t_, _ = c\.Outbox\.DrainBefore/\tif false {\n\t\t_, _ = c.Outbox.DrainBefore/	./client/
+CLIENT: a new write overtakes the queue	client/call.go	s/if !r\.Unordered \&\& c\.ahead\(rec\) \{/if false {/	./client/
 CLIENT: a write does not clear the queue ahead first	client/call.go	s/_, _ = c\.Outbox\.DrainBefore\(rec\.Service, rec\.Seq, func\(old Record\) Result \{ return c\.sendRecord\(ctx, old, authz\) \}\)/_ = ctx/	./client/
 CLIENT: a blocked write is not refused	client/call.go	s/return c\.result\(r, OutcomeRefused, false, \"blocked\"\)\n\t\t\}\n\t\}/return c.result(r, OutcomeSpooled, false, \"\")\n\t\t}\n\t}/	./client/
 CLIENT: a held outbox is not reported blocked	client/call.go	s/case errors\.Is\(err, ErrHeld\):/case false:/	./client/
@@ -226,13 +223,12 @@ CLIENT: the implicit drain shares the call's deadline	client/call.go	s/context\.
 CLIENT: an interrupted drain leaves a record queued	client/outbox.go	s/if err := o\.SetState\(r, StateUnknown\); err != nil \{/if err := error(nil); err != nil {/	./client/
 CLIENT: a record that sent nothing stays unknown after a drain	client/outbox.go	s/return sent, o\.SetState\(r, StateQueued\)/return sent, o.SetState(r, StateUnknown)/	./client/
 CLIENT: a drain ignores a hold	client/outbox.go	s/\tif bad > 0 \{\n\t\treturn 0, ErrHeld\n\t\}/\t_ = bad/	./client/
-CLIENT: an enqueue ignores a hold	client/outbox.go	s/\tif bad > 0 \{\n\t\treturn Record\{\}, ErrHeld\n\t\}/\t_ = bad/	./client/
-CLIENT: a suspect file is not counted as held	client/outbox.go	s/strings\.HasSuffix\(name, \"\.bad\"\) \|\| strings\.HasSuffix\(name, \"\.suspect\"\)/strings.HasSuffix(name, \".bad\")/	./client/
-CLIENT: resolve does not clear a hold	client/outbox.go	s/if err := os\.Rename\(filepath\.Join\(o\.dir, name\), filepath\.Join\(o\.dir, name\+\"\.resolved\"\)\); err != nil \{/if err := error(nil); err != nil {/	./client/
+CLIENT: an enqueue ignores a hold	client/outbox.go	s/if bad > 0 \&\& !req\.Unordered \{/if false {/	./client/
+CLIENT: resolve does not clear a hold	client/outbox.go	s/if err := os\.Rename\(filepath\.Join\(o\.dir, name\), filepath\.Join\(o\.dir, to\)\); err != nil \{/if err := error(nil); to == \"\" || err != nil {/	./client/
 CLIENT: a failed fsync deletes the file	client/outbox.go	s/tmp\.Close\(\); _ = os\.Rename\(name, name\+\"\.suspect\"\); return err/tmp.Close(); _ = os.Remove(name); return err/	./client/
 CLIENT: a failed directory fsync deletes the record	client/outbox.go	s/_ = os\.Rename\(final, final\+\"\.suspect\"\)/_ = os.Remove(final)/	./client/
 CLIENT: a crash temporary file is deleted at open	client/outbox.go	s/_ = os\.Rename\(filepath\.Join\(dir, e\.Name\(\)\), filepath\.Join\(dir, e\.Name\(\)\+\"\.suspect\"\)\)/_ = os.Remove(filepath.Join(dir, e.Name()))/	./client/
-CLIENT: a drain goes past a record that is not queued	client/outbox.go	s/\t\t\treturn sent, nil\n\t\t\}\n\t\tif err := o\.SetState\(r, StateUnknown\)/\t\t\tcontinue\n\t\t}\n\t\tif err := o.SetState(r, StateUnknown)/	./client/
+CLIENT: a drain goes past a record that is not queued	client/outbox.go	s/if r\.State != StateQueued \{\n\t\t\treturn sent, nil/if r.State != StateQueued {\n\t\t\tcontinue/	./client/
 CLIENT: a drain goes on after a failure	client/outbox.go	s/\tdefault:\n\t\t\treturn sent, nil\n\t\t\}\n\t\}\n\treturn sent, nil/\tdefault:\n\t\t}\n\t}\n\treturn sent, nil/	./client/
 CLIENT: a refusal does not mark the record	client/outbox.go	s/case res\.Outcome == OutcomeRefused \&\& res\.Sent \|\| res\.Outcome == OutcomeInvalid \|\| res\.Outcome == OutcomeNotFound:/case res.Outcome == OutcomeInvalid || res.Outcome == OutcomeNotFound:/	./client/
 CLIENT: a drain past its limit sends the new write	client/outbox.go	s/if seq != 0 \&\& r\.Seq >= seq \{/if false {/	./client/
@@ -246,21 +242,35 @@ CLIENT: a suspect file holds the order	client/outbox.go	s/if strings\.HasSuffix\
 CLIENT: a discarded file is renamed like a resolved one	client/outbox.go	s/to = name \+ \"\.discarded\"/to = name + \".resolved\"/	./client/
 CLIENT: a dedup record can be abandoned	client/outbox.go	s/ \|\| sr\.Dedup != \"\" \{/ {/	./client/
 CLIENT: a record that is not unknown can be abandoned	client/outbox.go	s/if r\.State != StateUnknown \|\| strictDecode/if strictDecode/	./client/
-CLIENT: abandon leaves no audit line	client/outbox.go	s/o\.audit\(\"abandon\", operationID\)//	./client/
-CLIENT: a drain sends a non-dedup record	client/outbox.go	s/if sr\.Dedup == \"\" \{\n\t\t\t\/\/ A verb with no dedup contract is never spooled and never drained\.\n\t\t\tcontinue/if false {\n\t\t\tcontinue	./client/
+CLIENT: abandon leaves no audit line	client/outbox.go	s/\t\to\.audit\(AuditEntry\{Verb: \"abandon\"[^\n]*\n//	./client/
+CLIENT: a drain sends a non-dedup record	client/outbox.go	s/if sr\.Dedup == \"\" \{\n(\t\t\t\/\/[^\n]*\n)\t\t\tcontinue/if false {\n$1\t\t\tcontinue/	./client/
 CLIENT: an unknown unordered record blocks a drain	client/outbox.go	s/ \|\| sr\.Unordered \&\& r\.State == StateUnknown//	./client/
 CLIENT: an abandoned record blocks a drain	client/outbox.go	s/r\.State == StateRefused \|\| r\.State == StateAbandoned/r.State == StateRefused/	./client/
 CLIENT: a hold blocks an unordered write	client/outbox.go	s/if bad > 0 \&\& !req\.Unordered \{/if bad > 0 {/	./client/
 CLIENT: no room is reserved for unordered verbs	client/outbox.go	s/\t\tlimit -= o\.maxRecords \* ReservedRecords \/ MaxRecords\n//	./client/
 CLIENT: a delete is not made durable	client/outbox.go	s/return err\n\t\}\n\treturn o\.syncDir\(o\.dir\)\n\}\n\n\/\/ Purge/return err\n\t}\n\treturn nil\n}\n\n\/\/ Purge/	./client/
 CLIENT: purge keeps abandoned records	client/outbox.go	s/if r\.State == StateRefused \|\| r\.State == StateAbandoned \{/if r.State == StateRefused {/	./client/
-CLIENT: purge leaves no audit line	client/outbox.go	s/o\.audit\(\"purge\", \"\"\)//	./client/
-CLIENT: resolve leaves no audit line	client/outbox.go	s/o\.audit\(\"resolve\", \"\"\)//	./client/
+CLIENT: purge leaves no audit line	client/outbox.go	s/\t\to\.audit\(AuditEntry\{Verb: \"purge\"[^\n]*\n//	./client/
+CLIENT: resolve leaves no audit line	client/outbox.go	s/\t\to\.audit\(AuditEntry\{Verb: \"resolve\"[^\n]*\n//	./client/
 CLIENT: doctor does not list files set aside	client/outbox.go	s/s\.Aside\+\+/_ = s/	./client/
 CLIENT: an unordered write waits behind the queue	client/call.go	s/if !r\.Unordered \&\& c\.ahead\(rec\) \{/if c.ahead(rec) {/	./client/
 CLIENT: an unordered record blocks later writes	client/call.go	s/ \&\& !unorderedRecord\(o\)//	./client/
 CLIENT: an abandoned record may be sent again	client/call.go	s/case StateRefused, StateAbandoned:/case StateRefused:/	./client/
 CLIENT: the unordered flag is not stored	client/call.go	s/Dedup: r\.Dedup, Unordered: r\.Unordered, Body: r\.Body,/Dedup: r.Dedup, Body: r.Body,/	./client/
-CLIENT: the unordered flag is lost on a resend	client/call.go	s/Dedup: sr\.Dedup, Unordered: sr\.Unordered,/Dedup: sr.Dedup,/	./client/
-CLIENT: reconcile leaves no audit line	client/call.go	s/c\.Outbox\.audit\(\"reconcile\", operationID\)//	./client/
-CLIENT: doctor hides the binary	client/call.go	s/\td\.Binary, _ = os\.Executable\(\)\n//	./client/
+CLIENT: reconcile leaves no audit line	client/call.go	s/\t\tc\.Outbox\.audit\(AuditEntry\{Verb: \"reconcile\"[^\n]*\n//	./client/
+CLIENT: doctor hides the binary	client/call.go	s/d\.Binary, _ = os\.Executable\(\)/d.Binary = \"\"/	./client/
+CLIENT: sent is not set at GotConn	client/call.go	s/GotConn: func\(httptrace\.GotConnInfo\) \{ sent = true \},//	./client/
+CLIENT: an unordered body is not capped	client/outbox.go	s/if req\.Unordered \&\& len\(req\.Body\) > MaxUnorderedBody \{/if false {/	./client/
+CLIENT: an ordinary write may eat the reserved records	client/outbox.go	s/len\(recs\)\+asideN >= o\.maxRecords-reserveN/len(recs)+asideN >= o.maxRecords/	./client/
+CLIENT: an ordinary write may eat the reserved bytes	client/outbox.go	s/used\+asideB\+len\(canon\) > o\.maxBytes-reserveB/used+asideB+len(canon) > o.maxBytes/	./client/
+CLIENT: set-aside files do not count toward the bound	client/outbox.go	s/asideN, asideB := o\.aside\(\)/asideN, asideB := 0, 0/	./client/
+CLIENT: the unordered record bound is not kept	client/outbox.go	s/if len\(recs\) >= o\.maxRecords \|\| used\+len\(canon\) > o\.maxBytes \{/if used+len(canon) > o.maxBytes {/	./client/
+CLIENT: the unordered byte bound is not kept	client/outbox.go	s/if len\(recs\) >= o\.maxRecords \|\| used\+len\(canon\) > o\.maxBytes \{/if len(recs) >= o.maxRecords {/	./client/
+CLIENT: the audit log is not rotated	client/outbox.go	s/fi\.Size\(\) >= MaxAuditBytes/false/	./client/
+CLIENT: the record lock is not taken	client/outbox.go	s/if err := syscall\.Flock\(int\(f\.Fd\(\)\), syscall\.LOCK_EX\|syscall\.LOCK_NB\); err != nil \{\n\t\tf\.Close\(\)\n\t\treturn nil, ErrDrainBusy/if false {\n\t\tf.Close()\n\t\treturn nil, ErrDrainBusy/	./client/
+CLIENT: a drain sends a record another process holds	client/outbox.go	s/if lerr != nil \{/if lerr != nil \&\& false {/	./client/
+CLIENT: the evidence sink is not called	client/outbox.go	s/if o\.Evidence != nil \&\& \(e\.Verb == \"abandon\" \|\| e\.Verb == \"resolve\"\) \{/if false {/	./client/
+CLIENT: abandon needs no evidence	client/outbox.go	s/if evidence == \"\" \|\| \(observed/if (observed/	./client/
+CLIENT: abandon takes any observation	client/outbox.go	s/ \|\| \(observed != ObservedApplied \&\& observed != ObservedNotApplied \&\& observed != ObservedUnknown\)//	./client/
+CLIENT: an abandoned record keeps no resolution	client/outbox.go	s/r\.Resolution = \&Resolution\{[^\n]*\n//	./client/
+CLIENT: an over-cap unordered write is not invalid	client/call.go	s/case errors\.Is\(err, ErrTooBig\):/case false:/	./client/

@@ -2,10 +2,13 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -330,7 +333,7 @@ func TestO9FailedFsync(t *testing.T) {
 		if st, _ := ob.Stats(); st.Aside != 1 {
 			t.Fatalf("%s: doctor should list the file set aside: %+v", which, st)
 		}
-		if n, err := ob.Resolve(); err != nil || n != 1 {
+		if n, err := ob.Resolve("a person looked"); err != nil || n != 1 {
 			t.Fatalf("%s: resolve %d %v", which, n, err)
 		}
 		if recs, _ := ob.List(); len(recs) != 1 {
@@ -382,7 +385,7 @@ func TestO10TornRecordHoldsTheOrder(t *testing.T) {
 	if res := valid(t, call(c, writeReq("op-new", false))); reason(res) != "blocked" || f.count() != 0 {
 		t.Fatalf("%s", res.JSON())
 	}
-	if n, err := ob.Resolve(); err != nil || n != 1 || ob.Held() {
+	if n, err := ob.Resolve("a person looked"); err != nil || n != 1 || ob.Held() {
 		t.Fatalf("%d %v", n, err)
 	}
 	if n, _ := c.Drain(context.Background()); n != 1 {
@@ -828,7 +831,7 @@ func TestC26AbandonEndsAnUnknownNonDedupRecord(t *testing.T) {
 	if r := valid(t, call(c, nudgeReq("op-2"))); reason(r) != "blocked" || f.count() != hits {
 		t.Fatalf("%s", r.JSON())
 	}
-	if err := ob.Abandon("op-1"); err != nil {
+	if err := ob.Abandon("op-1", "status port: not applied", ObservedNotApplied); err != nil {
 		t.Fatal(err)
 	}
 	recs, _ := ob.List()
@@ -843,16 +846,16 @@ func TestC26AbandonEndsAnUnknownNonDedupRecord(t *testing.T) {
 	if r := valid(t, call(c, nudgeReq("op-1"))); r.Outcome != OutcomeRefused || f.count() != hits {
 		t.Fatalf("%s", r.JSON())
 	}
-	if err := ob.Abandon("op-2"); err == nil {
+	if err := ob.Abandon("op-2", "status port: not applied", ObservedNotApplied); err == nil {
 		t.Fatal("a record that is not unknown cannot be abandoned")
 	}
-	if err := ob.Abandon("nope"); err == nil {
+	if err := ob.Abandon("nope", "status port: not applied", ObservedNotApplied); err == nil {
 		t.Fatal("no such record")
 	}
 	ob2 := outbox(t)
 	enqueue(t, ob2, "op-d")
 	ob2.SetState(mustFirst(t, ob2), StateUnknown)
-	if err := ob2.Abandon("op-d"); err == nil {
+	if err := ob2.Abandon("op-d", "x", ObservedNotApplied); err == nil {
 		t.Fatal("a dedup record is reconciled, not abandoned")
 	}
 	if k, _ := ob.Purge(); k != 1 {
@@ -902,22 +905,241 @@ func (o *Outbox) writeRaw(t *testing.T, n int) {
 	}
 }
 
-// O20: the owner verbs leave an audit line.
-func TestO20AuditLog(t *testing.T) {
+// O20: the owner verbs leave an audit line with who, what, on what evidence.
+func TestO20AuditLogAndShow(t *testing.T) {
+	var mailed []string
 	ob := outbox(t)
-	enqueue(t, ob, "op-1")
-	ob.SetState(mustFirst(t, ob), StateRefused)
-	ob.Purge()
+	ob.Evidence = func(l string) { mailed = append(mailed, l) }
+	f := newFake(t, lostAnswer)
+	valid(t, call(f.client(ob), nudgeReq("op-1")))
+	if err := ob.Abandon("op-1", "status port: not applied", ObservedNotApplied); err != nil {
+		t.Fatal(err)
+	}
+	rec, entries, err := ob.Show("op-1")
+	if err != nil || rec.State != StateAbandoned || rec.Resolution == nil || rec.Resolution.Evidence != "status port: not applied" ||
+		rec.Resolution.Observed != ObservedNotApplied || rec.Resolution.Actor == "" {
+		t.Fatalf("%+v %v", rec, err)
+	}
+	if len(entries) != 1 || entries[0].Verb != "abandon" || entries[0].Service != "zmsg" || entries[0].RecordVerb != "nudge" ||
+		entries[0].OperationID != "op-1" || entries[0].Evidence == "" || entries[0].Observed != ObservedNotApplied || entries[0].At == "" {
+		t.Fatalf("%+v", entries)
+	}
+	if len(mailed) != 1 || !strings.Contains(mailed[0], `"operation_id":"op-1"`) {
+		t.Fatalf("abandon should hand its line to the evidence sink: %v", mailed)
+	}
+	// resolve and purge audit too; resolve also mails.
 	os.WriteFile(filepath.Join(ob.dir, fileName(9, "op-9")), []byte("{"), 0o600)
 	ob.List()
-	ob.Resolve()
+	ob.Resolve("looked at the torn file")
+	ob.Purge()
 	raw, _ := os.ReadFile(filepath.Join(ob.dir, "audit.log"))
-	if !strings.Contains(string(raw), " purge ") || !strings.Contains(string(raw), " resolve ") {
-		t.Fatalf("%q", raw)
+	if !strings.Contains(string(raw), `"verb":"purge"`) || !strings.Contains(string(raw), `"verb":"resolve"`) || len(mailed) != 2 {
+		t.Fatalf("%q %v", raw, mailed)
 	}
 	st, _ := os.Stat(filepath.Join(ob.dir, "audit.log"))
 	if st.Mode().Perm() != 0o600 {
 		t.Fatal(st.Mode())
+	}
+	if _, _, err := ob.Show("nope"); err == nil {
+		t.Fatal("no such record")
+	}
+	// A reconcile leaves a line too.
+	g := newFake(t, lostAnswer)
+	obg := outbox(t)
+	valid(t, call(g.client(obg), writeReq("op-r", true)))
+	g.mode = nil
+	g.client(obg).Reconcile(context.Background(), "op-r")
+	raw, _ = os.ReadFile(filepath.Join(obg.dir, "audit.log"))
+	if !strings.Contains(string(raw), `"verb":"reconcile"`) {
+		t.Fatalf("%q", raw)
+	}
+}
+
+// abandon needs the evidence and a valid observation.
+func TestAbandonNeedsEvidence(t *testing.T) {
+	f := newFake(t, lostAnswer)
+	ob := outbox(t)
+	valid(t, call(f.client(ob), nudgeReq("op-1")))
+	for _, c := range [][2]string{{"", ObservedApplied}, {"e", ""}, {"e", "maybe"}} {
+		if err := ob.Abandon("op-1", c[0], c[1]); err == nil {
+			t.Errorf("%q %q should be refused", c[0], c[1])
+		}
+	}
+	if recs, _ := ob.List(); recs[0].State != StateUnknown {
+		t.Fatal("a refused abandon must change nothing")
+	}
+}
+
+// The audit log is rotated once at its bound and counts toward the ordinary bound.
+func TestAuditLogRotatesAndCounts(t *testing.T) {
+	ob := outbox(t)
+	path := filepath.Join(ob.dir, "audit.log")
+	os.WriteFile(path, []byte(strings.Repeat("x", MaxAuditBytes)), 0o600)
+	ob.audit(AuditEntry{Verb: "purge"})
+	if _, err := os.Stat(path + ".1"); err != nil {
+		t.Fatal("the full log should have been rotated to audit.log.1")
+	}
+	if st, _ := os.Stat(path); st.Size() > 1024 {
+		t.Fatalf("a fresh log was expected: %d bytes", st.Size())
+	}
+	n, b := ob.aside()
+	if n != 0 || b < MaxAuditBytes {
+		t.Fatalf("the audit logs should count toward the bound: %d files, %d bytes", n, b)
+	}
+}
+
+// O8b: an ordered byte flood, then a stop.
+func TestO8bOrderedByteFloodThenStop(t *testing.T) {
+	ob := outbox(t)
+	big := json.RawMessage(`"` + strings.Repeat("a", 1<<20-200) + `"`)
+	filled := 0
+	for i := 0; i < 20; i++ {
+		_, err := ob.Enqueue("other", "bulk", "flood-"+string(rune('a'+i)), StoredRequest{Method: "POST", Path: "/", Dedup: "d", Body: big})
+		if errors.Is(err, ErrFull) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		filled++
+	}
+	if filled < 6 || filled > 8 {
+		t.Fatalf("the ordinary bound should stop the flood at about 8 MiB: %d records", filled)
+	}
+	un := StoredRequest{Method: "POST", Path: "/v1/stop", Audience: "aud", Unordered: true, Body: json.RawMessage(`{"seat":"a"}`)}
+	if _, err := ob.Enqueue("zmsg", "stop", "op-stop", un); err != nil {
+		t.Fatalf("a stop must still be recorded: %v", err)
+	}
+	un.Body = json.RawMessage(`"` + strings.Repeat("a", MaxUnorderedBody) + `"`)
+	if _, err := ob.Enqueue("zmsg", "stop", "op-stop2", un); !errors.Is(err, ErrTooBig) {
+		t.Fatalf("a stop over its cap: %v", err)
+	}
+	f := newFake(t, nil)
+	c := f.client(ob)
+	r := stopReq("op-big")
+	r.Body = []byte(`"` + strings.Repeat("a", MaxUnorderedBody) + `"`)
+	if res := valid(t, call(c, r)); res.Outcome != OutcomeInvalid {
+		t.Fatalf("%s", res.JSON())
+	}
+}
+
+// Set-aside files count toward the ordinary bound, never the reserve.
+func TestSetAsideFilesCountTowardTheOrdinaryBound(t *testing.T) {
+	ob := outbox(t)
+	ob.maxRecords = 100
+	for i := 0; i < 99; i++ {
+		os.WriteFile(filepath.Join(ob.dir, ".tmp-x"+string(rune('a'+i%26))+string(rune('a'+i/26))+".suspect"), []byte("x"), 0o600)
+	}
+	if _, err := ob.Enqueue("zmsg", "send", "op-1", req(`{}`)); !errors.Is(err, ErrFull) {
+		t.Fatalf("set-aside files should fill the ordinary bound: %v", err)
+	}
+	un := req(`{}`)
+	un.Unordered = true
+	if _, err := ob.Enqueue("zmsg", "stop", "op-s", un); err != nil {
+		t.Fatalf("the reserve is untouched by set-aside files: %v", err)
+	}
+}
+
+// T0: a peer that resets after the handshake, while the request is written,
+// leaves sent true: a write is dispatch_unknown, a non-dedup record is kept.
+func TestT0ResetAfterTheHandshakeIsSent(t *testing.T) {
+	f := newFake(t, nil)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	tl := tls.NewListener(ln, f.srv.TLS)
+	go func() {
+		for {
+			c, err := tl.Accept()
+			if err != nil {
+				return
+			}
+			if tc, ok := c.(*tls.Conn); ok {
+				_ = tc.Handshake()
+			}
+			c.Close() // reset before the request is read
+		}
+	}()
+	ob := outbox(t)
+	c := f.client(ob)
+	c.Endpoint.Origin = "https://" + ln.Addr().String()
+	res := valid(t, call(c, nudgeReq("op-1")))
+	recs, _ := ob.List()
+	if res.Outcome != OutcomeDispatchUnknown || !res.Sent || res.Exit() != kit.ExitFailed || len(recs) != 1 || recs[0].State != StateUnknown {
+		t.Fatalf("%s %v", res.JSON(), recs)
+	}
+	// A read in the same case is unavailable but sent.
+	if r := valid(t, call(c, readReq())); !r.Sent || r.Outcome != OutcomeUnavailable {
+		t.Fatalf("%s", r.JSON())
+	}
+}
+
+// O22: a second process cannot sweep a record that a live writer holds in flight.
+func TestO22ASecondProcessDoesNotSweepALiveWriter(t *testing.T) {
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	path := filepath.Join(dir, "outbox")
+	ob, err := OpenOutbox(path, "seat-a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A queued non-dedup record, as a live writer would hold it mid-flight.
+	if _, err := ob.Enqueue("zmsg", "nudge", "op-live", StoredRequest{Method: "POST", Path: "/", Audience: "aud", Body: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperHoldRecordLock")
+	cmd.Env = append(os.Environ(), "ZEO_HELPER_LOCK="+filepath.Join(path, fileName(1, "op-live")))
+	out, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	line := make([]byte, 6)
+	if _, err := out.Read(line); err != nil || string(line) != "locked" {
+		t.Fatalf("helper: %q %v", line, err)
+	}
+	if _, err := OpenOutbox(path, "seat-a", nil); err != nil { // a second invocation opens: the sweep runs
+		t.Fatal(err)
+	}
+	if recs, _ := ob.List(); len(recs) != 1 {
+		t.Fatalf("a live writer's record was swept: %v", recs)
+	}
+	_ = cmd.Process.Kill()
+	_, _ = cmd.Process.Wait()
+	if _, err := OpenOutbox(path, "seat-a", nil); err != nil {
+		t.Fatal(err)
+	}
+	ents, _ := os.ReadDir(path)
+	if recs, _ := ob.List(); len(recs) != 0 || !hasSuffixFile(ents, ".stale") {
+		t.Fatalf("once the writer is dead its queued non-dedup record is swept: %v", recs)
+	}
+}
+
+// TestHelperHoldRecordLock is a helper process: it takes the in-flight lock of a
+// record file and holds it until it is killed.
+func TestHelperHoldRecordLock(t *testing.T) {
+	path := os.Getenv("ZEO_HELPER_LOCK")
+	if path == "" {
+		t.Skip("helper only")
+	}
+	if _, err := lockFile(path); err != nil {
+		os.Stdout.WriteString("failed")
+		os.Exit(1)
+	}
+	os.Stdout.WriteString("locked")
+	time.Sleep(time.Minute)
+}
+
+// O23: abandon refuses a dedup record and a queued one.
+func TestO23AbandonRefusals(t *testing.T) {
+	ob := outbox(t)
+	enqueue(t, ob, "op-d")
+	if err := ob.Abandon("op-d", "e", ObservedApplied); err == nil {
+		t.Fatal("a queued dedup record cannot be abandoned")
+	}
+	ob.SetState(mustFirst(t, ob), StateUnknown)
+	if err := ob.Abandon("op-d", "e", ObservedApplied); err == nil {
+		t.Fatal("an unknown dedup record is reconciled, not abandoned")
 	}
 }
 
@@ -925,5 +1147,60 @@ func TestDoctorShowsTheBinary(t *testing.T) {
 	f := newFake(t, nil)
 	if d := f.client(outbox(t)).Doctor(context.Background(), "zmsg", "/v1/health", "aud"); d.Binary == "" {
 		t.Fatal("doctor should show the binary's own path")
+	}
+}
+
+// A queued record of a verb with no dedup contract is not abandoned (it is not unknown).
+func TestAbandonRefusesAQueuedNonDedupRecord(t *testing.T) {
+	ob := outbox(t)
+	if _, err := ob.Enqueue("zmsg", "nudge", "op-n", StoredRequest{Method: "POST", Path: "/", Audience: "aud", Body: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.Abandon("op-n", "e", ObservedApplied); err == nil {
+		t.Fatal("only an unknown record can be abandoned")
+	}
+	if recs, _ := ob.List(); recs[0].State != StateQueued {
+		t.Fatal("a refused abandon must change nothing")
+	}
+}
+
+// An unknown UNORDERED record neither blocks a drain nor later writes.
+func TestAnUnknownUnorderedRecordBlocksNothing(t *testing.T) {
+	f := newFake(t, lostAnswer)
+	ob := outbox(t)
+	valid(t, call(f.client(ob), stopReq("op-stop"))) // unknown, unordered
+	f.mode = nil
+	enqueue(t, ob, "op-q") // a dedup record queued behind it
+	c := f.client(ob)
+	if n, _ := c.Drain(context.Background()); n != 1 || f.seen["op-q"] != 1 {
+		t.Fatalf("an unordered unknown record blocked a drain: %d %v", n, f.seen)
+	}
+	if r := valid(t, call(c, nudgeReq("op-ord"))); r.Outcome != OutcomeOK {
+		t.Fatalf("an unordered unknown record blocked an ordered write: %s", r.JSON())
+	}
+}
+
+// A drain leaves a record that another process holds in flight.
+func TestADrainSkipsARecordAnotherProcessHolds(t *testing.T) {
+	f := newFake(t, nil)
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	ob, err := OpenOutbox(filepath.Join(dir, "outbox"), "seat-a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueue(t, ob, "op-held")
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperHoldRecordLock")
+	cmd.Env = append(os.Environ(), "ZEO_HELPER_LOCK="+filepath.Join(ob.dir, fileName(1, "op-held")))
+	out, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+	buf := make([]byte, 6)
+	if _, err := out.Read(buf); err != nil || string(buf) != "locked" {
+		t.Fatalf("%q %v", buf, err)
+	}
+	if n, _ := f.client(ob).Drain(context.Background()); n != 0 || f.seen["op-held"] != 0 {
+		t.Fatalf("a drain sent a record that a live writer holds: %d %v", n, f.seen)
 	}
 }

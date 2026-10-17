@@ -215,10 +215,13 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 	if r.Spool && r.Dedup == "" {
 		return c.result(r, OutcomeRefused, false, "not_spoolable")
 	}
-	rec, err := c.Outbox.Enqueue(r.Service, r.Verb, r.OperationID, StoredRequest{
+	rec, lk, err := c.Outbox.EnqueueLocked(r.Service, r.Verb, r.OperationID, StoredRequest{
 		Method: r.Method, Path: r.Path, Audience: r.Audience, Dedup: r.Dedup, Unordered: r.Unordered, Body: r.Body,
 	})
+	defer func() { lk.Release() }()
 	switch {
+	case errors.Is(err, ErrTooBig):
+		return c.result(r, OutcomeInvalid, false, "request")
 	case errors.Is(err, ErrFull):
 		return c.result(r, OutcomeRefused, false, "outbox_full")
 	case errors.Is(err, ErrKeyConflict):
@@ -253,7 +256,8 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 	}
 	// Durably `unknown` BEFORE any byte is emitted: a crash before this proves
 	// no emission, and a crash after it leaves the record unknown.
-	if err := c.Outbox.SetState(rec, StateUnknown); err != nil {
+	lk, err = c.Outbox.setStateLocked(rec, StateUnknown, lk)
+	if err != nil {
 		return c.result(r, OutcomeRefused, false, "outbox")
 	}
 	res := c.once(ctx, r, p, authz)
@@ -339,7 +343,7 @@ func (c *Client) recordRequest(rec Record) (Request, error) {
 	}
 	return Request{
 		Service: rec.Service, Verb: rec.Verb, Method: sr.Method, Path: sr.Path, Body: sr.Body,
-		OperationID: rec.OperationID, Audience: sr.Audience, Dedup: sr.Dedup, Unordered: sr.Unordered,
+		OperationID: rec.OperationID, Audience: sr.Audience, Dedup: sr.Dedup,
 	}, nil
 }
 
@@ -381,7 +385,7 @@ func (c *Client) Reconcile(ctx context.Context, operationID string) Result {
 				return fail(OutcomeRefused, "credential")
 			}
 		}
-		c.Outbox.audit("reconcile", operationID)
+		c.Outbox.audit(AuditEntry{Verb: "reconcile", Service: rec.Service, RecordVerb: rec.Verb, OperationID: operationID, Evidence: "reconcile with the same key", Observed: ObservedUnknown})
 		res := c.sendRecord(ctx, rec, authz)
 		res.Service, res.Verb = rec.Service, rec.Verb
 		switch res.Outcome {
@@ -429,9 +433,12 @@ func (c *Client) once(ctx context.Context, r Request, p Policy, authz string) Re
 	}
 	req.Header.Set("Content-Type", "application/json")
 	sent := false
+	// sent is false ONLY while the failure came before the request was handed
+	// to an established connection: GotConn fires after the TLS handshake, so
+	// handshake bytes are not request bytes, and any error at or after it (a
+	// write error on the request line or the headers included) is sent.
 	trace := &httptrace.ClientTrace{
-		WroteHeaders: func() { sent = true },
-		WroteRequest: func(httptrace.WroteRequestInfo) { sent = true },
+		GotConn: func(httptrace.GotConnInfo) { sent = true },
 	}
 	req = req.WithContext(httptrace.WithClientTrace(ctx, trace))
 

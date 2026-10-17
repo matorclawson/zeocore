@@ -42,6 +42,13 @@ const (
 // MaxRecords. Scaled down with a smaller bound.
 const ReservedRecords = 16
 
+// MaxUnorderedBody caps the body of an unordered verb (a stop), so that the
+// room kept for it is a known number of bytes: ReservedRecords times this.
+const MaxUnorderedBody = 4 << 10
+
+// MaxAuditBytes is where audit.log is rotated, once, to audit.log.1.
+const MaxAuditBytes = 256 << 10
+
 // idRe restricts an operation id: it is a filename.
 var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
@@ -81,6 +88,17 @@ type Record struct {
 	Request       json.RawMessage `json:"request"`
 	Created       string          `json:"created"`
 	State         string          `json:"state"`
+	// Resolution is set when a person ends the record (abandon).
+	Resolution *Resolution `json:"resolution,omitempty"`
+}
+
+// Resolution is who ended a record, on what evidence, and what was observed.
+// The actor is as claimed: nothing on a same-UID host authenticates it.
+type Resolution struct {
+	Actor    string `json:"actor"`
+	Evidence string `json:"evidence"`
+	Observed string `json:"observed"` // applied | not_applied | unknown
+	At       string `json:"at"`
 }
 
 // Outbox is a directory of records on the host's internal disk. 0700 is not a
@@ -93,6 +111,10 @@ type Outbox struct {
 
 	maxRecords int
 	maxBytes   int
+	// Evidence, if set, receives each audit line of abandon and resolve, so the
+	// tool can mail it to the owner or the ledger. The log in the directory is a
+	// local convenience, not the evidence record.
+	Evidence func(line string)
 	// syncDir and syncFile are the durability calls; tests replace them to
 	// see a failure.
 	syncFile func(*os.File) error
@@ -106,6 +128,7 @@ var (
 	ErrDrainBusy   = errors.New("another drain is running")
 	ErrDisk        = errors.New("the outbox could not be written durably")
 	ErrHeld        = errors.New("the outbox order is held: a file needs a person to look at it")
+	ErrTooBig      = errors.New("the body of an unordered verb is over its cap")
 )
 
 // OpenOutbox opens dir, creating it with mode 0700 if it is missing. The path
@@ -146,25 +169,33 @@ func OpenOutbox(dir, sender string, now func() time.Time) (*Outbox, error) {
 	if err := o.loadIncarnation(); err != nil {
 		return nil, err
 	}
-	// An unfinished temporary file from a crash is not a record, and deleting
-	// it would not prove that no durable intent exists: it is kept aside as
-	// .suspect. It was never sent (the record is made before the send), so it
-	// is terminal and does not hold the order.
-	if ents, err := os.ReadDir(dir); err == nil {
-		for _, e := range ents {
-			if strings.HasPrefix(e.Name(), ".tmp-") && !strings.Contains(e.Name(), ".suspect") {
-				_ = os.Rename(filepath.Join(dir, e.Name()), filepath.Join(dir, e.Name()+".suspect"))
-			}
-		}
-	}
-	o.setAsideStale()
+	o.sweep()
 	return o, nil
 }
 
-// setAsideStale moves a queued record of a verb with no dedup contract aside as
-// .stale: such a verb is never spooled, so a queued record of it is what a
-// crash left behind, and it must never be drained later.
-func (o *Outbox) setAsideStale() {
+// sweep sets aside what a crash left behind, under the outbox lock so that a
+// live writer (which holds that lock for the whole of a write) is never swept.
+// An unfinished .tmp- file becomes .suspect: it is not a record, and deleting
+// it would not prove that no durable intent exists; it was never sent (the
+// record is made before the send), so it is terminal and does not hold the
+// order. A queued record of a verb with no dedup contract becomes .stale: such
+// a verb is never spooled, so a queued record of it is what a crash left, and
+// it must never be drained later. A record is moved only if its advisory lock
+// can be taken without waiting: a second invocation of the same sender cannot
+// sweep a record that a live writer holds in flight.
+func (o *Outbox) sweep() {
+	unlock, err := o.lock(".alloc.lock", true)
+	if err != nil {
+		return
+	}
+	defer unlock()
+	if ents, err := os.ReadDir(o.dir); err == nil {
+		for _, e := range ents {
+			if strings.HasPrefix(e.Name(), ".tmp-") && !strings.Contains(e.Name(), ".suspect") {
+				_ = os.Rename(filepath.Join(o.dir, e.Name()), filepath.Join(o.dir, e.Name()+".suspect"))
+			}
+		}
+	}
 	recs, _, err := o.list()
 	if err != nil {
 		return
@@ -173,9 +204,48 @@ func (o *Outbox) setAsideStale() {
 		var sr StoredRequest
 		if r.State == StateQueued && strictDecode(r.Request, &sr) == nil && sr.Dedup == "" {
 			p := filepath.Join(o.dir, fileName(r.Seq, r.OperationID))
-			_ = os.Rename(p, p+".stale")
+			if l, err := lockFile(p); err == nil {
+				_ = os.Rename(p, p+".stale")
+				l.Release()
+			}
 		}
 	}
+}
+
+// recLock is an advisory flock(2) lock (LOCK_EX|LOCK_NB) on a record file, held
+// for as long as the record is in flight. flock, not fcntl: a process loses an
+// fcntl lock when it closes ANY descriptor to the file, and the sweep code in
+// the same process could do that. The descriptor is close-on-exec (os.OpenFile
+// sets it), and the lock is released when the process dies. The lock follows
+// the inode, so it is taken again on the replacement file whenever the record
+// is rewritten. The outbox must be on a local disk: flock over NFS is out of
+// scope (stated, not checked).
+type recLock struct{ f *os.File }
+
+func lockFile(path string) (*recLock, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return nil, ErrDrainBusy
+	}
+	return &recLock{f}, nil
+}
+
+// Release drops the lock. It is safe on a nil lock.
+func (l *recLock) Release() {
+	if l != nil && l.f != nil {
+		_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+		l.f.Close()
+		l.f = nil
+	}
+}
+
+// lockRecord takes the in-flight lock of a record, or fails if another process holds it.
+func (o *Outbox) lockRecord(rec Record) (*recLock, error) {
+	return lockFile(filepath.Join(o.dir, fileName(rec.Seq, rec.OperationID)))
 }
 
 func (o *Outbox) loadIncarnation() error {
@@ -269,7 +339,7 @@ func (o *Outbox) Held() bool {
 // Resolve clears a hold after a person has looked at the held files. A .bad
 // file is kept, renamed .resolved; a .suspect or .stale file may only be
 // discarded (renamed .discarded), never requeued.
-func (o *Outbox) Resolve() (int, error) {
+func (o *Outbox) Resolve(evidence string) (int, error) {
 	ents, err := os.ReadDir(o.dir)
 	if err != nil {
 		return 0, err
@@ -292,26 +362,89 @@ func (o *Outbox) Resolve() (int, error) {
 		n++
 	}
 	if n > 0 {
-		o.audit("resolve", "")
+		o.audit(AuditEntry{Verb: "resolve", Evidence: evidence, Observed: ObservedUnknown})
 	}
 	return n, nil
 }
 
-// audit appends one line (time, verb, id) to audit.log. Nothing stops another
-// seat on the same host from running these verbs; the log makes it visible.
-func (o *Outbox) audit(verb, id string) {
-	f, err := os.OpenFile(filepath.Join(o.dir, "audit.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+// AuditEntry is one line of audit.log.
+type AuditEntry struct {
+	At          string `json:"at"`
+	Actor       string `json:"actor"` // as claimed; nothing authenticates it
+	Verb        string `json:"verb"`
+	Service     string `json:"service"`
+	RecordVerb  string `json:"record_verb"`
+	OperationID string `json:"operation_id"`
+	Evidence    string `json:"evidence"`
+	Observed    string `json:"observed"`
+}
+
+// audit appends one JSON line to audit.log, rotating it once to audit.log.1 at
+// MaxAuditBytes. It is a local convenience, not the evidence record: it is
+// writable by every seat on the host, its actor is a claim, and a second
+// rotation overwrites the first. abandon and resolve also hand the line to
+// Evidence so that the tool can mail it to the owner or the ledger.
+func (o *Outbox) audit(e AuditEntry) {
+	e.At = o.now().UTC().Format("2006-01-02T15:04:05Z")
+	if e.Actor == "" {
+		e.Actor = os.Getenv("USER")
+	}
+	line, err := json.Marshal(e)
 	if err != nil {
 		return
 	}
-	defer f.Close()
-	_, _ = f.WriteString(o.now().UTC().Format("2006-01-02T15:04:05Z") + " " + verb + " " + id + "\n")
+	path := filepath.Join(o.dir, "audit.log")
+	if fi, err := os.Stat(path); err == nil && fi.Size() >= MaxAuditBytes {
+		_ = os.Rename(path, path+".1")
+	}
+	if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+		_, _ = f.Write(append(line, '\n'))
+		f.Close()
+	}
+	if o.Evidence != nil && (e.Verb == "abandon" || e.Verb == "resolve") {
+		o.Evidence(string(line))
+	}
+}
+
+// Observations an abandon may record.
+const (
+	ObservedApplied    = "applied"
+	ObservedNotApplied = "not_applied"
+	ObservedUnknown    = "unknown"
+)
+
+// Show returns a record and the audit lines that name it.
+func (o *Outbox) Show(operationID string) (Record, []AuditEntry, error) {
+	recs, err := o.List()
+	if err != nil {
+		return Record{}, nil, err
+	}
+	for _, r := range recs {
+		if r.OperationID != operationID {
+			continue
+		}
+		var out []AuditEntry
+		raw, _ := os.ReadFile(filepath.Join(o.dir, "audit.log"))
+		for _, ln := range strings.Split(string(raw), "\n") {
+			var e AuditEntry
+			if ln != "" && json.Unmarshal([]byte(ln), &e) == nil && e.OperationID == operationID {
+				out = append(out, e)
+			}
+		}
+		return r, out, nil
+	}
+	return Record{}, nil, errors.New("no such record")
 }
 
 // Abandon ends an unknown record of a verb with no dedup contract: the owner's
 // status port or a named reviewer has checked the outcome. The record is kept,
-// terminal, and never resent. A dedup verb is reconciled instead.
-func (o *Outbox) Abandon(operationID string) error {
+// terminal, never resent, and carries who ended it, on what evidence and what
+// was observed. A dedup verb is reconciled instead, and only an unknown record
+// can be abandoned.
+func (o *Outbox) Abandon(operationID, evidence, observed string) error {
+	if evidence == "" || (observed != ObservedApplied && observed != ObservedNotApplied && observed != ObservedUnknown) {
+		return errors.New("abandon needs the evidence and what was observed (applied, not_applied or unknown)")
+	}
 	recs, err := o.List()
 	if err != nil {
 		return err
@@ -324,13 +457,36 @@ func (o *Outbox) Abandon(operationID string) error {
 		if r.State != StateUnknown || strictDecode(r.Request, &sr) != nil || sr.Dedup != "" {
 			return errors.New("only an unknown record of a verb with no dedup contract can be abandoned")
 		}
+		at := o.now().UTC().Format("2006-01-02T15:04:05Z")
+		r.Resolution = &Resolution{Actor: os.Getenv("USER"), Evidence: evidence, Observed: observed, At: at}
 		if err := o.SetState(r, StateAbandoned); err != nil {
 			return err
 		}
-		o.audit("abandon", operationID)
+		o.audit(AuditEntry{Verb: "abandon", Service: r.Service, RecordVerb: r.Verb, OperationID: operationID, Evidence: evidence, Observed: observed})
 		return nil
 	}
 	return errors.New("no such record")
+}
+
+// aside counts the files set aside (.stale, .suspect, .bad) and the audit logs.
+func (o *Outbox) aside() (n, bytes int) {
+	ents, err := os.ReadDir(o.dir)
+	if err != nil {
+		return 0, 0
+	}
+	for _, e := range ents {
+		name := e.Name()
+		set := strings.HasSuffix(name, ".stale") || strings.HasSuffix(name, ".suspect") || strings.HasSuffix(name, ".bad")
+		if set {
+			n++
+		}
+		if set || name == "audit.log" || name == "audit.log.1" {
+			if fi, err := e.Info(); err == nil {
+				bytes += int(fi.Size())
+			}
+		}
+	}
+	return n, bytes
 }
 
 func digestOf(canon []byte) string {
@@ -342,29 +498,45 @@ func digestOf(canon []byte) string {
 // same record (a reply spooled twice is one record); the same key with another
 // payload is a conflict, never silently the first payload.
 func (o *Outbox) Enqueue(service, verb, id string, req StoredRequest) (Record, error) {
+	rec, lk, err := o.EnqueueLocked(service, verb, id, req)
+	lk.Release()
+	return rec, err
+}
+
+// EnqueueLocked is Enqueue that returns the in-flight lock of the record. The
+// caller holds it until the write is settled.
+func (o *Outbox) EnqueueLocked(service, verb, id string, req StoredRequest) (Record, *recLock, error) {
+	rec, lk, err := o.enqueue(service, verb, id, req)
+	return rec, lk, err
+}
+
+func (o *Outbox) enqueue(service, verb, id string, req StoredRequest) (Record, *recLock, error) {
+	if req.Unordered && len(req.Body) > MaxUnorderedBody {
+		return Record{}, nil, ErrTooBig
+	}
 	if !idRe.MatchString(id) {
-		return Record{}, errors.New("the operation id is not valid")
+		return Record{}, nil, errors.New("the operation id is not valid")
 	}
 	// json.Marshal refuses a body that is not valid JSON.
 	rawReq, err := json.Marshal(req)
 	if err != nil {
-		return Record{}, err
+		return Record{}, nil, err
 	}
 	canon, err := kit.Canonical(rawReq)
 	if err != nil {
-		return Record{}, errors.New("a stored request must be canonical JSON")
+		return Record{}, nil, errors.New("a stored request must be canonical JSON")
 	}
 	unlock, err := o.lock(".alloc.lock", true)
 	if err != nil {
-		return Record{}, ErrDisk
+		return Record{}, nil, ErrDisk
 	}
 	defer unlock()
 	recs, bad, err := o.list()
 	if err != nil {
-		return Record{}, err
+		return Record{}, nil, err
 	}
 	if bad > 0 && !req.Unordered {
-		return Record{}, ErrHeld
+		return Record{}, nil, ErrHeld
 	}
 	digest := digestOf(canon)
 	var next uint64 = 1
@@ -372,21 +544,32 @@ func (o *Outbox) Enqueue(service, verb, id string, req StoredRequest) (Record, e
 	for _, r := range recs {
 		if r.OperationID == id {
 			if r.PayloadDigest != digest {
-				return Record{}, ErrKeyConflict
+				return Record{}, nil, ErrKeyConflict
 			}
-			return r, nil
+			lk, _ := o.lockRecord(r)
+			return r, lk, nil
 		}
 		if r.Seq >= next {
 			next = r.Seq + 1
 		}
 		used += len(r.Request)
 	}
-	limit := o.maxRecords
-	if !req.Unordered {
-		limit -= o.maxRecords * ReservedRecords / MaxRecords
-	}
-	if len(recs) >= limit || used+len(canon) > o.maxBytes {
-		return Record{}, ErrFull
+	// Sixteen records and 64 KiB are reserved for unordered verbs (a stop). An
+	// ordinary write is refused when it would eat the reserve, by count or by
+	// bytes; set-aside files and audit.log count toward the ordinary bound
+	// (so disk use is bounded) and never toward the reserve.
+	asideN, asideB := o.aside()
+	switch {
+	case req.Unordered:
+		if len(recs) >= o.maxRecords || used+len(canon) > o.maxBytes {
+			return Record{}, nil, ErrFull
+		}
+	default:
+		reserveN := o.maxRecords * ReservedRecords / MaxRecords
+		reserveB := o.maxBytes / 128
+		if len(recs)+asideN >= o.maxRecords-reserveN || used+asideB+len(canon) > o.maxBytes-reserveB {
+			return Record{}, nil, ErrFull
+		}
 	}
 	rec := Record{
 		Schema: RecordSchema, Sender: o.sender, Incarnation: o.incarnation, Seq: next, Service: service,
@@ -394,9 +577,13 @@ func (o *Outbox) Enqueue(service, verb, id string, req StoredRequest) (Record, e
 		Created: o.now().UTC().Format("2006-01-02T15:04:05Z"), State: StateQueued,
 	}
 	if err := o.write(rec); err != nil {
-		return Record{}, ErrDisk
+		return Record{}, nil, ErrDisk
 	}
-	return rec, nil
+	lk, err := o.lockRecord(rec)
+	if err != nil {
+		return Record{}, nil, ErrDisk
+	}
+	return rec, lk, nil
 }
 
 // write puts the record on disk: a temporary name, fsync of the file, rename,
@@ -445,11 +632,29 @@ func (o *Outbox) write(rec Record) error {
 
 // SetState changes a record's state.
 func (o *Outbox) SetState(rec Record, state string) error {
+	lk, err := o.setStateLocked(rec, state, nil)
+	lk.Release()
+	return err
+}
+
+// setStateLocked rewrites the record, under the outbox lock, and takes the
+// in-flight lock again on the replacement file before it lets the old one go.
+func (o *Outbox) setStateLocked(rec Record, state string, old *recLock) (*recLock, error) {
+	unlock, err := o.lock(".alloc.lock", true)
+	if err != nil {
+		return old, ErrDisk
+	}
+	defer unlock()
 	rec.State = state
 	if err := o.write(rec); err != nil {
-		return ErrDisk
+		return old, ErrDisk
 	}
-	return nil
+	lk, err := o.lockRecord(rec)
+	if err != nil {
+		return old, ErrDisk
+	}
+	old.Release()
+	return lk, nil
 }
 
 // Remove deletes a delivered record.
@@ -476,7 +681,7 @@ func (o *Outbox) Purge() (int, error) {
 		}
 	}
 	if n > 0 {
-		o.audit("purge", "")
+		o.audit(AuditEntry{Verb: "purge", Evidence: "purged records in state refused or abandoned", Observed: ObservedUnknown})
 	}
 	return n, nil
 }
@@ -583,10 +788,18 @@ func (o *Outbox) DrainBefore(service string, seq uint64, send func(Record) Resul
 			// A verb with no dedup contract is never spooled and never drained.
 			continue
 		}
-		if err := o.SetState(r, StateUnknown); err != nil {
+		// Another process holds this record in flight: leave it, and the order.
+		lk, lerr := o.lockRecord(r)
+		if lerr != nil {
+			return sent, nil
+		}
+		lk, err = o.setStateLocked(r, StateUnknown, lk)
+		if err != nil {
+			lk.Release()
 			return sent, err
 		}
 		res := send(r)
+		lk.Release()
 		switch {
 		case res.Outcome == OutcomeOK:
 			if err := o.Remove(r); err != nil {
