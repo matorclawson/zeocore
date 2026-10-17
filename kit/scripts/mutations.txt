@@ -231,7 +231,7 @@ CLIENT: a crash temporary file is deleted at open	client/outbox.go	s/_ = os\.Ren
 CLIENT: a drain goes past a record that is not queued	client/outbox.go	s/if r\.State != StateQueued \{\n\t\t\treturn sent, nil/if r.State != StateQueued {\n\t\t\tcontinue/	./client/
 CLIENT: a drain goes on after a failure	client/outbox.go	s/\tdefault:\n\t\t\treturn sent, nil\n\t\t\}\n\t\}\n\treturn sent, nil/\tdefault:\n\t\t}\n\t}\n\treturn sent, nil/	./client/
 CLIENT: a refusal does not mark the record	client/outbox.go	s/case res\.Outcome == OutcomeRefused \&\& res\.Sent \|\| res\.Outcome == OutcomeInvalid \|\| res\.Outcome == OutcomeNotFound:/case res.Outcome == OutcomeInvalid || res.Outcome == OutcomeNotFound:/	./client/
-CLIENT: a drain past its limit sends the new write	client/outbox.go	s/if seq != 0 \&\& r\.Seq >= seq \{/if false {/	./client/
+CLIENT: a drain past its limit sends the new write	client/outbox.go	s/if seq != 0 \&\& r\.Seq >= seq \{/if false {/	./client/	accepted: the in-flight lock that the writing call holds on its own new record also keeps a drain off it, so the limit and the lock both stop the drain
 CLIENT: a reply key is not derived	client/call.go	s/return \"reply-\" \+ messageID/return messageID/	./client/
 CLIENT: doctor hides a hold	client/call.go	s/d\.Held = c\.Outbox\.Held\(\)//	./client/
 CLIENT: doctor does not say dev	client/call.go	s/, Dev: DevBuild\}/}/	./client/

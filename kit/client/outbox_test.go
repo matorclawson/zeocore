@@ -1240,3 +1240,52 @@ func TestTheUnorderedBoundsHold(t *testing.T) {
 		t.Fatal("the byte bound of unordered verbs")
 	}
 }
+
+// With a .bad file and nothing else in the outbox, an ordered write is refused at
+// enqueue; an unordered one is not.
+func TestAHoldRefusesAnOrderedWriteEvenWithNothingAhead(t *testing.T) {
+	ob := outbox(t)
+	os.WriteFile(filepath.Join(ob.dir, fileName(4, "op-4")), []byte("{"), 0o600)
+	ob.List()
+	if _, err := ob.Enqueue("zmsg", "send", "op-1", req(`{}`)); !errors.Is(err, ErrHeld) {
+		t.Fatalf("an ordered write was accepted while held: %v", err)
+	}
+	un := req(`{}`)
+	un.Unordered = true
+	if _, err := ob.Enqueue("zmsg", "stop", "op-s", un); err != nil {
+		t.Fatalf("an unordered write must still be recorded: %v", err)
+	}
+}
+
+// An ordinary write may not eat the reserved bytes, though the total would still fit.
+func TestAnOrdinaryWriteMayNotEatTheReservedBytes(t *testing.T) {
+	size := func(n int) int { // the canonical request length for a body of n bytes
+		probe := outbox(t)
+		rec, err := probe.Enqueue("zmsg", "send", "p", StoredRequest{Method: "POST", Path: "/", Audience: "", Dedup: "d", Body: json.RawMessage(`"` + strings.Repeat("x", n) + `"`)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(rec.Request)
+	}
+	ob := outbox(t)
+	ob.maxBytes = 128 * 400 // the reserve is maxBytes/128 = 400 bytes
+	first := size(200)
+	if _, err := ob.Enqueue("zmsg", "send", "a", StoredRequest{Method: "POST", Path: "/", Dedup: "d", Body: json.RawMessage(`"` + strings.Repeat("x", 200) + `"`)}); err != nil {
+		t.Fatal(err)
+	}
+	// A second record that fills the outbox to its very bound, which can only be
+	// done by eating the 400 reserved bytes.
+	want := ob.maxBytes - first
+	k := want - size(0)
+	if k < 0 {
+		t.Skip("bounds too small for this probe")
+	}
+	b := json.RawMessage(`"` + strings.Repeat("x", k) + `"`)
+	if _, err := ob.Enqueue("zmsg", "send", "b", StoredRequest{Method: "POST", Path: "/", Dedup: "d", Body: b}); !errors.Is(err, ErrFull) {
+		t.Fatalf("an ordinary write ate the reserved bytes: %v", err)
+	}
+	un := StoredRequest{Method: "POST", Path: "/", Unordered: true, Body: json.RawMessage(`"` + strings.Repeat("x", 10) + `"`)}
+	if _, err := ob.Enqueue("zmsg", "stop", "u", un); err != nil {
+		t.Fatalf("the reserve is for unordered verbs: %v", err)
+	}
+}
