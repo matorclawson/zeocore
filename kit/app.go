@@ -313,8 +313,8 @@ func (a *App) schemas() []string {
 	if len(a.Subjects) > 0 {
 		all[SchemaPlan], all[SchemaApply] = true, true
 	}
-	if a.Updater != nil {
-		all[SchemaUpdate] = true
+	if a.Updater != nil || len(a.Subjects) > 0 {
+		all[SchemaUpdate] = true // recover prints it, with or without an updater
 	}
 	for _, s := range a.Schemas {
 		all[s] = true

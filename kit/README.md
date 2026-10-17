@@ -109,6 +109,12 @@ and back out on any failure.
 - **Live rule fails closed.** If `Status` cannot say whether the app is live, it is treated as live: the
   operation refuses with the live reason (`live`, or an app's own, e.g. `studio_live`) unless the app
   has an idle `Fence` and takes it.
+- **Guard compares by file identity.** It takes absolute paths without `..`, walks each existing prefix
+  and compares it with each protected path by `os.SameFile` (so a case or Unicode-normalisation spelling
+  the file system folds, or a link, names the same thing), and refuses a path that goes through a symbolic
+  link that does not resolve (a write through it would create a file wherever it points). **Guard is
+  advisory**: it checks a path, not the descriptor a hook later opens, so a link swapped after Guard
+  returns is not stopped by it. The snapshot is the backstop.
 - **Protected paths.** `Guard` takes absolute paths without `..` (a `..` after a symbolic link would be
   collapsed as text before the link is resolved, so it is refused outright) and resolves links on both
   sides. The kit also snapshots the protected paths before `Fetch` (or a rollback's preflight) and
@@ -118,14 +124,19 @@ and back out on any failure.
   back (`undone`), also leaving the file as it is. Every protected file keeps its exact size and bytes,
   except files under `Updater.AppendOnly` (append-only state), which may grow with their first bytes
   unchanged. No entry may appear, vanish or change mode, and a symbolic link (inside the tree, or the
-  protected path itself) may not be retargeted.
+  protected path itself) may not be retargeted. `Protected` and `AppendOnly` are copied at the start of a
+  run, so a hook cannot widen them; **do not let `AppendOnly` cover key custody**. Limits of the snapshot,
+  said plainly: a link inside a tree that points outside it is compared by its target string only; a
+  write undone inside the window (truncate, then restore) is invisible; owner, ACL and extended
+  attributes are not compared; every regular file is hashed in full, several times per update, so a
+  large append-only journal costs several full reads.
 - **recover looks before it acts.** It first proves the version that is current as it stands (ready and
   verify, no stop). If one of the intent's two versions is running and proved, only the record is left,
   and it is cleared. The app's `Ready` is asked with a zero time (a readiness event at any time counts)
   and must still check the live process (its pid and a readiness event). Only if that fails does it act: it applies the live rule, then goes through the two
   versions, From first, and proves the first that passes. A `Down` migration must therefore be
   all-or-nothing: the intent does not record it. An unreadable intent is cleared once current is proved.
-- **recover exists for an app with `Subjects` and no `Updater`** (a half-done apply leaves an intent that only recover clears); an unfinished update cannot be recovered without an updater.
+- **recover exists for an app with `Subjects` and no `Updater`** (its `help` lists `zeo.update/v1`; an unreadable intent there can only be removed by hand, since only an apply writes one) (a half-done apply leaves an intent that only recover clears); an unfinished update cannot be recovered without an updater.
 - **An apply leaves an intent too.** A killed `Apply` hook, or a half-done apply the kit could not put
   back, blocks every later update, rollback or apply until `recover` reads the targets: all at their
   before values, or all at their after values, clears it; a mix stays `recovery_required` with the

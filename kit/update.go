@@ -199,8 +199,8 @@ func within(dir, path string) bool {
 }
 
 // resolved is an absolute path with every symbolic link in its longest
-// existing prefix evaluated and the rest appended, so a link into a protected
-// area is seen for what it is.
+// existing prefix evaluated and the rest appended. It is a convenience for
+// keys and messages; the decision to refuse never rests on text alone.
 func resolved(p string) string {
 	p = filepath.Clean(p)
 	rest := ""
@@ -215,14 +215,63 @@ func resolved(p string) string {
 	}
 }
 
+// chain returns the identity (stat, links followed) of every existing prefix of
+// an absolute path, walking it component by component. It reports dangling
+// true if a component is a symbolic link that does not resolve: the kernel
+// would create or open something there that no text comparison can name.
+func chain(path string) (infos []os.FileInfo, dangling bool) {
+	cur := string(filepath.Separator)
+	for _, el := range strings.Split(strings.TrimPrefix(path, cur), cur) {
+		if el == "" {
+			continue
+		}
+		cur = filepath.Join(cur, el)
+		lfi, err := os.Lstat(cur)
+		if err != nil {
+			return infos, false // the rest does not exist yet
+		}
+		fi, err := os.Stat(cur)
+		if err != nil {
+			if lfi.Mode()&fs.ModeSymlink != 0 {
+				return infos, true
+			}
+			return infos, false
+		}
+		infos = append(infos, fi)
+	}
+	return infos, false
+}
+
 // overlaps says whether two absolute paths are the same or one is below the
-// other, compared as written and with symbolic links resolved.
+// other. It compares as written, with links resolved, and by FILE IDENTITY
+// (os.SameFile over every existing prefix), so a case or Unicode-normalisation
+// spelling that the file system folds, a link, or a hard-to-spell path to the
+// same directory cannot get past it.
 func overlaps(a, b string) bool {
 	if within(a, b) || within(b, a) {
 		return true
 	}
 	ra, rb := resolved(a), resolved(b)
-	return within(ra, rb) || within(rb, ra) || within(a, rb) || within(rb, a) || within(ra, b) || within(b, ra)
+	if within(ra, rb) || within(rb, ra) || within(a, rb) || within(rb, a) || within(ra, b) || within(b, ra) {
+		return true
+	}
+	ca, _ := chain(a)
+	cb, _ := chain(b)
+	if len(ca) == 0 || len(cb) == 0 {
+		return false
+	}
+	lastA, lastB := ca[len(ca)-1], cb[len(cb)-1]
+	for _, x := range ca {
+		if os.SameFile(x, lastB) {
+			return true // b is a, or a lies below b
+		}
+	}
+	for _, y := range cb {
+		if os.SameFile(y, lastA) {
+			return true // a is b, or b lies below a
+		}
+	}
+	return false
 }
 
 // Guard refuses a path a step must not touch. Hooks call it before writing.
@@ -237,6 +286,11 @@ func (u *Updater) Guard(path string) error {
 		if el == ".." {
 			return Refused("protected", "a path to guard must not contain ..")
 		}
+	}
+	// A path through a symbolic link that does not resolve is refused: writing
+	// through it creates a file wherever the link points.
+	if _, dangling := chain(path); dangling {
+		return Refused("protected", "a path goes through a symbolic link that does not resolve")
 	}
 	for _, p := range u.Protected {
 		if overlaps(p, path) {
@@ -504,7 +558,9 @@ func prefixSum(path string, n int64) (string, error) {
 
 func (u *Updater) appendOnly(path string) bool {
 	for _, p := range u.AppendOnly {
-		if within(p, path) {
+		// The snapshot keys entries by their resolved form, so the declared
+		// path is compared in both spellings.
+		if within(p, path) || within(resolved(p), path) {
 			return true
 		}
 	}
@@ -650,6 +706,15 @@ func reasonOf(err error, def string) string {
 
 func (a *App) runChange(c *Context, verb string) error {
 	u := a.Updater
+	if u != nil {
+		// Protected and AppendOnly are read once, at the start: a hook cannot
+		// widen what may grow (or narrow what is protected) while the run is
+		// going.
+		cp := *u
+		cp.Protected = append([]string(nil), u.Protected...)
+		cp.AppendOnly = append([]string(nil), u.AppendOnly...)
+		u = &cp
+	}
 	r := &run{a: a, u: u, c: c, doc: updateDoc{Schema: SchemaUpdate, App: a.Name, Verb: verb, Steps: []step{}}}
 	_, r.doc.CheckOnly = c.Flag("check")
 	if u != nil {

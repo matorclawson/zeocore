@@ -565,3 +565,171 @@ func TestASameSizeRewriteOfAProtectedFileIsATouch(t *testing.T) {
 		t.Fatalf("exit %d current %s", code, f.current())
 	}
 }
+
+// P2-A2 (council, #136 round 3): Guard compares by file identity, not text.
+func TestGuardRefusesADanglingLinkIntoAProtectedTree(t *testing.T) {
+	f := newFake2(t)
+	u := f.app().Updater
+	dir := t.TempDir()
+	// w/dl -> keys/planted.pub (the target does not exist yet): a write through
+	// it creates the file inside the protected tree.
+	dl := filepath.Join(dir, "dl")
+	if err := os.Symlink(filepath.Join(f.prot, "planted.pub"), dl); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.Guard(dl); err == nil {
+		t.Error("a dangling link into a protected tree was accepted")
+	}
+	// A relative dangling link, and a chain of two.
+	rel := filepath.Join(dir, "rel")
+	if err := os.Symlink(filepath.Join("..", filepath.Base(f.prot), "planted2.pub"), rel); err == nil {
+		_ = u.Guard(rel) // only meaningful when the layout lines up; must not panic
+	}
+	chain1, chain2 := filepath.Join(dir, "c1"), filepath.Join(dir, "c2")
+	_ = os.Symlink(chain2, chain1)
+	_ = os.Symlink(filepath.Join(f.prot, "planted3.pub"), chain2)
+	if err := u.Guard(chain1); err == nil {
+		t.Error("a chain of dangling links was accepted")
+	}
+	// A path that does not exist and is not under a link is fine.
+	if err := u.Guard(filepath.Join(dir, "fresh", "file")); err != nil {
+		t.Errorf("an ordinary new path: %v", err)
+	}
+}
+
+func TestGuardRefusesASpellingTheFileSystemFolds(t *testing.T) {
+	f := newFake2(t)
+	u := f.app().Updater
+	// Case: only on a case-insensitive file system.
+	upper := filepath.Join(filepath.Dir(f.prot), strings.ToUpper(filepath.Base(f.prot)), "k")
+	if _, err := os.Stat(filepath.Join(filepath.Dir(f.prot), strings.ToUpper(filepath.Base(f.prot)))); err == nil {
+		if err := u.Guard(upper); err == nil {
+			t.Error("a case variant of a protected tree was accepted")
+		}
+	} else {
+		t.Log("case-sensitive file system: the case variant names another path")
+	}
+	// Unicode normalisation: NFC protected name, NFD spelling.
+	base := t.TempDir()
+	nfc := filepath.Join(base, "kéys")
+	nfd := filepath.Join(base, "kéys")
+	if err := os.MkdirAll(nfc, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(nfd); err != nil {
+		t.Skip("this file system does not fold Unicode normalisation")
+	}
+	v := f.app().Updater
+	v.Protected = []string{nfc}
+	if err := v.Guard(filepath.Join(nfd, "k")); err == nil {
+		t.Error("an NFD spelling of a protected tree was accepted")
+	}
+	// The target lies deeper than the protected path, under an existing child, so only its
+	// prefix (not its deepest existing part) is the protected directory.
+	if err := os.MkdirAll(filepath.Join(nfc, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Guard(filepath.Join(nfd, "sub", "k")); err == nil {
+		t.Error("an NFD spelling of a path below an existing child of a protected tree was accepted")
+	}
+	// The other direction: the target is an ancestor of the protected path, spelled differently.
+	parentNFC := filepath.Join(base, "p\u00e9")
+	parentNFD := filepath.Join(base, "pe\u0301")
+	inner := filepath.Join(parentNFC, "keys")
+	if err := os.MkdirAll(inner, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	v.Protected = []string{inner}
+	if err := v.Guard(parentNFD); err == nil {
+		t.Error("an NFD spelling of an ancestor of a protected tree was accepted")
+	}
+}
+
+// P3-1: AppendOnly declared through a link is honoured in the snapshot's spelling.
+func TestAppendOnlyThroughALinkedPrefixIsHonoured(t *testing.T) {
+	f := newFake2(t)
+	real := t.TempDir()
+	_ = os.WriteFile(filepath.Join(real, "journal.log"), []byte("a"), 0o600)
+	link := filepath.Join(t.TempDir(), "keys")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	f.prot = link
+	f.install1()
+	app := f.app()
+	app.Updater.AppendOnly = []string{filepath.Join(link, "journal.log")}
+	inst := app.Updater.Install
+	app.Updater.Install = func(ctx context.Context, rel kit.Release, dest string) error {
+		fh, _ := os.OpenFile(filepath.Join(link, "journal.log"), os.O_APPEND|os.O_WRONLY, 0)
+		_, _ = fh.WriteString("b")
+		fh.Close()
+		return inst(ctx, rel, dest)
+	}
+	var out, errb strings.Builder
+	if code := app.Run(context.Background(), []string{"update", "--to", "2.0.0", "--json"}, &sbWriter{&out}, &sbWriter{&errb}); code != 0 || f.current() != "2.0.0" {
+		t.Fatalf("exit %d current %s %s", code, f.current(), errb.String())
+	}
+}
+
+// P3-2: a rewrite inside a tree whose root is a link is caught (the root is resolved).
+func TestARewriteInsideALinkedProtectedRootIsCaught(t *testing.T) {
+	f := newFake2(t)
+	real := t.TempDir()
+	_ = os.WriteFile(filepath.Join(real, "k"), []byte("secret"), 0o600)
+	link := filepath.Join(t.TempDir(), "keys")
+	_ = os.Symlink(real, link)
+	f.prot = link
+	f.install1()
+	app := f.app()
+	inst := app.Updater.Install
+	app.Updater.Install = func(ctx context.Context, rel kit.Release, dest string) error {
+		_ = os.WriteFile(filepath.Join(real, "k"), []byte("SECRET"), 0o600)
+		return inst(ctx, rel, dest)
+	}
+	var out, errb strings.Builder
+	if code := app.Run(context.Background(), []string{"update", "--to", "2.0.0", "--json"}, &sbWriter{&out}, &sbWriter{&errb}); code == 0 || f.current() != "1.0.0" {
+		t.Fatalf("exit %d current %s", code, f.current())
+	}
+}
+
+// P3-3: help lists zeo.update/v1 for an app whose only update-family verb is recover.
+func TestHelpListsTheUpdateSchemaForRecoverWithoutAnUpdater(t *testing.T) {
+	f := newFake2(t)
+	app := f.app()
+	app.Updater = nil
+	var out, errb strings.Builder
+	app.Run(context.Background(), []string{"help", "--json"}, &sbWriter{&out}, &sbWriter{&errb})
+	var h struct {
+		Schemas []string `json:"schemas"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &h); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, sc := range h.Schemas {
+		found = found || sc == "zeo.update/v1"
+	}
+	if !found {
+		t.Fatalf("schemas %v", h.Schemas)
+	}
+}
+
+// P3-4: Protected and AppendOnly are read once, at the start of a run.
+func TestAHookCannotWidenAppendOnlyDuringARun(t *testing.T) {
+	f := newFake2(t)
+	f.install1()
+	app := f.app()
+	app.Updater.AppendOnly = []string{filepath.Join(f.prot, "other-journal")}
+	inst := app.Updater.Install
+	app.Updater.Install = func(ctx context.Context, rel kit.Release, dest string) error {
+		app.Updater.AppendOnly[0] = f.prot // widened in place, mid-run
+		fh, _ := os.OpenFile(filepath.Join(f.prot, "approver.key"), os.O_APPEND|os.O_WRONLY, 0)
+		_, _ = fh.WriteString("grown")
+		fh.Close()
+		return inst(ctx, rel, dest)
+	}
+	var out, errb strings.Builder
+	if code := app.Run(context.Background(), []string{"update", "--to", "2.0.0", "--json"}, &sbWriter{&out}, &sbWriter{&errb}); code == 0 || f.current() != "1.0.0" {
+		t.Fatalf("a hook widened AppendOnly mid-run: exit %d current %s", code, f.current())
+	}
+}
