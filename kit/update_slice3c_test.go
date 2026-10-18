@@ -138,7 +138,7 @@ func TestRollbackToThePreviousVersionIsThePlainRollback(t *testing.T) {
 
 func TestRollbackToRefusals(t *testing.T) {
 	f := threeVersions(t, false)
-	if u := f.do("rollback", "--to", "9.9.9"); u.code != 3 || u.reason != "not_found" || f.current() != "3.0.0" {
+	if u := f.do("rollback", "--to", "9.9.9"); u.code != 4 || u.reason != "not_found" || f.current() != "3.0.0" {
 		t.Errorf("unknown version: %+v", u)
 	}
 	_ = os.RemoveAll(filepath.Join(f.root, "versions", "1.0.0"))
@@ -151,7 +151,7 @@ func TestRollbackToRefusals(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(f.root, "versions", "8.0.0"), []byte("not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if u := f.do("rollback", "--to", "8.0.0"); u.reason != "not_found" {
+	if u := f.do("rollback", "--to", "8.0.0"); u.reason != "not_found" || u.code != 4 {
 		t.Errorf("a file named like a version: %+v", u)
 	}
 	if u := f.do("rollback", "--to", "../x"); u.code != 2 {

@@ -162,8 +162,8 @@ and back out on any failure.
   crossed it) and walks them back from the current version. A crossed migration, a gap, or no record
   (a history written before this, or after a recover) is refused as `migration`: a `Down` hook reverses
   one step only, so go back one version at a time. The same live, fence, preflight and recovery rules
-  apply as for a plain rollback. A refusal is exit 3 (the kit's exit table has no separate code for
-  it); the reason is `not_found`.
+  apply as for a plain rollback. `not_found` is exit 4 (the RESULT line stays
+  `refused`); the other refusals are exit 3.
 - Refusals: `busy`, `recovery_required`, `current`, `downgrade`, `space`, the live reasons, `protected`.
   A version name that holds `.tmp-` is not a version (that is how an install in progress is marked).
   Exits: 1 (failed), 2 (usage), 3 (refused). `update --check` writes nothing and takes no lock. A failure

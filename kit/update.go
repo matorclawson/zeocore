@@ -188,7 +188,7 @@ func (a *App) updateCommands() []Command {
 			Output: SchemaUpdate, Exits: exits, Run: func(c *Context) error { return a.runChange(c, "update") }},
 		{Name: "rollback", Summary: "Switch back to the previous version, or to an installed version named by --to; refused across a state migration.",
 			Flags:  []Flag{{Name: "to", Summary: "An installed version to go back to; default the previous one.", TakesValue: true}},
-			Output: SchemaUpdate, Exits: exits, Run: func(c *Context) error { return a.runChange(c, "rollback") }},
+			Output: SchemaUpdate, Exits: []ExitCode{ExitFailed, ExitRefused, ExitNotFound}, Run: func(c *Context) error { return a.runChange(c, "rollback") }},
 		recoverCmd,
 	}
 }
@@ -840,6 +840,11 @@ func (r *run) finish(o Outcome, reason string, cause error) error {
 	code, err := r.c.WriteResult(Result{Verb: r.doc.Verb, Outcome: o, From: r.doc.From, To: r.doc.To, Reason: reason, Undo: r.doc.Undo})
 	if err != nil {
 		return err
+	}
+	// A version that is not installed is "the thing asked about does not exist":
+	// exit 4, with the RESULT line still outcome=refused reason=not_found.
+	if o == OutcomeRefused && reason == "not_found" {
+		code = ExitNotFound
 	}
 	return ExitOnly(code)
 }
