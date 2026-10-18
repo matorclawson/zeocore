@@ -81,9 +81,7 @@ def test_two_distributions_registering_one_name_is_an_error_naming_both(
     site: Path, second_site: Path
 ) -> None:
     _install(site, "zeo-plugin-dupa", "1.0.0", "dupname", "fakeint_a", "dupname")
-    _install(
-        second_site, "zeo-plugin-dupb", "2.0.0", "dupname", "fakeint_b", "dupname"
-    )
+    _install(second_site, "zeo-plugin-dupb", "2.0.0", "dupname", "fakeint_b", "dupname")
     registry = IntegrationRegistry()
     report = load_enabled_entry_points(registry, ["dupname"])
     assert not report.success
@@ -93,7 +91,9 @@ def test_two_distributions_registering_one_name_is_an_error_naming_both(
         "Integration 'dupname' is registered by more than one distribution "
         "(zeo-plugin-dupa 1.0.0; zeo-plugin-dupb 2.0.0); uninstall all but one."
     )
-    rows = [r for r in list_available_entry_points() if r["integration_id"] == "dupname"]
+    rows = [
+        r for r in list_available_entry_points() if r["integration_id"] == "dupname"
+    ]
     assert len(rows) == 2 and {r["ambiguous"] for r in rows} == {"true"}
 
 
@@ -113,9 +113,7 @@ def test_the_guard_covers_boot_and_non_strict_mode(
     site: Path, second_site: Path
 ) -> None:
     _install(site, "zeo-plugin-dupa", "1.0.0", "dupname", "fakeint_a", "dupname")
-    _install(
-        second_site, "zeo-plugin-dupb", "2.0.0", "dupname", "fakeint_b", "dupname"
-    )
+    _install(second_site, "zeo-plugin-dupb", "2.0.0", "dupname", "fakeint_b", "dupname")
     _install(
         second_site, "zeo-plugin-fine", "1.0.0", "finename", "fakeint_c", "finename"
     )
