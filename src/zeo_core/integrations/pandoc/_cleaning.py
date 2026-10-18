@@ -194,23 +194,9 @@ def css_rules(
     ids: dict[str, str] = {}
     for block in soup.find_all("style"):
         deadline.check()
-        found_classes, found_ids = _hidden.style_rules(
-            block.get_text(), noise, deadline
-        )
-        for table, found in ((classes, found_classes), (ids, found_ids)):
-            for name, body in found.items():
-                if name == _hidden.UNMODELLED:
-                    table[name] = body
-                    continue
-                # the same selector in two <style> blocks: the later declaration wins
-                previous = table.get(name)
-                table[name] = (
-                    body
-                    if previous is None
-                    else _hidden.OVERSIZE_RULE
-                    if _hidden.OVERSIZE_RULE in (previous, body)
-                    else f"{previous};{body}"
-                )
+        found_classes, found_ids = _hidden.style_rules(block.get_text(), noise)
+        classes.update(found_classes)
+        ids.update(found_ids)
     return classes, ids
 
 
