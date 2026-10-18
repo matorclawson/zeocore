@@ -111,6 +111,9 @@ _TABLE_DISPLAYS: Final = frozenset(
     {"table-cell", "table-row", "table-row-group", "table-header-group",
      "table-footer-group", "table-column", "table-column-group"}
 )  # fmt: skip
+_KNOWN_DISPLAYS: Final = (
+    _BOX_DISPLAYS | _TABLE_DISPLAYS | frozenset({"", "inline", "none", "contents"})
+)
 _POSITIONED: Final = frozenset({"absolute", "fixed"})
 _OFFSET_POSITIONS: Final = frozenset({"absolute", "fixed", "relative", "sticky"})
 _ZERO: Final = re.compile(r"^0(px|pt|em|rem)?$")
@@ -119,20 +122,29 @@ _NEGATIVE_OFFSET: Final = re.compile(r"^-[0-9]{3,}(px|em|pt)$")
 
 def _clips(decl: dict[str, str]) -> bool:
     """
-    ``overflow`` (any axis, one or two values) hides or clips what spills out.
+    The box clips or hides what spills out of it (``overflow`` or ``contain``).
 
     ``declarations`` squashes whitespace, so ``overflow:hidden hidden`` reads
-    ``hiddenhidden``: any ``hidden`` or ``clip`` in the value counts.
+    ``hiddenhidden``: any of ``hidden``, ``clip``, ``auto`` or ``scroll`` in the value
+    counts (a zero-sized box with ``auto`` or ``scroll`` shows nothing readable), and
+    so does ``contain`` with ``paint``, ``strict`` or ``content``.
     """
-    return any(
-        "hidden" in decl.get(name, "") or "clip" in decl.get(name, "")
+    overflow = any(
+        word in decl.get(name, "")
         for name in ("overflow", "overflow-x", "overflow-y")
+        for word in ("hidden", "clip", "auto", "scroll")
     )
+    contain = any(
+        word in decl.get("contain", "") for word in ("paint", "strict", "content")
+    )
+    return overflow or contain
 
 
 def _is_box(decl: dict[str, str], tag: Any) -> bool:  # noqa: ANN401
     """The element generates a block-level or inline-block box (not a plain inline)."""
     display = decl.get("display", "")
+    if display not in _KNOWN_DISPLAYS:
+        return True  # an unknown display: not proven inline, so treated as a box
     if display in _BOX_DISPLAYS or display in _TABLE_DISPLAYS:
         return True
     if display == "inline":
@@ -191,19 +203,43 @@ def _kind_applies(kind: str, decl: dict[str, str], tag: Any) -> bool:  # noqa: A
     return True
 
 
+#: What a stylesheet rule we do not model could set that a narrowing depends on.
+_CONDITION_PROPS: Final = ("overflow", "contain", "position", "display", "float")
+#: A key of the id table: set when something we do not model (another selector, an
+#: at-rule, a comment or an escape) could set one of those properties.
+UNMODELLED: Final = "\x00unmodelled"
+
+
+def _unprovable(text: str) -> bool:
+    """A style we cannot fully read: an ``!important``, a comment or an escape."""
+    lowered = text.lower()
+    return "!important" in lowered or "/*" in text or "\\" in text
+
+
 def _style_kind(
     style: str,
     noise: Noise,
     tag: Any = None,  # noqa: ANN401
+    *,
+    strict: bool = False,
 ) -> str | None:
+    """
+    The kind of hiding a style declares, or None.
+
+    NARROW ONLY ON PROOF: a ruled narrowing keeps the text only where the condition
+    is shown false from fully modelled styles. With ``strict`` (something unmodelled
+    could set the condition) a style that matches a pattern hides, as before the
+    narrowing.
+    """
     if len(style) > STYLE_MAX_CHARS:
         return None
+    strict = strict or _unprovable(style)
     squashed = squash(style)
     decl = declarations(style)
     for kind, pattern in noise.hidden_patterns:
         if not pattern.search(squashed):
             continue
-        if not _kind_applies(kind, decl, tag):
+        if not strict and not _kind_applies(kind, decl, tag):
             continue  # not hiding: look at the other patterns
         return kind
     return None
@@ -220,6 +256,7 @@ OVERSIZE_RULE: Final = "\x00oversize"
 def style_rules(
     css: str,
     noise: Noise,  # noqa: ARG001 -- kept so the caller's signature does not change
+    deadline: Any = None,  # noqa: ANN401
 ) -> tuple[dict[str, str], dict[str, str]]:
     """
     The declarations of the top-level ``.class`` and ``#id`` rules of a ``<style>``.
@@ -233,6 +270,8 @@ def style_rules(
     """
     classes: dict[str, str] = {}
     ids: dict[str, str] = {}
+    if "/*" in css or "\\" in css:
+        ids[UNMODELLED] = "1"  # a comment or an escape: the parse cannot be trusted
     depth, start, selector = 0, 0, ""
     for index, char in enumerate(css):
         if char == "{":
@@ -243,6 +282,8 @@ def style_rules(
         elif char == "}" and depth:
             depth -= 1
             if depth == 0:
+                if deadline is not None:
+                    deadline.check()
                 _record(selector, css[start:index], classes, ids)
                 start = index + 1
     return classes, ids
@@ -254,17 +295,34 @@ def _record(
     classes: dict[str, str],
     ids: dict[str, str],
 ) -> None:
-    if selector.startswith("@") or len(selector) > _SELECTOR_MAX_CHARS:
-        return
-    for part in (s.strip() for s in selector.split(",")):
+    parts = [part.strip() for part in selector.split(",")]
+    simple = (
+        not selector.startswith("@")
+        and len(selector) <= _SELECTOR_MAX_CHARS
+        and all(_SIMPLE_SELECTOR.match(part) for part in parts)
+    )
+    if not simple:
+        # An at-rule or a selector we do not model could set a property a narrowing
+        # depends on, whatever it matches: remember that.
+        lowered = body.lower()
+        if any(name in lowered for name in _CONDITION_PROPS):
+            ids[UNMODELLED] = "1"
+        if selector.startswith("@") or len(selector) > _SELECTOR_MAX_CHARS:
+            return
+    for part in parts:
         if not _SIMPLE_SELECTOR.match(part):
             continue
         table = classes if part[0] == "." else ids
         name = part[1:]
-        if len(body) > STYLE_MAX_CHARS or table.get(name) == OVERSIZE_RULE:
+        previous = table.get(name)
+        if previous == OVERSIZE_RULE or len(body) > STYLE_MAX_CHARS:
             table[name] = OVERSIZE_RULE
+        elif previous is None:
+            table[name] = body
+        elif len(previous) + len(body) + 1 > STYLE_MAX_CHARS:
+            table[name] = OVERSIZE_RULE  # bounded: a pile of rules cannot cost time
         else:
-            table[name] = f"{table.get(name, '')};{body}" if name in table else body
+            table[name] = f"{previous};{body}"
 
 
 def hidden_kind(
@@ -279,13 +337,14 @@ def hidden_kind(
     style = str(tag.get("style", ""))
     if len(style) > STYLE_MAX_CHARS:
         return "oversize"  # not parsed, so not trusted: dropped, see STYLE_MAX_CHARS
+    strict = UNMODELLED in ids
     if style:
-        kind = _style_kind(style, noise, tag)
+        kind = _style_kind(style, noise, tag, strict=strict)
         if kind is not None:
             return kind
         if _same_colour(tag, style):
             return "color_match"
-    return _by_class_or_id(tag, noise, style, classes, ids)
+    return _by_class_or_id(tag, noise, style, classes, ids, strict=strict)
 
 
 def _by_class_or_id(
@@ -294,26 +353,38 @@ def _by_class_or_id(
     style: str,
     classes: dict[str, str],
     ids: dict[str, str],
+    *,
+    strict: bool = False,
 ) -> str | None:
     """
     Hidden by the rules that match the element, judged together with its own style.
 
-    The matching class rules (in the element's class order), then the id rule, then
-    the inline style are merged, the later declaration winning, and every kind is
-    evaluated on the result exactly as for an inline style.
+    The matching class rules, then the id rule, then the inline style are merged, the
+    later declaration winning, and every kind is evaluated on the result exactly as
+    for an inline style. Two class rules that disagree on a property a narrowing
+    depends on are order-dependent (stylesheet order, not class order), which is not
+    modelled, so the element is judged ``strict``.
     """
     parts: list[str] = []
+    class_decls: list[dict[str, str]] = []
     for name in tag.get("class") or ():
         if name in classes:
             parts.append(classes[name])
+            if classes[name] != OVERSIZE_RULE:
+                class_decls.append(declarations(classes[name]))
     tag_id = tag.get("id")
-    if isinstance(tag_id, str) and tag_id in ids:
+    if isinstance(tag_id, str) and tag_id in ids and tag_id != UNMODELLED:
         parts.append(ids[tag_id])
     if not parts:
         return None
     if OVERSIZE_RULE in parts:
         return "style_class"
+    for prop in (*_CONDITION_PROPS, "overflow-x", "overflow-y"):
+        values = {d[prop] for d in class_decls if prop in d}
+        if len(values) > 1:
+            strict = True
     merged = ";".join([*parts, style])
     if len(merged) > STYLE_MAX_CHARS:
         return "style_class"  # too long to examine: treated as hidden (fail closed)
-    return "style_class" if _style_kind(merged, noise, tag) is not None else None
+    found = _style_kind(merged, noise, tag, strict=strict)
+    return "style_class" if found is not None else None

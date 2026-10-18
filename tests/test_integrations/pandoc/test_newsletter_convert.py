@@ -909,3 +909,51 @@ def test_an_oversize_style_rule_hides() -> None:
     padding = "x:y;" * 2000
     markup = f"<style>.big{{{padding}}}</style><div class='big'>SENTINEL</div>"
     assert not _visible(markup)
+
+
+# "Narrow only on proof" (council zc-zcore144-47f4-v2): where something unmodelled
+# could set the condition, the text is hidden as before the narrowing.
+_UNPROVABLE = [
+    # !important in a rule beats an inline value
+    (
+        "<style>.c{overflow:hidden!important}</style>"
+        '<div class="c" style="max-height:0;overflow:visible">SENTINEL</div>'
+    ),
+    # two class rules disagree: the stylesheet order, not the class order, decides
+    (
+        "<style>.a{overflow:visible}.b{overflow:hidden}</style>"
+        '<div class="a b" style="max-height:0">SENTINEL</div>'
+    ),
+    # another selector, a universal selector, an element selector, an at-rule
+    '<style>div{overflow:hidden}</style><div style="max-height:0">SENTINEL</div>',
+    '<style>*{overflow:hidden}</style><div style="max-height:0">SENTINEL</div>',
+    ('<style>p{position:absolute}</style><p style="left:-9999px">SENTINEL</p>'),
+    (
+        "<style>@media screen{.x{overflow:hidden}}</style>"
+        '<div class="x" style="max-height:0">SENTINEL</div>'
+    ),
+    # auto, scroll and contain clip a zero-height box
+    '<div style="max-height:0;overflow:auto">SENTINEL</div>',
+    '<div style="max-height:0;overflow:scroll">SENTINEL</div>',
+    '<div style="max-height:0;contain:paint">SENTINEL</div>',
+    # a comment or an escape in a style
+    '<span style="max-height:0;/**/overflow:hidden">SENTINEL</span>',
+    '<span style="max-height:0;overflow:\\68idden">SENTINEL</span>',
+    # an unknown display is not proven inline
+    '<span style="display:foo;max-height:0;overflow:hidden">SENTINEL</span>',
+]
+
+
+@pytest.mark.parametrize("markup", _UNPROVABLE)
+def test_a_narrowing_applies_only_where_the_condition_is_shown_false(
+    markup: str,
+) -> None:
+    assert not _visible(markup), markup
+
+
+def test_a_pile_of_rules_for_one_selector_is_bounded_and_hides() -> None:
+    rules = "".join(f".p{{width:{n}px}}" for n in range(3000))
+    started = time.monotonic()
+    item = _convert(f"<style>{rules}</style><div class='p'>SENTINEL</div>")
+    assert time.monotonic() - started < 5
+    assert "SENTINEL" not in item.markdown

@@ -194,9 +194,14 @@ def css_rules(
     ids: dict[str, str] = {}
     for block in soup.find_all("style"):
         deadline.check()
-        found_classes, found_ids = _hidden.style_rules(block.get_text(), noise)
+        found_classes, found_ids = _hidden.style_rules(
+            block.get_text(), noise, deadline
+        )
         for table, found in ((classes, found_classes), (ids, found_ids)):
             for name, body in found.items():
+                if name == _hidden.UNMODELLED:
+                    table[name] = body
+                    continue
                 # the same selector in two <style> blocks: the later declaration wins
                 previous = table.get(name)
                 table[name] = (

@@ -95,7 +95,12 @@ What it does, in order:
    `margin-top` always counts; a negative `text-indent` needs a non-inline element;
    `clip` needs `position:absolute` or `fixed`; `mso-hide:all` alone is **not**
    hidden (only Outlook honours it). An element is judged by its own `style` and the
-   `<style>` rules for its classes and id together, the same way. Rules inside
+   `<style>` rules for its classes and id together, the same way. A technique is
+   kept only where its condition is **shown false** from fully read styles: anything
+   the converter does not model (a rule with another selector or inside an at-rule that
+   sets `overflow`, `contain`, `position`, `display` or `float`, an `!important`, a CSS
+   comment or escape, two class rules that disagree, an unknown `display`) makes it
+   hide the text, as before the narrowing. Rules inside
    `@media` are not applied, because they may hide content only on a small screen.
    A `style` attribute or rule body longer than 4096 characters is **not parsed**
    (padding must not cost time) and is **treated as hidden**: the element is dropped
