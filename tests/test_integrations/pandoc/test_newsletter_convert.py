@@ -477,7 +477,8 @@ def test_every_hidden_kind_is_removed_and_counted() -> None:
     item = _convert((FIXTURES / "11-hidden-kinds.html").read_text("utf-8"))
     assert "H-" not in item.markdown
     for kept in ("VISIBLE-START", "VISIBLE-END", "KEPT-mobile-only-rule",
-                 "KEPT-normal-colours", "KEPT-opacity-point-eight"):  # fmt: skip
+                 "KEPT-normal-colours", "KEPT-opacity-point-eight",
+                 "KEPT-mso-alone"):  # fmt: skip
         assert kept in item.markdown
     kinds = {k: v for k, v in item.stripped.items() if k.startswith("hidden_") and v}
     assert kinds == {
@@ -487,7 +488,6 @@ def test_every_hidden_kind_is_removed_and_counted() -> None:
         "hidden_opacity": 1,
         "hidden_font_size": 1,
         "hidden_max_size": 1,
-        "hidden_mso": 1,
         "hidden_zero_size": 1,
         "hidden_offscreen": 1,
         "hidden_clip": 1,
@@ -765,3 +765,39 @@ def test_a_relative_or_mismatched_pandoc_is_refused(
             expected_pandoc_sha256="0" * 64,
         )
     assert wrong.value.code == "renderer_mismatch"
+
+
+def _visible(markup: str) -> bool:
+    item = _convert(markup)
+    return "SENTINEL" in item.markdown
+
+
+def test_max_size_hides_only_a_clipping_box_that_is_not_inline() -> None:
+    """Council zc-dtl-webkit-b312-v1: WebKit paints the other cases."""
+    # Hidden: a block box that clips.
+    assert not _visible('<div style="max-height:0;overflow:hidden">SENTINEL</div>')
+    assert not _visible('<p style="max-width:0;overflow:clip">SENTINEL</p>')
+    assert not _visible(
+        '<span style="display:block;max-height:0;overflow:hidden">SENTINEL</span>'
+    )
+    # Painted: no clipping, or an inline element, or an explicit inline display.
+    assert _visible('<p style="max-height:0">SENTINEL</p>')
+    assert _visible('<span style="max-height:0;overflow:hidden">SENTINEL</span>')
+    assert _visible(
+        '<div style="display:inline;max-height:0;overflow:hidden">SENTINEL</div>'
+    )
+
+
+def test_a_style_rule_with_max_size_follows_the_same_rule() -> None:
+    css = "<style>.z{max-height:0;overflow:hidden}.y{max-height:0}</style>"
+    assert not _visible(css + '<div class="z">SENTINEL</div>')
+    assert _visible(css + '<span class="z">SENTINEL</span>')
+    assert _visible(css + '<div class="y">SENTINEL</div>')
+
+
+def test_mso_hide_alone_is_not_hidden() -> None:
+    item = _convert('<p style="mso-hide:all">SENTINEL</p>')
+    assert "SENTINEL" in item.markdown
+    assert not item.stripped.get("hidden_mso")
+    # A different hiding rule next to it still hides.
+    assert not _visible('<p style="mso-hide:all;display:none">SENTINEL</p>')

@@ -3,7 +3,8 @@ Best-effort detection of text a reader cannot see (ZEOCORE-SOW-33, council M3).
 
 Hidden text is how a message speaks to a machine and not to its reader. This finds
 the common ways: ``hidden``, ``display:none``, ``visibility``, ``opacity:0``,
-``font-size:0``, ``max-height:0``, ``mso-hide``, zero size, off-screen positioning,
+``font-size:0``, ``max-height:0`` (only on a clipping, non-inline box; council
+zc-dtl-webkit-b312-v1), zero size, off-screen positioning,
 text coloured like its own background, and the same declarations reached through a
 class or id in a ``<style>`` block. Each kind is counted.
 A style (an attribute or a rule body) longer than ``STYLE_MAX_CHARS`` is not parsed,
@@ -13,7 +14,8 @@ padding after ``display:none`` cannot make hidden text visible.
 It is BEST EFFORT: CSS has more ways to hide than any list covers. The guarantee is
 not this filter; it is that nothing a message says is ever acted on (it comes out
 as inert data, fenced downstream). A miss here costs a reader-invisible sentence in
-the Markdown, never an instruction followed.
+the Markdown, never an instruction followed. ``mso-hide:all`` alone is NOT hidden: it is
+Outlook-only and a browser paints the text.
 """
 
 from __future__ import annotations
@@ -92,13 +94,60 @@ def _bg_of_ancestors(tag: Any) -> str:  # noqa: ANN401
     return ""
 
 
-def _style_kind(style: str, noise: Noise) -> str | None:
+#: Elements that are inline by default: ``max-height``/``max-width`` do not apply to
+#: them, so a ``max-height:0`` on one hides nothing in a browser.
+_INLINE_TAGS: Final = frozenset(
+    "a abbr b bdi bdo big cite code dfn em font i kbd label mark q s samp small "
+    "span strike strong sub sup time tt u var".split()
+)
+_BOX_DISPLAYS: Final = frozenset(
+    {"block", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "table",
+     "list-item", "flow-root"}
+)  # fmt: skip
+_CLIPPING: Final = frozenset({"hidden", "clip"})
+
+
+def _clips(decl: dict[str, str]) -> bool:
+    """``overflow`` (any axis) hides or clips what spills out of the box."""
+    return any(
+        decl.get(name) in _CLIPPING for name in ("overflow", "overflow-x", "overflow-y")
+    )
+
+
+def _max_size_applies(decl: dict[str, str], tag: Any) -> bool:  # noqa: ANN401
+    """
+    A zero ``max-height``/``max-width`` hides text only when the box clips it
+    (``overflow:hidden`` or ``clip``) and is not an inline element. Council
+    zc-dtl-webkit-b312-v1: a bare ``max-height:0`` on a span paints in a browser.
+    ``tag`` is None for a ``<style>`` rule, whose elements are not known yet: the
+    inline test then happens where the rule is applied.
+    """
+    if not _clips(decl):
+        return False
+    if tag is None:
+        return True
+    display = decl.get("display", "")
+    if display in _BOX_DISPLAYS:
+        return True
+    if display == "inline":
+        return False
+    return getattr(tag, "name", "") not in _INLINE_TAGS
+
+
+def _style_kind(
+    style: str,
+    noise: Noise,
+    tag: Any = None,  # noqa: ANN401
+) -> str | None:
     if len(style) > STYLE_MAX_CHARS:
         return None
     squashed = squash(style)
     for kind, pattern in noise.hidden_patterns:
-        if pattern.search(squashed):
-            return kind
+        if not pattern.search(squashed):
+            continue
+        if kind == "max_size" and not _max_size_applies(declarations(style), tag):
+            continue  # not hiding: look at the other patterns
+        return kind
     return None
 
 
@@ -161,7 +210,7 @@ def hidden_kind(
     if len(style) > STYLE_MAX_CHARS:
         return "oversize"  # not parsed, so not trusted: dropped, see STYLE_MAX_CHARS
     if style:
-        kind = _style_kind(style, noise)
+        kind = _style_kind(style, noise, tag)
         if kind is not None:
             return kind
         if _same_colour(tag, style):
@@ -174,10 +223,16 @@ def _by_class_or_id(
     classes: dict[str, str],
     ids: dict[str, str],
 ) -> str | None:
+    inline = getattr(tag, "name", "") in _INLINE_TAGS
+
+    def applies(kind: str) -> bool:
+        # A max-size rule (already known to clip) does not hide an inline element.
+        return not (kind == "max_size" and inline)
+
     tag_id = tag.get("id")
-    if isinstance(tag_id, str) and tag_id in ids:
+    if isinstance(tag_id, str) and tag_id in ids and applies(ids[tag_id]):
         return "style_class"
     for name in tag.get("class") or ():
-        if name in classes:
+        if name in classes and applies(classes[name]):
             return "style_class"
     return None
