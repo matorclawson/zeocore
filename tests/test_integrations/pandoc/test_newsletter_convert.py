@@ -717,3 +717,51 @@ def test_hostile_tags_never_survive_as_markup(fragment: str) -> None:
     item = _convert(f"<html><body><p>start</p>{fragment}<p>end</p></body></html>")
     assert not re.search(r"<[A-Za-z/!]", item.markdown), item.markdown
     assert "start" in item.markdown and "end" in item.markdown
+
+
+def test_a_fixed_absolute_pandoc_path_replaces_the_path_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The caller names the binary and its digest; nothing is looked up on PATH."""
+    real = shutil.which("pandoc")
+    assert real is not None
+    monkeypatch.setattr(_runner, "_PRIVATE", {})
+    monkeypatch.setenv("PATH", "")  # a PATH lookup would now find nothing
+    digest = _runner.find_pandoc(path=real).sha256
+    item = convert_newsletter(
+        "<p>Hello <a href='https://example.com/x'>there</a></p>",
+        source="s",
+        sender="a@example.com",
+        date="2026-10-18",
+        pandoc_path=real,
+        expected_pandoc_sha256=digest,
+    )
+    assert "Hello" in item.markdown
+    assert item.converter["pandoc_binary_sha256"] == digest
+
+
+def test_a_relative_or_mismatched_pandoc_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real = shutil.which("pandoc")
+    assert real is not None
+    monkeypatch.setattr(_runner, "_PRIVATE", {})
+    with pytest.raises(NewsletterRefusalError) as relative:
+        convert_newsletter(
+            "<p>x</p>",
+            source="s",
+            sender="a@example.com",
+            date="d",
+            pandoc_path="pandoc",
+        )
+    assert relative.value.code == "pandoc_missing"
+    with pytest.raises(NewsletterRefusalError) as wrong:
+        convert_newsletter(
+            "<p>x</p>",
+            source="s",
+            sender="a@example.com",
+            date="d",
+            pandoc_path=real,
+            expected_pandoc_sha256="0" * 64,
+        )
+    assert wrong.value.code == "renderer_mismatch"
