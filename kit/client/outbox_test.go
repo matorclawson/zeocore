@@ -429,6 +429,9 @@ func TestO11PathInjectingIDs(t *testing.T) {
 // O12: the directory is checked.
 func TestO12TheDirectoryIsChecked(t *testing.T) {
 	base, _ := filepath.EvalSymlinks(t.TempDir())
+	// A relative path must refuse without touching the disk; run from a temp
+	// directory so a regression cannot leave files in the package directory.
+	t.Chdir(base)
 	if _, err := OpenOutbox("relative/dir", "s", nil); err == nil {
 		t.Fatal("a relative path should refuse")
 	}
@@ -530,10 +533,10 @@ func TestReconcileMarksARefusal(t *testing.T) {
 	f := newFake(t, lostAnswer)
 	ob := outbox(t)
 	valid(t, call(f.client(ob), writeReq("op-1", true)))
-	f.mode = status(401)
+	f.mode = status(422)
 	res := valid(t, f.client(ob).Reconcile(context.Background(), "op-1"))
 	recs, _ := ob.List()
-	if res.Outcome != OutcomeRefused || len(recs) != 1 || recs[0].State != StateRefused {
+	if res.Outcome != OutcomeInvalid || len(recs) != 1 || recs[0].State != StateRefused {
 		t.Fatalf("%s %v", res.JSON(), recs)
 	}
 }

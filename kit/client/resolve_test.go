@@ -315,7 +315,7 @@ func TestPortsAreChecked(t *testing.T) {
 
 // R6: a RELEASE build refuses a missing host file, whatever the environment says.
 func TestR6AReleaseBuildRefusesAMissingHostFile(t *testing.T) {
-	if DevBuild {
+	if devBuildNow {
 		t.Skip("a dev build")
 	}
 	for _, v := range []string{"https://x.zeo.ac", "local", ""} {
@@ -353,7 +353,7 @@ func TestD3DoctorSaysDev(t *testing.T) {
 	if d := f.client(outbox(t)).Doctor(context.Background(), "zmsg", "/v1/health", "aud"); !d.Dev {
 		t.Fatal("doctor should say dev")
 	}
-	DevBuild = false
+	devBuildNow = false
 	if d := f.client(outbox(t)).Doctor(context.Background(), "zmsg", "/v1/health", "aud"); d.Dev {
 		t.Fatal("a release build is not dev")
 	}

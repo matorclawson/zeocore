@@ -73,6 +73,11 @@ type StoredRequest struct {
 	// least stop): never held behind other records, with reserved room.
 	Unordered bool            `json:"unordered"`
 	Body      json.RawMessage `json:"body"`
+	// Envelope is the authorization envelope the call carried (at most
+	// MaxEnvelope bytes), kept so a drain or a reconcile sends it again. It is
+	// part of the stored request, so the payload digest covers it: the same key
+	// with another envelope is a key conflict.
+	Envelope *Envelope `json:"envelope,omitempty"`
 }
 
 // Record is one retained write.
@@ -340,6 +345,9 @@ func (o *Outbox) Held() bool {
 // file is kept, renamed .resolved; a .suspect or .stale file may only be
 // discarded (renamed .discarded), never requeued.
 func (o *Outbox) Resolve(evidence string) (int, error) {
+	if evidence == "" {
+		return 0, errors.New("resolve needs the evidence")
+	}
 	ents, err := os.ReadDir(o.dir)
 	if err != nil {
 		return 0, err
@@ -457,6 +465,12 @@ func (o *Outbox) Abandon(operationID, evidence, observed string) error {
 		if r.State != StateUnknown || strictDecode(r.Request, &sr) != nil || sr.Dedup != "" {
 			return errors.New("only an unknown record of a verb with no dedup contract can be abandoned")
 		}
+		// A record a live writer holds may still be in flight.
+		lk, err := o.lockRecord(r)
+		if err != nil {
+			return ErrDrainBusy
+		}
+		defer lk.Release()
 		at := o.now().UTC().Format("2006-01-02T15:04:05Z")
 		r.Resolution = &Resolution{Actor: os.Getenv("USER"), Evidence: evidence, Observed: observed, At: at}
 		if err := o.SetState(r, StateAbandoned); err != nil {
@@ -546,7 +560,12 @@ func (o *Outbox) enqueue(service, verb, id string, req StoredRequest) (Record, *
 			if r.PayloadDigest != digest {
 				return Record{}, nil, ErrKeyConflict
 			}
-			lk, _ := o.lockRecord(r)
+			// The record is returned only with its in-flight lock: a second
+			// handle cannot send it while another holds it.
+			lk, err := o.lockRecord(r)
+			if err != nil {
+				return Record{}, nil, ErrDrainBusy
+			}
 			return r, lk, nil
 		}
 		if r.Seq >= next {
@@ -603,7 +622,8 @@ func (o *Outbox) write(rec Record) error {
 	}
 	name := tmp.Name()
 	// A failed write or fsync is durability UNKNOWN, not "nothing written":
-	// the file is kept aside as .suspect and holds the order.
+	// the file is kept aside as .suspect. A .suspect file is not a record and does
+	// not hold the order (only a .bad file does); Resolve may discard it.
 	fail := func(err error) error { tmp.Close(); _ = os.Rename(name, name+".suspect"); return err }
 	if err := tmp.Chmod(0o600); err != nil {
 		return fail(err)

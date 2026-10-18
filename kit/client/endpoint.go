@@ -8,10 +8,14 @@ import (
 	"strings"
 )
 
-// DevBuild says whether this binary was built with the zeodev tag. Only such a
-// binary accepts an endpoint from the environment when there is no host file.
-// It is a variable so that a test can stand in either kind of build.
-var DevBuild = devBuild
+// devBuildNow says whether this binary was built with the zeodev tag. Only such
+// a binary accepts an endpoint from the environment when there is no host file.
+// It is a package variable only so that this package's tests can stand in either
+// kind of build; it is not exported, so no importer can switch a release build.
+var devBuildNow = devBuild
+
+// IsDevBuild reports whether this is a zeodev build.
+func IsDevBuild() bool { return devBuildNow }
 
 // Source says where an endpoint came from.
 type Source string
@@ -72,11 +76,12 @@ func Resolve(service string, getenv func(string) (string, bool), host *HostConfi
 		return Endpoint{}, &Refusal{"endpoint", "the service name is not valid"}
 	}
 	name := EnvName(service)
+	if host == nil && !devBuildNow {
+		// Nothing is consulted: a release build does not read the environment.
+		return Endpoint{}, &Refusal{"not_configured", "no host config for " + service + ": a release build does not use " + name}
+	}
 	v, set := getenv(name)
 	if host == nil {
-		if !DevBuild {
-			return Endpoint{}, &Refusal{"not_configured", "no host config for " + service + ": a release build does not use " + name}
-		}
 		if !set {
 			return Endpoint{}, &Refusal{"not_configured", "no endpoint for " + service + ": set " + name + " or install the host config"}
 		}

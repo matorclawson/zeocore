@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -29,9 +30,9 @@ const (
 // Envelope is the owning service's authorization envelope. The client carries
 // it unchanged in one slot: it never reads, builds, logs or signs it.
 type Envelope struct {
-	Schema   string
-	Audience string
-	Body     []byte
+	Schema   string `json:"schema"`
+	Audience string `json:"audience"`
+	Body     []byte `json:"body"`
 }
 
 // Request is one call.
@@ -118,6 +119,15 @@ func (c *Client) result(r Request, o Outcome, sent bool, reason string) Result {
 	}
 }
 
+var pathRe = regexp.MustCompile(`^/[!-~]*$`)
+
+// validPath is a request path: it starts with a slash, is printable ASCII, and
+// holds no "..", backslash or fragment, so joined to an origin it cannot name
+// another host.
+func validPath(p string) bool {
+	return pathRe.MatchString(p) && !strings.Contains(p, "..") && !strings.ContainsAny(p, "\\#")
+}
+
 func validMethod(m string) bool {
 	switch m {
 	case "GET", "POST", "PUT", "PATCH", "DELETE":
@@ -136,7 +146,7 @@ func validMethod(m string) bool {
 // dispatch_unknown with its operation id and spool id.
 func (c *Client) Call(ctx context.Context, r Request) Result {
 	if !validService(r.Service) || r.Verb == "" || !validMethod(r.Method) ||
-		!strings.HasPrefix(r.Path, "/") || strings.Contains(r.Path, "..") || len(r.Body) > MaxRequest ||
+		!validPath(r.Path) || len(r.Body) > MaxRequest ||
 		(r.Envelope != nil && len(r.Envelope.Body) > MaxEnvelope) {
 		return c.result(r, OutcomeInvalid, false, "request")
 	}
@@ -153,6 +163,9 @@ func (c *Client) Call(ctx context.Context, r Request) Result {
 	}
 	if c.Endpoint.Local || c.Endpoint.Origin == "" {
 		return c.result(r, OutcomeRefused, false, "endpoint")
+	}
+	if c.Service != "" && r.Service != c.Service {
+		return c.result(r, OutcomeRefused, false, "origin")
 	}
 	authz := ""
 	if c.Endpoint.Credential {
@@ -217,6 +230,7 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 	}
 	rec, lk, err := c.Outbox.EnqueueLocked(r.Service, r.Verb, r.OperationID, StoredRequest{
 		Method: r.Method, Path: r.Path, Audience: r.Audience, Dedup: r.Dedup, Unordered: r.Unordered, Body: r.Body,
+		Envelope: r.Envelope,
 	})
 	defer func() { lk.Release() }()
 	switch {
@@ -228,6 +242,8 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 		return c.result(r, OutcomeRefused, false, "key_conflict")
 	case errors.Is(err, ErrHeld):
 		return c.result(r, OutcomeRefused, false, "blocked")
+	case errors.Is(err, ErrDrainBusy):
+		return c.result(r, OutcomeRefused, false, "busy")
 	case err != nil:
 		return c.result(r, OutcomeRefused, false, "outbox")
 	}
@@ -269,7 +285,10 @@ func (c *Client) write(ctx context.Context, r Request, p Policy, authz string) R
 	case !res.Sent:
 		// Nothing left this process: the record goes back to queued, or goes.
 		if r.Spool && !r.RequireDelivery && (res.Outcome == OutcomeUnavailable || res.Outcome == OutcomeTimeout) {
-			_ = c.Outbox.SetState(rec, StateQueued)
+			// Spooled is promised only once the record is durably queued again.
+			if err := c.Outbox.SetState(rec, StateQueued); err != nil {
+				return c.result(r, OutcomeRefused, false, "outbox")
+			}
 			out := c.result(r, OutcomeSpooled, false, "")
 			out.SpoolID = spool
 			return out
@@ -321,6 +340,9 @@ func (c *Client) drainAfter(ctx context.Context, service, authz string) {
 
 // Drain sends the queued records. Only one drain runs at a time.
 func (c *Client) Drain(ctx context.Context) (int, error) {
+	if !validService(c.Service) {
+		return 0, errors.New("a drain needs the service it drains")
+	}
 	authz := ""
 	if c.Endpoint.Credential && c.Credential != nil {
 		v, err := c.Credential()
@@ -343,7 +365,7 @@ func (c *Client) recordRequest(rec Record) (Request, error) {
 	}
 	return Request{
 		Service: rec.Service, Verb: rec.Verb, Method: sr.Method, Path: sr.Path, Body: sr.Body,
-		OperationID: rec.OperationID, Audience: sr.Audience, Dedup: sr.Dedup,
+		OperationID: rec.OperationID, Audience: sr.Audience, Dedup: sr.Dedup, Envelope: sr.Envelope,
 	}, nil
 }
 
@@ -351,6 +373,12 @@ func (c *Client) sendRecord(ctx context.Context, rec Record, authz string) Resul
 	r, err := c.recordRequest(rec)
 	if err != nil {
 		return Result{Outcome: OutcomeInvalid, Reason: str("request")}
+	}
+	// A record is sent only by the client of its own service, to the audience it
+	// was written for: the credential never goes anywhere else.
+	if (c.Service != "" && rec.Service != c.Service) ||
+		(c.Endpoint.Credential && (r.Audience == "" || r.Audience != c.Endpoint.Audience)) {
+		return Result{Outcome: OutcomeRefused, Reason: str("origin")}
 	}
 	cctx, cancel := context.WithTimeout(ctx, Write.Total)
 	defer cancel()
@@ -385,6 +413,11 @@ func (c *Client) Reconcile(ctx context.Context, operationID string) Result {
 				return fail(OutcomeRefused, "credential")
 			}
 		}
+		lk, lerr := c.Outbox.lockRecord(rec)
+		if lerr != nil {
+			return fail(OutcomeRefused, "busy")
+		}
+		defer lk.Release()
 		c.Outbox.audit(AuditEntry{Verb: "reconcile", Service: rec.Service, RecordVerb: rec.Verb, OperationID: operationID, Evidence: "reconcile with the same key", Observed: ObservedUnknown})
 		res := c.sendRecord(ctx, rec, authz)
 		res.Service, res.Verb = rec.Service, rec.Verb
@@ -392,7 +425,12 @@ func (c *Client) Reconcile(ctx context.Context, operationID string) Result {
 		case OutcomeOK:
 			_ = c.Outbox.Remove(rec)
 		case OutcomeRefused, OutcomeInvalid, OutcomeNotFound:
-			_ = c.Outbox.SetState(rec, StateRefused)
+			// Only a definitive answer about this key ends the record: the request
+			// must have been sent, and a refusal of the caller (auth, stopped) or
+			// of the transport says nothing about the original write.
+			if res.Sent && res.Reason != nil && *res.Reason != "auth" && *res.Reason != "stopped" {
+				_ = c.Outbox.SetState(rec, StateRefused)
+			}
 		}
 		res.SpoolID = str(fileName(rec.Seq, rec.OperationID))
 		return res
@@ -412,9 +450,17 @@ func isTLS(err error) bool {
 
 func (c *Client) once(ctx context.Context, r Request, p Policy, authz string) Result {
 	body := r.Body
+	if !validPath(r.Path) {
+		return c.result(r, OutcomeInvalid, false, "request")
+	}
 	req, err := http.NewRequestWithContext(ctx, r.Method, c.Endpoint.Origin+r.Path, io.NopCloser(bytes.NewReader(body)))
 	if err != nil {
 		return c.result(r, OutcomeInvalid, false, "request")
+	}
+	// Whatever the path holds, the request goes to the pinned origin and nowhere
+	// else: this is the one place the credential is attached.
+	if req.URL.Scheme+"://"+req.URL.Host != c.Endpoint.Origin || req.URL.User != nil {
+		return c.result(r, OutcomeRefused, false, "origin")
 	}
 	// A NopCloser leaves GetBody unset, so net/http cannot replay the body on
 	// its own: every request that reaches the server was counted here.
@@ -454,9 +500,11 @@ func (c *Client) once(ctx context.Context, r Request, p Policy, authz string) Re
 func (c *Client) transportError(ctx context.Context, r Request, sent bool, err error) Result {
 	// A DNS failure is the default case below: nothing was sent.
 	switch {
-	case isTLS(err):
-		// A verification failure is a refusal, not an outage: scripts read exit 6
-		// as "try again".
+	case isTLS(err) && !sent:
+		// A verification failure before the request was handed to a connection is
+		// a refusal, not an outage: scripts read exit 6 as "try again". After
+		// GotConn every error is sent (a bad record on a live connection included),
+		// so it falls to the cases below and a write is dispatch_unknown.
 		return c.result(r, OutcomeRefused, false, "tls")
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		switch {
@@ -540,7 +588,7 @@ type Doctor struct {
 
 // Doctor probes the service once with the probe policy.
 func (c *Client) Doctor(ctx context.Context, service, healthPath, audience string) Doctor {
-	d := Doctor{Service: service, Origin: c.Endpoint.Origin, Source: c.Endpoint.Source, CredentialPins: c.Endpoint.Credential, Dev: DevBuild}
+	d := Doctor{Service: service, Origin: c.Endpoint.Origin, Source: c.Endpoint.Source, CredentialPins: c.Endpoint.Credential, Dev: devBuildNow}
 	d.Binary, _ = os.Executable()
 	if c.Outbox != nil {
 		if s, err := c.Outbox.Stats(); err == nil {
@@ -548,7 +596,8 @@ func (c *Client) Doctor(ctx context.Context, service, healthPath, audience strin
 		}
 		d.Held = c.Outbox.Held()
 	}
-	if c.Endpoint.Local || c.Endpoint.Origin == "" {
+	if c.Endpoint.Local || c.Endpoint.Origin == "" || !validPath(healthPath) ||
+		(c.Endpoint.Credential && (audience == "" || audience != c.Endpoint.Audience)) {
 		return d
 	}
 	ctx, cancel := context.WithTimeout(ctx, Probe.Total)

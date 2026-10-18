@@ -222,7 +222,7 @@ func pemOf(f *fake) []byte {
 // devMode stands the test in a binary built with the zeodev tag.
 func devMode(t *testing.T) {
 	t.Helper()
-	old := DevBuild
-	DevBuild = true
-	t.Cleanup(func() { DevBuild = old })
+	old := devBuildNow
+	devBuildNow = true
+	t.Cleanup(func() { devBuildNow = old })
 }

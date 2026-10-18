@@ -688,7 +688,12 @@ func TestEveryReasonIsInItsClosedSet(t *testing.T) {
 	}
 	for o, rs := range Reasons {
 		for _, r := range rs {
-			if !(Result{Outcome: o, Reason: &r}).Valid() {
+			good := Result{Outcome: o, Reason: &r}
+			if o == OutcomeDispatchUnknown {
+				sp := "00000000000000000001-op.json"
+				good.Sent, good.SpoolID = true, &sp
+			}
+			if !good.Valid() {
 				t.Errorf("%s/%s", o, r)
 			}
 			other := "zzz"

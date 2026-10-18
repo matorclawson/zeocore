@@ -171,8 +171,19 @@ final. Standard library only.
   deadline. A write is stored in the outbox first, made `unknown` durably before any byte is emitted, and
   never retried inside one call: it completes, is refused, is spooled (only if asked and the owner's
   contract de-duplicates by key), or is `dispatch_unknown` with its operation id and spool id.
-- **Ordering:** a new write never overtakes queued or unknown records of the same service; a torn or
-  suspect file holds the order until `Resolve`. An unknown record is resent only by `Reconcile`, with the
+- **Ordering:** a new write never overtakes queued or unknown records of the same service; a torn
+  (`.bad`) file holds the order until `Resolve`; a `.suspect` or `.stale` file is not a record and does
+  not. An unknown record is resent only by `Reconcile`, with the
   same key.
 - **Result:** `zeo.client-result/v1` with a closed reason set per outcome and its exit mapping;
   `dispatch_unknown` is exit 1, never 6.
+
+Known limits of the client (council #141, recorded, not fixed here):
+
+- A sent record whose rewrite fails at the directory sync is set aside as `.suspect`, which `Resolve` may
+  discard as "never sent". The record is then no longer ordered ahead of later writes.
+- The incarnation file is written without a lock or an fsync: two first opens may write different
+  values (their records go to `.bad` and hold the order), and a crash can leave a short file (open
+  refuses). Both fail closed.
+- `checkPath` reads mode bits only: a macOS ACL that grants write is not seen.
+- `Client.Roots` is set by hand; a nil value on Linux makes the system verifier read `SSL_CERT_*`.

@@ -76,6 +76,18 @@ func (r Result) Valid() bool {
 	if !ok {
 		return false
 	}
+	// A spooled result names its record and sent nothing; a dispatch_unknown
+	// names its record and was sent.
+	switch r.Outcome {
+	case OutcomeSpooled:
+		if r.SpoolID == nil || r.Sent {
+			return false
+		}
+	case OutcomeDispatchUnknown:
+		if r.SpoolID == nil || !r.Sent {
+			return false
+		}
+	}
 	if r.Reason == nil {
 		return len(allowed) == 0
 	}

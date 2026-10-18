@@ -351,3 +351,22 @@ walk: the link hop cap is removed	update.go	s/ \|\| hops >= 40 \{/ || hops >= 40
 sameName: ASCII case is not folded	update.go	s/if strings\.EqualFold\(x, y\) \{/if x == y {/	./...
 sameName: two non-ASCII names are not taken to be one	update.go	s/return !ascii\(x\) \&\& !ascii\(y\)/return !ascii(x) \&\& !ascii(y) \&\& false/	./...
 validate: a dangling protected link is not named	update.go	s/if _, dangling := walk\(p\); dangling \{\n\t\t\treturn fmt/if _, dangling := walk(p); dangling \&\& false {\n\t\t\treturn fmt/	./...
+CLIENT: a TLS record error after the send is a refusal	client/call.go	s/case isTLS\(err\) \&\& !sent:/case isTLS(err):/	./client/
+CLIENT: a request path is not validated	client/call.go	s/return pathRe\.MatchString\(p\) \&\& !strings\.Contains\(p, "\.\."\) \&\& !strings\.ContainsAny\(p, "\\\\#"\)/return !strings.Contains(p, "..")/	./client/
+CLIENT: the request origin is not compared with the pin	client/call.go	s/if req\.URL\.Scheme\+"\:\/\/"\+req\.URL\.Host != c\.Endpoint\.Origin \|\| req\.URL\.User != nil \{/if false {/	./client/	accepted: validPath already admits only a path that starts with a slash and holds no authority, so the origin compare is defence in depth that no input can reach
+CLIENT: the doctor probe skips the audience pin	client/call.go	s/\(c\.Endpoint\.Credential \&\& \(audience == "" \|\| audience != c\.Endpoint\.Audience\)\) \{\n\t\treturn d/(false) {\n\t\treturn d/	./client/
+CLIENT: a drain with no service is allowed	client/call.go	s/if !validService\(c\.Service\) \{\n\t\treturn 0, errors\.New\("a drain needs/if false {\n\t\treturn 0, errors.New("a drain needs/	./client/
+CLIENT: a record is sent by another service's client	client/call.go	s/if \(c\.Service != "" \&\& rec\.Service != c\.Service\) \|\|/if false ||/	./client/
+CLIENT: a record is sent to another audience	client/call.go	s/\(c\.Endpoint\.Credential \&\& \(r\.Audience == "" \|\| r\.Audience != c\.Endpoint\.Audience\)\) \{/(false) {/	./client/
+CLIENT: a call for another service is sent	client/call.go	s/if c\.Service != "" \&\& r\.Service != c\.Service \{/if false {/	./client/
+CLIENT: a held record is returned without its lock	client/outbox.go	s/if err != nil \{\n\t\t\t\treturn Record\{\}, nil, ErrDrainBusy\n\t\t\t\}\n\t\t\treturn r, lk, nil/_ = err\n\t\t\treturn r, lk, nil/	./client/
+CLIENT: spooled although the queued state was not stored	client/call.go	s/if err := c\.Outbox\.SetState\(rec, StateQueued\); err != nil \{\n\t\t\t\treturn c\.result\(r, OutcomeRefused, false, "outbox"\)/if err := c.Outbox.SetState(rec, StateQueued); err != nil \&\& false {\n\t\t\t\treturn c.result(r, OutcomeRefused, false, "outbox")/	./client/
+CLIENT: reconcile ends a record on an unsent answer	client/call.go	s/if res\.Sent \&\& res\.Reason != nil/if res.Reason != nil/	./client/
+CLIENT: reconcile ends a record on a refusal of the caller	client/call.go	s/ \&\& \*res\.Reason != "auth" \&\& \*res\.Reason != "stopped" \{/ {/	./client/
+CLIENT: the envelope is not stored	client/call.go	s/\t\tEnvelope: r\.Envelope,\n\t\}\)/\t})/	./client/
+CLIENT: the stored envelope is not sent again	client/call.go	s/Dedup: sr\.Dedup, Envelope: sr\.Envelope,/Dedup: sr.Dedup,/	./client/
+CLIENT: abandon ignores the in-flight lock	client/outbox.go	s/lk, err := o\.lockRecord\(r\)\n\t\tif err != nil \{\n\t\t\treturn ErrDrainBusy\n\t\t\}\n\t\tdefer lk\.Release\(\)/lk, err := o.lockRecord(r)\n\t\t_ = err\n\t\tdefer lk.Release()/	./client/
+CLIENT: resolve accepts empty evidence	client/outbox.go	s/if evidence == "" \{\n\t\treturn 0, errors\.New\("resolve needs the evidence"\)/if false {\n\t\treturn 0, errors.New("resolve needs the evidence")/	./client/
+CLIENT: a spooled result needs no record	client/result.go	s/if r\.SpoolID == nil \|\| r\.Sent \{/if false {/	./client/
+CLIENT: a dispatch_unknown result needs no record	client/result.go	s/if r\.SpoolID == nil \|\| !r\.Sent \{/if false {/	./client/
+CLIENT: a release build reads the environment	client/endpoint.go	s/if host == nil \&\& !devBuildNow \{/if host == nil \&\& false {/	./client/
