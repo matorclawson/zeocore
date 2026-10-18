@@ -884,6 +884,10 @@ func TestC23UnorderedVerbIsNeverBlocked(t *testing.T) {
 	// reserved room
 	ob2 := outbox(t)
 	ob2.maxRecords = 1000
+	// This test checks the bounds, not durability: the ~980 fill records skip
+	// the fsyncs, which took 6 s of every mutation row's run.
+	ob2.syncFile = func(*os.File) error { return nil }
+	ob2.syncDir = func(string) error { return nil }
 	for i := 0; i < 1000-ReservedRecords; i++ {
 		ob2.writeRaw(t, i+1)
 	}
