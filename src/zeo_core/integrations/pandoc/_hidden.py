@@ -102,26 +102,31 @@ _INLINE_TAGS: Final = frozenset(
     "span strike strong sub sup time tt u var".split()
 )
 #: Table parts: ``max-height``/``max-width`` do not apply to a cell, row or row group.
-_TABLE_TAGS: Final = frozenset(
-    "table caption colgroup col thead tbody tfoot tr td th".split()
-)
+_TABLE_TAGS: Final = frozenset("table colgroup col thead tbody tfoot tr td th".split())
 _BOX_DISPLAYS: Final = frozenset(
     {"block", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "table",
      "list-item", "flow-root"}
 )  # fmt: skip
 _TABLE_DISPLAYS: Final = frozenset(
     {"table-cell", "table-row", "table-row-group", "table-header-group",
-     "table-footer-group", "table-column", "table-column-group", "table-caption"}
+     "table-footer-group", "table-column", "table-column-group"}
 )  # fmt: skip
-_CLIPPING: Final = frozenset({"hidden", "clip"})
 _POSITIONED: Final = frozenset({"absolute", "fixed"})
+_OFFSET_POSITIONS: Final = frozenset({"absolute", "fixed", "relative", "sticky"})
+_ZERO: Final = re.compile(r"^0(px|pt|em|rem)?$")
 _NEGATIVE_OFFSET: Final = re.compile(r"^-[0-9]{3,}(px|em|pt)$")
 
 
 def _clips(decl: dict[str, str]) -> bool:
-    """``overflow`` (any axis) hides or clips what spills out of the box."""
+    """
+    ``overflow`` (any axis, one or two values) hides or clips what spills out.
+
+    ``declarations`` squashes whitespace, so ``overflow:hidden hidden`` reads
+    ``hiddenhidden``: any ``hidden`` or ``clip`` in the value counts.
+    """
     return any(
-        decl.get(name) in _CLIPPING for name in ("overflow", "overflow-x", "overflow-y")
+        "hidden" in decl.get(name, "") or "clip" in decl.get(name, "")
+        for name in ("overflow", "overflow-x", "overflow-y")
     )
 
 
@@ -131,7 +136,13 @@ def _is_box(decl: dict[str, str], tag: Any) -> bool:  # noqa: ANN401
     if display in _BOX_DISPLAYS or display in _TABLE_DISPLAYS:
         return True
     if display == "inline":
-        return False
+        # an absolutely positioned or floated element is blockified anyway
+        return decl.get("position") in _POSITIONED or decl.get("float") in (
+            "left",
+            "right",
+        )
+    if decl.get("position") in _POSITIONED or decl.get("float") in ("left", "right"):
+        return True
     return getattr(tag, "name", "") not in _INLINE_TAGS
 
 
@@ -146,35 +157,35 @@ def _kind_applies(kind: str, decl: dict[str, str], tag: Any) -> bool:  # noqa: A
     """
     Whether a style that matched the pattern of ``kind`` hides text in a browser.
 
-    Council zc-dtl-webkit-b312-v1 and its follow-up (eight WebKit counterexamples):
-    each of these only works under a condition, and without it the browser paints
-    the text. ``max-height/width:0`` and ``width/height:0`` hide only a box that
-    clips (``overflow:hidden`` or ``clip``) and is not inline; ``max-*`` also never
-    applies to a table cell, row or row group; ``left``/``top`` offsets need
-    ``position:absolute`` or ``fixed``; ``text-indent`` needs a non-inline element;
-    ``clip`` needs ``position:absolute`` or ``fixed``. ``tag`` is None for a
-    ``<style>`` rule, whose elements are not known yet: the element tests then
-    happen where the rule is applied.
+    Council zc-dtl-webkit-b312-v1 and its follow-ups: each of these only works under
+    a condition, and without it the browser paints the text. ``max-height/width:0``
+    and ``width/height/line-height:0`` hide only a box that clips (``overflow``
+    hidden or clip; a ``line-height:0`` clips whatever its element) and is not
+    inline; ``max-*`` also never applies to a table cell, row or row group;
+    ``left``/``top`` offsets need a positioned element (absolute, fixed, relative or
+    sticky) and ``margin-left``/``-top`` do not; ``text-indent`` needs a non-inline
+    element; ``clip`` needs ``position:absolute`` or ``fixed``. ``decl`` is the
+    element's own style merged over the rules that match it (``hidden_kind``), so an
+    inline style and a ``<style>`` rule are judged the same way.
     """
     if kind in ("max_size", "zero_size"):
         if not _clips(decl):
             return False
-        if tag is not None and not _is_box(decl, tag):
+        if not _ZERO.match(decl.get("line-height", "x")) and not _is_box(decl, tag):
             return False
-        return not (
-            kind == "max_size" and tag is not None and _is_table_part(decl, tag)
-        )
+        return not (kind == "max_size" and _is_table_part(decl, tag))
     if kind == "offscreen":
-        positioned = decl.get("position") in _POSITIONED
-        shifted = positioned and any(
+        shifted = decl.get("position") in _OFFSET_POSITIONS and any(
             _NEGATIVE_OFFSET.match(decl.get(name, "")) for name in ("left", "top")
         )
-        indented = _NEGATIVE_OFFSET.match(decl.get("text-indent", "")) is not None
-        if indented and tag is not None and not _is_box(decl, tag):
-            indented = False
-        if indented and tag is None:
-            indented = _clips(decl)
-        return shifted or indented
+        margin = any(
+            _NEGATIVE_OFFSET.match(decl.get(name, ""))
+            for name in ("margin-left", "margin-top")
+        )
+        indented = _NEGATIVE_OFFSET.match(
+            decl.get("text-indent", "")
+        ) is not None and _is_box(decl, tag)
+        return shifted or margin or indented
     if kind == "clip":
         return decl.get("position") in _POSITIONED
     return True
@@ -203,12 +214,22 @@ def _same_colour(tag: Any, style: str) -> bool:  # noqa: ANN401
     return bool(colour) and colour == _bg_of_ancestors(tag)
 
 
-def style_rules(css: str, noise: Noise) -> tuple[dict[str, str], dict[str, str]]:
-    """
-    The top-level ``.class`` and ``#id`` rules in a ``<style>`` block that hide.
+OVERSIZE_RULE: Final = "\x00oversize"
 
-    Rules inside an at-rule (``@media``) are skipped: they may hide content only
-    on a small screen, and removing it would lose what a desktop reader sees.
+
+def style_rules(
+    css: str,
+    noise: Noise,  # noqa: ARG001 -- kept so the caller's signature does not change
+) -> tuple[dict[str, str], dict[str, str]]:
+    """
+    The declarations of the top-level ``.class`` and ``#id`` rules of a ``<style>``.
+
+    Each rule's declarations are kept (later rules for a selector are appended, so the
+    later declaration wins), so that an element is judged by its inline style and its
+    rules together. A rule body longer than ``STYLE_MAX_CHARS`` is not parsed and is
+    marked, and treated as hiding. Rules inside an at-rule (``@media``) are skipped:
+    they may hide content only on a small screen, and removing it would lose what a
+    desktop reader sees.
     """
     classes: dict[str, str] = {}
     ids: dict[str, str] = {}
@@ -222,7 +243,7 @@ def style_rules(css: str, noise: Noise) -> tuple[dict[str, str], dict[str, str]]
         elif char == "}" and depth:
             depth -= 1
             if depth == 0:
-                _record(selector, css[start:index], noise, classes, ids)
+                _record(selector, css[start:index], classes, ids)
                 start = index + 1
     return classes, ids
 
@@ -230,18 +251,20 @@ def style_rules(css: str, noise: Noise) -> tuple[dict[str, str], dict[str, str]]
 def _record(
     selector: str,
     body: str,
-    noise: Noise,
     classes: dict[str, str],
     ids: dict[str, str],
 ) -> None:
     if selector.startswith("@") or len(selector) > _SELECTOR_MAX_CHARS:
         return
-    kind = "oversize" if len(body) > STYLE_MAX_CHARS else _style_kind(body, noise)
-    if kind is None:
-        return
     for part in (s.strip() for s in selector.split(",")):
-        if _SIMPLE_SELECTOR.match(part):
-            (classes if part[0] == "." else ids)[part[1:]] = kind
+        if not _SIMPLE_SELECTOR.match(part):
+            continue
+        table = classes if part[0] == "." else ids
+        name = part[1:]
+        if len(body) > STYLE_MAX_CHARS or table.get(name) == OVERSIZE_RULE:
+            table[name] = OVERSIZE_RULE
+        else:
+            table[name] = f"{table.get(name, '')};{body}" if name in table else body
 
 
 def hidden_kind(
@@ -262,28 +285,35 @@ def hidden_kind(
             return kind
         if _same_colour(tag, style):
             return "color_match"
-    return _by_class_or_id(tag, classes, ids)
+    return _by_class_or_id(tag, noise, style, classes, ids)
 
 
 def _by_class_or_id(
     tag: Any,  # noqa: ANN401
+    noise: Noise,
+    style: str,
     classes: dict[str, str],
     ids: dict[str, str],
 ) -> str | None:
-    inline = getattr(tag, "name", "") in _INLINE_TAGS
-    table_part = getattr(tag, "name", "") in _TABLE_TAGS
+    """
+    Hidden by the rules that match the element, judged together with its own style.
 
-    def applies(kind: str) -> bool:
-        # A size rule (already known to clip) does not hide an inline element, and
-        # a max-size rule does not hide a table part.
-        if kind in ("max_size", "zero_size") and inline:
-            return False
-        return not (kind == "max_size" and table_part)
-
-    tag_id = tag.get("id")
-    if isinstance(tag_id, str) and tag_id in ids and applies(ids[tag_id]):
-        return "style_class"
+    The matching class rules (in the element's class order), then the id rule, then
+    the inline style are merged, the later declaration winning, and every kind is
+    evaluated on the result exactly as for an inline style.
+    """
+    parts: list[str] = []
     for name in tag.get("class") or ():
-        if name in classes and applies(classes[name]):
-            return "style_class"
-    return None
+        if name in classes:
+            parts.append(classes[name])
+    tag_id = tag.get("id")
+    if isinstance(tag_id, str) and tag_id in ids:
+        parts.append(ids[tag_id])
+    if not parts:
+        return None
+    if OVERSIZE_RULE in parts:
+        return "style_class"
+    merged = ";".join([*parts, style])
+    if len(merged) > STYLE_MAX_CHARS:
+        return "style_class"  # too long to examine: treated as hidden (fail closed)
+    return "style_class" if _style_kind(merged, noise, tag) is not None else None

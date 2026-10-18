@@ -97,7 +97,7 @@
     },
     {
       "kind": "zero_size",
-      "pattern": "(^|;)(width|height):0(px|pt|em|rem)?(?![.0-9a-z%])"
+      "pattern": "(^|;)(width|height|line-height):0(px|pt|em|rem)?(?![.0-9a-z%])"
     },
     {
       "kind": "offscreen",

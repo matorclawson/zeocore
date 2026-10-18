@@ -195,8 +195,17 @@ def css_rules(
     for block in soup.find_all("style"):
         deadline.check()
         found_classes, found_ids = _hidden.style_rules(block.get_text(), noise)
-        classes.update(found_classes)
-        ids.update(found_ids)
+        for table, found in ((classes, found_classes), (ids, found_ids)):
+            for name, body in found.items():
+                # the same selector in two <style> blocks: the later declaration wins
+                previous = table.get(name)
+                table[name] = (
+                    body
+                    if previous is None
+                    else _hidden.OVERSIZE_RULE
+                    if _hidden.OVERSIZE_RULE in (previous, body)
+                    else f"{previous};{body}"
+                )
     return classes, ids
 
 

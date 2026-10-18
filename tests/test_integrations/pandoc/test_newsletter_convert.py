@@ -833,3 +833,79 @@ def test_the_webkit_sibling_counterexamples_are_kept_and_their_controls_hidden()
     ]
     for markup in hidden:
         assert not _visible(markup), markup
+
+
+# (declarations, tag, hidden in a browser). Council zc-zcore144-765d-v1: an element
+# is judged the same way whether the declarations are inline, in a class rule or in
+# an id rule.
+_PARITY = [
+    ("display:block;max-height:0;overflow:hidden", "span", True),
+    ("max-height:0;overflow:hidden", "span", False),
+    ("max-height:0;overflow:hidden hidden", "div", True),
+    ("max-height:0;overflow:clip clip", "div", True),
+    ("max-height:0", "div", False),
+    ("max-height:0;overflow:hidden", "td", False),
+    ("max-height:0;overflow:hidden", "caption", True),
+    ("display:table-cell;max-height:0;overflow:hidden", "div", False),
+    ("display:table-row;max-width:0;overflow:hidden", "div", False),
+    ("width:0;height:0;overflow:hidden", "div", True),
+    ("width:0;height:0;overflow:hidden", "span", False),
+    ("position:absolute;width:0;height:0;overflow:hidden", "span", True),
+    ("float:left;max-height:0;overflow:hidden", "span", True),
+    ("line-height:0;overflow:hidden", "div", True),
+    ("line-height:0;overflow:hidden", "span", True),
+    ("line-height:0", "div", False),
+    ("height:0", "div", False),
+    ("text-indent:-9999px", "div", True),
+    ("text-indent:-9999px", "span", False),
+    ("text-indent:-9999px;overflow:hidden", "span", False),
+    ("position:relative;left:-9999px", "div", True),
+    ("position:sticky;top:-9999px", "div", True),
+    ("position:absolute;left:-9999px", "div", True),
+    ("left:-9999px", "div", False),
+    ("margin-left:-9999px", "div", True),
+    ("margin-top:-9999px", "div", True),
+    ("position:absolute;clip:rect(0,0,0,0)", "div", True),
+    ("position:absolute;clip:rect(0,0,0,0)", "span", True),
+    ("position:relative;clip:rect(0,0,0,0)", "div", False),
+    ("clip:rect(0,0,0,0)", "div", False),
+    ("mso-hide:all", "div", False),
+    ("mso-hide:all;display:none", "div", True),
+]
+
+
+@pytest.mark.parametrize(("decls", "tag", "hidden"), _PARITY)
+def test_inline_class_and_id_judge_an_element_the_same_way(
+    decls: str, tag: str, hidden: bool
+) -> None:
+    inner = "<tr><td>SENTINEL</td></tr>" if tag == "caption" else "SENTINEL"
+
+    def wrap(open_tag: str) -> str:
+        body = f"{open_tag}{inner}</{tag}>"
+        if tag in ("td", "caption"):
+            body = (
+                f"<table>{open_tag}SENTINEL</{tag}></table>"
+                if tag == "caption"
+                else f"<table><tr>{open_tag}SENTINEL</{tag}></tr></table>"
+            )
+        return body
+
+    inline = wrap(f'<{tag} style="{decls}">')
+    by_class = f"<style>.r{{{decls}}}</style>" + wrap(f'<{tag} class="r">')
+    by_id = f"<style>#r{{{decls}}}</style>" + wrap(f'<{tag} id="r">')
+    for markup in (inline, by_class, by_id):
+        assert _visible(markup) is (not hidden), markup
+
+
+def test_two_style_blocks_for_one_class_are_merged() -> None:
+    markup = (
+        "<style>.a{display:block}</style><style>.a{max-height:0;overflow:hidden}</style>"
+        '<span class="a">SENTINEL</span>'
+    )
+    assert not _visible(markup)
+
+
+def test_an_oversize_style_rule_hides() -> None:
+    padding = "x:y;" * 2000
+    markup = f"<style>.big{{{padding}}}</style><div class='big'>SENTINEL</div>"
+    assert not _visible(markup)

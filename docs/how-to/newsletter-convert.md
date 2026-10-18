@@ -85,8 +85,17 @@ What it does, in order:
 2. Removes scripts, styles, frames, forms and their controls, comments, and the head.
 3. Removes **hidden text**, counted by kind in `stripped` (`hidden_display`,
    `hidden_visibility`, `hidden_opacity`, `hidden_font_size`, `hidden_max_size`,
-   `hidden_mso`, `hidden_zero_size`, `hidden_offscreen`, `hidden_clip`,
-   `hidden_color_match`, `hidden_style_class`, `hidden_attribute`). Rules inside
+   `hidden_zero_size`, `hidden_offscreen`, `hidden_clip`,
+   `hidden_color_match`, `hidden_style_class`, `hidden_attribute`). A technique counts
+   only where a browser really hides the text (a loss the council ruled): `max-height`
+   or `max-width:0`, and `width`, `height` or `line-height:0`, hide only an element
+   that clips (`overflow` hidden or clip) and is not inline, and `max-*` never hides a
+   table cell, row or row group; a negative `left` or `top` needs a positioned element
+   (absolute, fixed, relative or sticky), while a negative `margin-left` or
+   `margin-top` always counts; a negative `text-indent` needs a non-inline element;
+   `clip` needs `position:absolute` or `fixed`; `mso-hide:all` alone is **not**
+   hidden (only Outlook honours it). An element is judged by its own `style` and the
+   `<style>` rules for its classes and id together, the same way. Rules inside
    `@media` are not applied, because they may hide content only on a small screen.
    A `style` attribute or rule body longer than 4096 characters is **not parsed**
    (padding must not cost time) and is **treated as hidden**: the element is dropped
@@ -110,6 +119,12 @@ service's click tracker, carries a per-recipient parameter, or had tracking remo
 tracked link identifies the reader or the send: never make one a pick's link. A link
 through an opaque tracker (one whose target is encoded) cannot be unwrapped without
 fetching it; that is noted in `warnings`.
+
+**A pinned pandoc.** `convert_newsletter(..., pandoc_path="/abs/pandoc",
+expected_pandoc_sha256="...")` (and `convert_decoded_message`) uses exactly that binary
+and no `PATH` lookup. It is still copied, hashed and verified before it runs; a relative
+path is refused `pandoc_missing`, and another digest `renderer_mismatch` before anything
+is executed.
 
 `item.converter` is the convert step's own tuple: the pandoc version, the sha256 of the
 pandoc binary, the flags, the cleaner version, and the version and digest of the data
