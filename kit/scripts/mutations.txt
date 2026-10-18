@@ -368,3 +368,7 @@ CLIENT: resolve accepts empty evidence	client/outbox.go	s/if evidence == "" \{\n
 CLIENT: a spooled result needs no record	client/result.go	s/if r\.SpoolID == nil \|\| r\.Sent \{/if false {/	./client/
 CLIENT: a dispatch_unknown result needs no record	client/result.go	s/if r\.SpoolID == nil \|\| !r\.Sent \{/if false {/	./client/
 CLIENT: a release build reads the environment	client/endpoint.go	s/if host == nil \&\& !devBuildNow \{/if host == nil \&\& false {/	./client/
+
+CLIENT: a call with no service is sent	client/call.go	s/if !validService\(c\.Service\) \{\n\t\treturn c\.result\(r, OutcomeRefused, false, "endpoint"\)/if false {\n\t\treturn c.result(r, OutcomeRefused, false, "endpoint")/	./client/
+CLIENT: reconcile ignores the in-flight lock	client/call.go	s/if lerr != nil \{\n\t\t\treturn fail\(OutcomeRefused, "busy"\)/if lerr != nil \&\& false {\n\t\t\treturn fail(OutcomeRefused, "busy")/	./client/
+CLIENT: a drain ends a record that never left	client/outbox.go	s/ \&\& res\.Sent:\n/ || !res.Sent \&\& res.Outcome == OutcomeInvalid:\n/	./client/

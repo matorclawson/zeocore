@@ -177,7 +177,7 @@ func TestT11HTTP11Only(t *testing.T) {
 	t.Cleanup(srv.Close)
 	roots := x509.NewCertPool()
 	roots.AddCert(srv.Certificate())
-	c := &Client{Endpoint: Endpoint{Origin: strings.ToLower(srv.URL), Source: SourceHost, Audience: "aud"}, Roots: roots, Sleep: func(time.Duration) {}}
+	c := &Client{Endpoint: Endpoint{Origin: strings.ToLower(srv.URL), Source: SourceHost, Audience: "aud"}, Service: "zmsg", Roots: roots, Sleep: func(time.Duration) {}}
 	if res := valid(t, call(c, readReq())); res.Outcome != OutcomeOK || proto != "HTTP/1.1" {
 		t.Fatalf("%s proto %q", res.JSON(), proto)
 	}
@@ -598,7 +598,7 @@ func TestAWriteWithoutAnIdGetsOne(t *testing.T) {
 
 func TestALocalEndpointIsNotCalledOverHTTP(t *testing.T) {
 	f := newFake(t, nil)
-	c := &Client{Endpoint: Endpoint{Local: true, Origin: f.origin(), Source: SourceHost}, Roots: f.roots, Outbox: outbox(t)}
+	c := &Client{Endpoint: Endpoint{Local: true, Origin: f.origin(), Source: SourceHost}, Service: "zmsg", Roots: f.roots, Outbox: outbox(t)}
 	if res := valid(t, call(c, readReq())); res.Outcome != OutcomeRefused || f.count() != 0 {
 		t.Fatalf("%s", res.JSON())
 	}

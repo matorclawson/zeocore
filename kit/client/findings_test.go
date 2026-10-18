@@ -326,3 +326,60 @@ func TestReconcileLeavesTheRecordWhenTheRequestNeverLeft(t *testing.T) {
 		t.Fatalf("%s %v", res.JSON(), recs)
 	}
 }
+
+// #141 P3-a: a client with no service refuses every call and every record.
+func TestAClientWithNoServiceSendsNothing(t *testing.T) {
+	f := newFake(t, lostAnswer)
+	ob := outbox(t)
+	c := f.client(ob)
+	c.Service = ""
+	if res := valid(t, call(c, readReq())); res.Outcome != OutcomeRefused || reason(res) != "endpoint" || f.count() != 0 {
+		t.Fatalf("%s hits %d", res.JSON(), f.count())
+	}
+	rec, err := ob.Enqueue("ledger", "send", "op-l", StoredRequest{Method: "POST", Path: "/v1/send", Audience: "aud", Dedup: "zmsg.dedup/v1", Body: []byte(`{"n":1}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.SetState(rec, StateUnknown); err != nil {
+		t.Fatal(err)
+	}
+	res := valid(t, c.Reconcile(context.Background(), "op-l"))
+	if res.Outcome != OutcomeRefused || reason(res) != "origin" || f.count() != 0 {
+		t.Fatalf("%s hits %d", res.JSON(), f.count())
+	}
+}
+
+// #141 P3-b: a reconcile does not send a record another process holds.
+func TestReconcileRefusesARecordThatIsHeld(t *testing.T) {
+	f := newFake(t, nil)
+	ob := outbox(t)
+	rec, lk, err := ob.EnqueueLocked("zmsg", "send", "op-1", StoredRequest{Method: "POST", Path: "/v1/send", Audience: "aud", Dedup: "zmsg.dedup/v1", Body: []byte(`{"n":1}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lk, err = ob.setStateLocked(rec, StateUnknown, lk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lk.Release()
+	res := valid(t, f.client(ob).Reconcile(context.Background(), "op-1"))
+	if res.Outcome != OutcomeRefused || reason(res) != "busy" || f.count() != 0 {
+		t.Fatalf("%s hits %d", res.JSON(), f.count())
+	}
+}
+
+// #141 P3-c: a drain that never sent a record does not end it.
+func TestADrainLeavesARecordWhoseRequestNeverLeft(t *testing.T) {
+	f := newFake(t, nil)
+	ob := outbox(t)
+	if _, err := ob.Enqueue("zmsg", "send", "op-1", StoredRequest{Method: "POST", Path: "no-slash", Audience: "aud", Dedup: "zmsg.dedup/v1", Body: []byte(`{"n":1}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.client(ob).Drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := ob.List()
+	if len(recs) != 1 || recs[0].State != StateQueued || f.count() != 0 {
+		t.Fatalf("%v hits %d", recs, f.count())
+	}
+}
