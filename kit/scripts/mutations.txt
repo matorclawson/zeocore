@@ -226,7 +226,7 @@ CLIENT: a failed directory fsync deletes the record	client/outbox.go	s/_ = os\.R
 CLIENT: a crash temporary file is deleted at open	client/outbox.go	s/_ = os\.Rename\(filepath\.Join\(o\.dir, e\.Name\(\)\), filepath\.Join\(o\.dir, e\.Name\(\)\+\"\.suspect\"\)\)/_ = os.Remove(filepath.Join(o.dir, e.Name()))/	./client/
 CLIENT: a drain goes past a record that is not queued	client/outbox.go	s/if r\.State != StateQueued \{\n\t\t\treturn sent, nil/if r.State != StateQueued {\n\t\t\tcontinue/	./client/
 CLIENT: a drain goes on after a failure	client/outbox.go	s/\tdefault:\n\t\t\treturn sent, nil\n\t\t\}\n\t\}\n\treturn sent, nil/\tdefault:\n\t\t}\n\t}\n\treturn sent, nil/	./client/
-CLIENT: a refusal does not mark the record	client/outbox.go	s/case res\.Outcome == OutcomeRefused \&\& res\.Sent \|\| res\.Outcome == OutcomeInvalid \|\| res\.Outcome == OutcomeNotFound:/case res.Outcome == OutcomeInvalid || res.Outcome == OutcomeNotFound:/	./client/
+CLIENT: a refusal does not mark the record	client/outbox.go	s/\(res\.Outcome == OutcomeRefused \|\| res\.Outcome == OutcomeInvalid \|\| res\.Outcome == OutcomeNotFound\) \&\& res\.Sent:/(res.Outcome == OutcomeInvalid || res.Outcome == OutcomeNotFound) \&\& res.Sent:/	./client/
 CLIENT: a drain past its limit sends the new write	client/outbox.go	s/if seq != 0 \&\& r\.Seq >= seq \{/if false {/	./client/	accepted: the in-flight lock that the writing call holds on its own new record also keeps a drain off it, so the limit and the lock both stop the drain
 CLIENT: a reply key is not derived	client/call.go	s/return \"reply-\" \+ messageID/return messageID/	./client/
 CLIENT: doctor hides a hold	client/call.go	s/d\.Held = c\.Outbox\.Held\(\)//	./client/
@@ -355,9 +355,9 @@ CLIENT: a request path is not validated	client/call.go	s/return pathRe\.MatchStr
 CLIENT: the request origin is not compared with the pin	client/call.go	s/if req\.URL\.Scheme\+"\:\/\/"\+req\.URL\.Host != c\.Endpoint\.Origin \|\| req\.URL\.User != nil \{/if false {/	./client/	accepted: validPath already admits only a path that starts with a slash and holds no authority, so the origin compare is defence in depth that no input can reach
 CLIENT: the doctor probe skips the audience pin	client/call.go	s/\(c\.Endpoint\.Credential \&\& \(audience == "" \|\| audience != c\.Endpoint\.Audience\)\) \{\n\t\treturn d/(false) {\n\t\treturn d/	./client/
 CLIENT: a drain with no service is allowed	client/call.go	s/if !validService\(c\.Service\) \{\n\t\treturn 0, errors\.New\("a drain needs/if false {\n\t\treturn 0, errors.New("a drain needs/	./client/
-CLIENT: a record is sent by another service's client	client/call.go	s/if \(c\.Service != "" \&\& rec\.Service != c\.Service\) \|\|/if false ||/	./client/
+CLIENT: a record is sent by another service's client	client/call.go	s/if rec\.Service != c\.Service \|\|/if false ||/	./client/
 CLIENT: a record is sent to another audience	client/call.go	s/\(c\.Endpoint\.Credential \&\& \(r\.Audience == "" \|\| r\.Audience != c\.Endpoint\.Audience\)\) \{/(false) {/	./client/
-CLIENT: a call for another service is sent	client/call.go	s/if c\.Service != "" \&\& r\.Service != c\.Service \{/if false {/	./client/
+CLIENT: a call for another service is sent	client/call.go	s/if r\.Service != c\.Service \{/if false {/	./client/
 CLIENT: a held record is returned without its lock	client/outbox.go	s/if err != nil \{\n\t\t\t\treturn Record\{\}, nil, ErrDrainBusy\n\t\t\t\}\n\t\t\treturn r, lk, nil/_ = err\n\t\t\treturn r, lk, nil/	./client/
 CLIENT: spooled although the queued state was not stored	client/call.go	s/if err := c\.Outbox\.SetState\(rec, StateQueued\); err != nil \{\n\t\t\t\treturn c\.result\(r, OutcomeRefused, false, "outbox"\)/if err := c.Outbox.SetState(rec, StateQueued); err != nil \&\& false {\n\t\t\t\treturn c.result(r, OutcomeRefused, false, "outbox")/	./client/
 CLIENT: reconcile ends a record on an unsent answer	client/call.go	s/\t\t\tif res\.Sent \{/\t\t\tif true {/	./client/
