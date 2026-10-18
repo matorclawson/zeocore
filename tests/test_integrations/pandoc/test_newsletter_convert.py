@@ -816,7 +816,8 @@ def test_the_webkit_sibling_counterexamples_are_kept_and_their_controls_hidden()
         '<div style="top:-9999px">SENTINEL</div>',
         '<span style="text-indent:-9999px">SENTINEL</span>',
         '<div style="clip:rect(0,0,0,0)">SENTINEL</div>',
-        '<table><tr><td style="max-height:0;overflow:hidden">SENTINEL</td></tr></table>',
+        '<table><tr><td style="max-height:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
         '<table><tr><td style="display:table-cell;max-width:0;overflow:hidden">'
         "SENTINEL</td></tr></table>",
     ]
