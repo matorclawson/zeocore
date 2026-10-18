@@ -18,11 +18,39 @@ logger = logging.getLogger(__name__)
 DEFAULT_ENTRY_GROUP = "zeo_core.integrations"
 
 
+def _distribution_of(entry_point: EntryPoint) -> str:
+    """``name version`` of the distribution that registered an entry point."""
+    dist = getattr(entry_point, "dist", None)
+    if dist is None:
+        return "an unknown distribution"
+    return f"{dist.name} {dist.version}"
+
+
+def _group_by_name(group: str) -> dict[str, list[EntryPoint]]:
+    """Every entry point of the group, by name, in the order importlib reports them."""
+    by_name: dict[str, list[EntryPoint]] = {}
+    for ep in entry_points().select(group=group):
+        by_name.setdefault(ep.name, []).append(ep)
+    return by_name
+
+
+def _ambiguity(name: str, candidates: list[EntryPoint]) -> str:
+    """The error for a name registered more than once; never an ordering rule."""
+    who = "; ".join(sorted(_distribution_of(ep) for ep in candidates))
+    return (
+        f"Integration '{name}' is registered by more than one distribution "
+        f"({who}); uninstall all but one."
+    )
+
+
 def list_available_entry_points(
     group: str = DEFAULT_ENTRY_GROUP,
 ) -> list[dict[str, str]]:
     """
     List available integration entry points without loading them.
+
+    A name registered by more than one distribution is listed once per
+    registration and marked ``"ambiguous": "true"``; loading it is an error.
 
     Args:
         group: The entry point group to search.
@@ -31,16 +59,18 @@ def list_available_entry_points(
         list[dict]: Metadata about available integrations.
     """
     results = []
-    # Use robust .select() method for Python 3.10+
-    eps = entry_points().select(group=group)
-    for ep in eps:
-        results.append(
-            {
-                "integration_id": ep.name,
-                "value": ep.value,
-                "module": ep.module,
-            }
-        )
+    for name, candidates in _group_by_name(group).items():
+        ambiguous = len(candidates) > 1
+        for ep in candidates:
+            results.append(
+                {
+                    "integration_id": name,
+                    "value": ep.value,
+                    "module": ep.module,
+                    "distribution": _distribution_of(ep),
+                    "ambiguous": "true" if ambiguous else "false",
+                }
+            )
     return results
 
 
@@ -85,6 +115,13 @@ def _load_one_entry_point(
                 report.errors.append(error_msg)
                 report.success = False
                 return True
+
+        # Report-only: the registry keys on the instance's integration_id, which
+        # can differ from the entry-point name (google.mail -> googlemail). A
+        # mismatch is listed, never refused, and no id is renamed here.
+        actual = getattr(instance, "integration_id", integration_id)
+        if actual != integration_id:
+            report.id_mismatches.append(f"{integration_id} -> {actual}")
 
         # Initialize if requested
         if initialize:
@@ -142,11 +179,21 @@ def load_enabled_entry_points(
     """
     report = IntegrationLoadReport(success=True)
 
-    # Get all available entry points map: name -> EntryPoint
-    eps = entry_points().select(group=group)
-    ep_map = {ep.name: ep for ep in eps}
+    # Get all available entry points map: name -> every registration of it
+    ep_map = _group_by_name(group)
 
     for integration_id in enabled:
+        if len(ep_map.get(integration_id, ())) > 1:
+            # Two distributions registered one name: an error in both modes, never
+            # "the last one wins" (zeocore-SOW-36 slice 1).
+            msg = _ambiguity(integration_id, ep_map[integration_id])
+            report.errors.append(msg)
+            report.success = False
+            logger.error(msg)
+            if strict:
+                return report
+            report.skipped.append(integration_id)
+            continue
         if integration_id not in ep_map:
             msg = f"Integration '{integration_id}' not found in entry points."
             if strict:
@@ -161,7 +208,12 @@ def load_enabled_entry_points(
                 continue
 
         keep_going = _load_one_entry_point(
-            integration_id, ep_map[integration_id], registry, report, strict, initialize
+            integration_id,
+            ep_map[integration_id][0],
+            registry,
+            report,
+            strict,
+            initialize,
         )
         if not keep_going:
             return report
