@@ -54,7 +54,11 @@ with `GOPROXY=off` and `-mod=readonly`. `consumer_test.go` proves a vendored con
 
 `make kit-verify` (Go 1.27 on PATH; the Python gate needs no Go): gofmt, `go vet`, `go test -race`,
 and `scripts/mutate.sh scripts/mutations.txt`, which breaks each guard in turn and fails if no test
-notices. `scripts/mutate.sh` is a copy of zeoarchitect's `scripts/mutate.sh` at `35f6681`.
+notices. `scripts/mutate.sh` began as a copy of zeoarchitect's `scripts/mutate.sh` at `35f6681`; it now
+runs every row on its own scratch copy of the module (the checkout is never touched), after the
+UNMUTATED copy has passed the same tests, and runs `MUTATE_JOBS` rows at a time (default the CPU
+count, at most 4). Under load a timing test can fail a mutant for the wrong reason, so for an
+audit run it serially: `MUTATE_JOBS=1 ./scripts/mutate.sh scripts/mutations.txt`.
 
 ## Conformance
 

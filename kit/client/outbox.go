@@ -826,7 +826,7 @@ func (o *Outbox) DrainBefore(service string, seq uint64, send func(Record) Resul
 				return sent, err
 			}
 			sent++
-		case res.Outcome == OutcomeRefused && res.Sent || res.Outcome == OutcomeInvalid || res.Outcome == OutcomeNotFound:
+		case (res.Outcome == OutcomeRefused || res.Outcome == OutcomeInvalid || res.Outcome == OutcomeNotFound) && res.Sent:
 			if err := o.SetState(r, StateRefused); err != nil {
 				return sent, err
 			}
