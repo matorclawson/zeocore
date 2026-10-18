@@ -120,6 +120,8 @@ Run `make help` at any point to see every available target.
 
 **Docs and changelog.** User-visible change needs a page or section under `docs/` (strict mkdocs build; `make test-docs` checks repository-relative links and anchors) and one `changelog.d/<topic>.md` fragment (name it after your branch topic, the part after the last `/`) whose first line is `bump: patch`, `bump: minor` or `bump: major` ([changelog.d/README.md](changelog.d/README.md)). Never edit a merged fragment.
 
+**CI on a pull request.** Run the full gate yourself before you open the PR (`make verify`, and `make kit-verify` when you touched `kit/`) and paste its summary in the PR body. The PR itself runs one job, `smoke` (ruff format and lint, and a wheel build; under three minutes, no secrets). The full Python gate and the kit's gate with its mutation rows run after a merge to `main` and every night (`ci.yml`; `zeo.yml` certifies `main` too)
+
 **Exit codes and `--json`.** The command's protocol is zeocore's `cli_protocol` 1 (also `zeocore help --json` and [docs/reference/cli.md](docs/reference/cli.md)); a code in it keeps one meaning everywhere, and a new one needs a protocol bump agreed with the owner:
 
 - stdout is JSON lines. The last line is the result and carries `ok` and `schema` (`zeocore.<command>/v1`).
