@@ -117,8 +117,9 @@ and back out on any failure.
   beside the protected tree is allowed. A link that does not resolve (or loops) is refused, and a
   protected path that cannot be resolved refuses everything. **Guard is advisory**: it checks a path, not
   the descriptor a hook later opens, so a link swapped after Guard returns is not stopped by it. A hard
-  link to a protected file is not caught by Guard when the protected path is a directory; the snapshot
-  catches the write. The snapshot is the backstop.
+  link to a protected file is not caught by Guard (not even when the protected path is the file itself);
+  the snapshot catches the write. A name that does not exist yet is compared folded (ASCII case, and any
+  non-ASCII byte alike), so a protected path that is absent cannot be created through a folded spelling. The snapshot is the backstop.
 - **Protected paths.** `Guard` takes absolute paths without `..` (a `..` after a symbolic link would be
   collapsed as text before the link is resolved, so it is refused outright) and resolves links on both
   sides. The kit also snapshots the protected paths before `Fetch` (or a rollback's preflight) and

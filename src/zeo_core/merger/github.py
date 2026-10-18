@@ -4,7 +4,7 @@ A port of zeomerger's internal/github client, under ZEO-LEDGER's adapter rules
 (its review of the port, SOW-151):
 
 - the token is a single-repository installation token from a ``TokenSource``
-  (``zeo_core.integrations.github.app_tokens``), never a broader one;
+  (``zeo_core.release.app_tokens``), never a broader one;
 - the origin is fixed, redirects are never followed (an injected client that
   follows them is refused), every body is bounded to 8 MiB, and every call
   has a timeout;

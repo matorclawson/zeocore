@@ -46,6 +46,14 @@ from typing import Final
 
 import httpx
 
+# `zeocore release` has always needed the github extra: importing the GitHub App
+# signer used to load the whole github package, which imports `requests`. The
+# signer now lives in zeo_core.release, so that load no longer happens; this
+# import keeps the documented requirement (and `_release`'s extra_missing
+# answer) exactly as it was. zeocore-SOW-36 slice 0 is no behaviour change; the
+# github slice decides whether release should stop needing the extra.
+import requests  # noqa: F401
+
 from zeo_core.adapters.runtime_host.canonical import ProtocolError, parse_json
 from zeo_core.release import pypi
 from zeo_core.release.pypi.targets import (
@@ -378,7 +386,7 @@ def _default_pypi_reads() -> tuple[pypi.GitHubCli, pypi.PyPIHttp]:
 def _default_release_app(
     app_id: int, environ: Mapping[str, str]
 ) -> pypi.TagCreator:  # pragma: no cover - needs the Keychain
-    from zeo_core.integrations.github.app_tokens import KeychainAppKeySource
+    from zeo_core.release.app_tokens import KeychainAppKeySource
 
     account = environ.get(RELEASE_APP_KEY_ACCOUNT_VARIABLE) or "private-key"
     key = KeychainAppKeySource(service=RELEASE_APP_KEY_SERVICE, account=account)
