@@ -176,6 +176,9 @@ func (a *App) validateUpdater() error {
 		if !filepath.IsAbs(p) {
 			return fmt.Errorf("kit: protected path %q must be absolute", p)
 		}
+		if _, dangling := walk(p); dangling {
+			return fmt.Errorf("kit: protected path %q goes through a symbolic link that does not resolve", p)
+		}
 		if overlaps(u.Root, p) {
 			return fmt.Errorf("kit: protected path %q overlaps the install root", p)
 		}
@@ -227,7 +230,26 @@ func sameElem(x, y elem) bool {
 	if x.fi != nil && y.fi != nil {
 		return os.SameFile(x.fi, y.fi)
 	}
-	return x.fi == nil && y.fi == nil && x.name == y.name
+	return x.fi == nil && y.fi == nil && sameName(x.name, y.name)
+}
+
+// sameName is whether two names that do not exist yet could be one entry on a
+// file system that folds case or Unicode normalisation. Identity cannot tell
+// them apart, so it errs towards refusing: ASCII names compare without case,
+// and two names that both hold non-ASCII bytes are taken to be the same.
+func sameName(x, y string) bool {
+	if strings.EqualFold(x, y) {
+		return true
+	}
+	ascii := func(n string) bool {
+		for i := 0; i < len(n); i++ {
+			if n[i] >= 0x80 {
+				return false
+			}
+		}
+		return true
+	}
+	return !ascii(x) && !ascii(y)
 }
 
 // walk resolves an absolute path the way the kernel does, component by

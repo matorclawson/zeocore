@@ -1,0 +1,2 @@
+bump: patch
+**kit: `Guard` also refuses folded spellings of a protected path that does not exist yet, and `Validate` names a protected link that does not resolve.** A name past the first missing component is compared without ASCII case, and two non-ASCII names are taken to be one; a protected path that is a dangling link now says so instead of reporting an overlap with the install root. The README no longer claims Guard catches hard links.
