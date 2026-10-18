@@ -295,3 +295,16 @@ func TestResolveReadsNothingInAReleaseBuild(t *testing.T) {
 	_ = filepath.Join
 	_ = time.Second
 }
+
+// P2-E: a sent not_found answer to the reconcile is definitive about the key.
+func TestReconcileEndsARecordOnADefiniteNotFound(t *testing.T) {
+	f := newFake(t, lostAnswer)
+	ob := outbox(t)
+	valid(t, call(f.client(ob), writeReq("op-1", true)))
+	f.mode = status(404)
+	res := valid(t, f.client(ob).Reconcile(context.Background(), "op-1"))
+	recs, _ := ob.List()
+	if res.Outcome != OutcomeNotFound || len(recs) != 1 || recs[0].State != StateRefused {
+		t.Fatalf("%s %v", res.JSON(), recs)
+	}
+}

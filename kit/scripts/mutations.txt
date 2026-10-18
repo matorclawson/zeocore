@@ -134,9 +134,9 @@ CLIENT: the proxy comes from the environment	client/call.go	s/Proxy:\s+nil,[^\n]
 CLIENT: redirects are followed	client/call.go	s/return http\.ErrUseLastResponse/return nil/	./client/
 CLIENT: the pin is not checked	client/call.go	s/hex\.EncodeToString\(sum\[:\]\) != want/hex.EncodeToString(sum[:]) != want \&\& false/	./client/
 CLIENT: the given roots are not used	client/call.go	s/RootCAs: c\.Roots, //	./client/
-CLIENT: a TLS failure is not classed as one	client/call.go	s/case isTLS\(err\):/case false:/	./client/
-CLIENT: a path without a slash is accepted	client/call.go	s/!strings\.HasPrefix\(r\.Path, \"\/\"\) \|\| //	./client/	accepted: the same path also fails in http.NewRequest, which is also invalid; the check keeps the refusal independent of it
-CLIENT: a path with .. is accepted	client/call.go	s/strings\.Contains\(r\.Path, \"\.\.\"\)/false/	./client/
+CLIENT: a TLS failure is not classed as one	client/call.go	s/case isTLS\(err\) \&\& !sent:/case false:/	./client/
+CLIENT: a path without a slash is accepted	client/call.go	s/return pathRe\.MatchString\(p\) \&\& /return /	./client/	accepted: the same path also fails in http.NewRequest, which is also invalid; the check keeps the refusal independent of it
+CLIENT: a path with .. is accepted	client/call.go	s/ \&\& !strings\.Contains\(p, "\.\."\)//	./client/
 CLIENT: a method is not checked	client/call.go	s/!validMethod\(r\.Method\)/false/	./client/
 CLIENT: a request size is not bounded	client/call.go	s/len\(r\.Body\) > MaxRequest/false/	./client/
 CLIENT: an envelope size is not bounded	client/call.go	s/len\(r\.Envelope\.Body\) > MaxEnvelope/false/	./client/
@@ -158,7 +158,7 @@ CLIENT: offline is not reported	client/call.go	s/res\.Outcome == OutcomeUnavaila
 CLIENT: a successful read does not drain	client/call.go	s/if res\.Outcome == OutcomeOK \&\& c\.Outbox != nil \{/if false {/	./client/
 CLIENT: reconcile resends a verb without dedup	client/call.go	s/ \|\| r\.Dedup == \"\" \{/ || r.Dedup == \"\" \&\& false {/	./client/
 CLIENT: reconcile resends a record that is not unknown	client/call.go	s/err != nil \|\| rec\.State != StateUnknown/err != nil/	./client/
-CLIENT: reconcile does not mark a refusal	client/call.go	s/case OutcomeRefused, OutcomeInvalid, OutcomeNotFound:/case OutcomeInvalid:/	./client/
+CLIENT: reconcile does not mark a refusal	client/call.go	s/case OutcomeInvalid, OutcomeNotFound:/case OutcomeInvalid:/	./client/
 CLIENT: reconcile keeps a delivered record	client/call.go	s/case OutcomeOK:\n\t\t\t_ = c\.Outbox\.Remove\(rec\)/case OutcomeOK:\n\t\t\t_ = rec/	./client/
 CLIENT: a deadline is not a timeout	client/call.go	s/case errors\.Is\(ctx\.Err\(\), context\.DeadlineExceeded\):\n\t\tswitch/case false:\n\t\tswitch/	./client/
 CLIENT: a write timeout after send is a plain timeout	client/call.go	s/case sent \&\& !r\.Read:\n\t\t\treturn c\.result\(r, OutcomeDispatchUnknown, true, \"timeout_after_send\"\)/case false:\n\t\t\treturn c.result(r, OutcomeDispatchUnknown, true, \"timeout_after_send\")/	./client/
@@ -200,7 +200,6 @@ CLIENT: purge removes records that are not refused	client/outbox.go	s/if r\.Stat
 CLIENT: doctor never says the outbox is near full	client/outbox.go	s/s\.NearFull = s\.Count >= o\.maxRecords\*9\/10 \|\|/s.NearFull = false ||/	./client/
 CLIENT: a refused record stops a drain	client/outbox.go	s/(r\.State == StateRefused \|\| r\.State == StateAbandoned \|\| sr\.Unordered \&\& r\.State == StateUnknown) \{\n\t\t\tcontinue/$1 {\n\t\t\treturn sent, nil/	./client/
 CLIENT: more than one drain may run	client/outbox.go	s/unlock, err := o\.lock\(\"\.drain\.lock\", false\)/unlock, err := func() (func(), error) { return func() {}, nil }()/	./client/
-CLIENT: a release build accepts the environment with no host file	client/endpoint.go	s/if !DevBuild \{/if false {/	./client/
 CLIENT: a dev-build local binding may be privileged	client/endpoint.go	s/e\.Local \&\& e\.Source != SourceDev/e.Local/	./client/
 CLIENT: a credentialed entry needs no bundle or pin	client/host.go	s/if e\.Origin != nil \&\& e\.SPKI == nil \&\& cfg\.CABundle == nil \{/if false {/	./client/
 CLIENT: a credential file is not checked	client/host.go	s/if err := f\.checkPath\(\*e\.CredentialFile, MaxHostFile\); err != nil \{/if err := f.checkPath(*e.CredentialFile, MaxHostFile); err != nil \&\& false {/	./client/
@@ -215,7 +214,7 @@ CLIENT: a write does not clear the queue ahead first	client/call.go	s/_, _ = c\.
 CLIENT: a blocked write is not refused	client/call.go	s/return c\.result\(r, OutcomeRefused, false, \"blocked\"\)\n\t\t\}\n\t\}/return c.result(r, OutcomeSpooled, false, \"\")\n\t\t}\n\t}/	./client/
 CLIENT: a held outbox is not reported blocked	client/call.go	s/case errors\.Is\(err, ErrHeld\):/case false:/	./client/
 CLIENT: a successful write leaves its record	client/call.go	s/case res\.Outcome == OutcomeOK:\n\t\t_ = c\.Outbox\.Remove\(rec\)/case res.Outcome == OutcomeOK:\n\t\t_ = rec/	./client/
-CLIENT: a record that sent nothing is not requeued	client/call.go	s/_ = c\.Outbox\.SetState\(rec, StateQueued\)//	./client/
+CLIENT: a record that sent nothing is not requeued	client/call.go	s/if err := c\.Outbox\.SetState\(rec, StateQueued\); err != nil \{/if false {/	./client/
 CLIENT: the implicit drain shares the call's deadline	client/call.go	s/context\.WithTimeout\(context\.WithoutCancel\(ctx\), Write\.Total\)/context.WithTimeout(ctx, Write.Total)/	./client/
 CLIENT: an interrupted drain leaves a record queued	client/outbox.go	s/lk, err = o\.setStateLocked\(r, StateUnknown, lk\)/lk, err = lk, error(nil)/	./client/
 CLIENT: a record that sent nothing stays unknown after a drain	client/outbox.go	s/return sent, o\.SetState\(r, StateQueued\)/return sent, o.SetState(r, StateUnknown)/	./client/
@@ -231,9 +230,9 @@ CLIENT: a refusal does not mark the record	client/outbox.go	s/case res\.Outcome 
 CLIENT: a drain past its limit sends the new write	client/outbox.go	s/if seq != 0 \&\& r\.Seq >= seq \{/if false {/	./client/	accepted: the in-flight lock that the writing call holds on its own new record also keeps a drain off it, so the limit and the lock both stop the drain
 CLIENT: a reply key is not derived	client/call.go	s/return \"reply-\" \+ messageID/return messageID/	./client/
 CLIENT: doctor hides a hold	client/call.go	s/d\.Held = c\.Outbox\.Held\(\)//	./client/
-CLIENT: doctor does not say dev	client/call.go	s/, Dev: DevBuild\}/}/	./client/
+CLIENT: doctor does not say dev	client/call.go	s/, Dev: devBuildNow\}/}/	./client/
 CLIENT: not_ready is not exit 7 in the helper	client/result.go	s/Outcome: OutcomeNotReady, Reason: str\(\"not_ready\"\)/Outcome: OutcomeRefused, Reason: str(\"endpoint\")/	./client/
-CLIENT: records of other services are drained	client/outbox.go	s/if service != "" \&\& r\.Service != service \{/if false {/	./client/
+CLIENT: records of other services are drained	client/outbox.go	s/if service != "" \&\& r\.Service != service \{/if false {/	./client/	accepted: sendRecord also refuses a record of another service (defence in depth), so the drain filter and that check hide each other
 CLIENT: a stale non-dedup queued record is not set aside	client/outbox.go	s/strictDecode\(r\.Request, \&sr\) == nil \&\& sr\.Dedup == \"\" \{/strictDecode(r.Request, \&sr) == nil \&\& false {/	./client/
 CLIENT: a suspect file holds the order	client/outbox.go	s/if strings\.HasSuffix\(name, \"\.bad\"\) \{/if strings.HasSuffix(name, \".bad\") || strings.HasSuffix(name, \".suspect\") {/	./client/
 CLIENT: a discarded file is renamed like a resolved one	client/outbox.go	s/to = name \+ \"\.discarded\"/to = name + \".resolved\"/	./client/

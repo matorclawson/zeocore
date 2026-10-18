@@ -424,7 +424,7 @@ func (c *Client) Reconcile(ctx context.Context, operationID string) Result {
 		switch res.Outcome {
 		case OutcomeOK:
 			_ = c.Outbox.Remove(rec)
-		case OutcomeRefused, OutcomeInvalid, OutcomeNotFound:
+		case OutcomeInvalid, OutcomeNotFound:
 			// Only a definitive answer about this key ends the record: the request
 			// must have been sent, and a refusal of the caller (auth, stopped) or
 			// of the transport says nothing about the original write.
