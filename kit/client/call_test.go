@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -353,13 +354,27 @@ func TestC4Deadlines(t *testing.T) {
 	}
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer ln.Close()
+	// Hold every accepted connection open and REFERENCED: a connection nobody
+	// references is closed by its finalizer at the next garbage collection, which
+	// ended the handshake early and flaked this test under -race.
+	var held []net.Conn
+	var mu sync.Mutex
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range held {
+			_ = c.Close()
+		}
+	}()
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			_ = c // hold the connection: the TLS handshake never completes
+			mu.Lock()
+			held = append(held, c) // the TLS handshake never completes
+			mu.Unlock()
 		}
 	}()
 	c := slow.client(nil)
