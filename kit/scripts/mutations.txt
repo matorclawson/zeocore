@@ -360,8 +360,7 @@ CLIENT: a record is sent to another audience	client/call.go	s/\(c\.Endpoint\.Cre
 CLIENT: a call for another service is sent	client/call.go	s/if c\.Service != "" \&\& r\.Service != c\.Service \{/if false {/	./client/
 CLIENT: a held record is returned without its lock	client/outbox.go	s/if err != nil \{\n\t\t\t\treturn Record\{\}, nil, ErrDrainBusy\n\t\t\t\}\n\t\t\treturn r, lk, nil/_ = err\n\t\t\treturn r, lk, nil/	./client/
 CLIENT: spooled although the queued state was not stored	client/call.go	s/if err := c\.Outbox\.SetState\(rec, StateQueued\); err != nil \{\n\t\t\t\treturn c\.result\(r, OutcomeRefused, false, "outbox"\)/if err := c.Outbox.SetState(rec, StateQueued); err != nil \&\& false {\n\t\t\t\treturn c.result(r, OutcomeRefused, false, "outbox")/	./client/
-CLIENT: reconcile ends a record on an unsent answer	client/call.go	s/if res\.Sent \&\& res\.Reason != nil/if res.Reason != nil/	./client/
-CLIENT: reconcile ends a record on a refusal of the caller	client/call.go	s/ \&\& \*res\.Reason != "auth" \&\& \*res\.Reason != "stopped" \{/ {/	./client/
+CLIENT: reconcile ends a record on an unsent answer	client/call.go	s/\t\t\tif res\.Sent \{/\t\t\tif true {/	./client/
 CLIENT: the envelope is not stored	client/call.go	s/\t\tEnvelope: r\.Envelope,\n\t\}\)/\t})/	./client/
 CLIENT: the stored envelope is not sent again	client/call.go	s/Dedup: sr\.Dedup, Envelope: sr\.Envelope,/Dedup: sr.Dedup,/	./client/
 CLIENT: abandon ignores the in-flight lock	client/outbox.go	s/lk, err := o\.lockRecord\(r\)\n\t\tif err != nil \{\n\t\t\treturn ErrDrainBusy\n\t\t\}\n\t\tdefer lk\.Release\(\)/lk, err := o.lockRecord(r)\n\t\t_ = err\n\t\tdefer lk.Release()/	./client/

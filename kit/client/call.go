@@ -426,9 +426,10 @@ func (c *Client) Reconcile(ctx context.Context, operationID string) Result {
 			_ = c.Outbox.Remove(rec)
 		case OutcomeInvalid, OutcomeNotFound:
 			// Only a definitive answer about this key ends the record: the request
-			// must have been sent, and a refusal of the caller (auth, stopped) or
-			// of the transport says nothing about the original write.
-			if res.Sent && res.Reason != nil && *res.Reason != "auth" && *res.Reason != "stopped" {
+			// must have been sent. A refusal of the caller (401, 403) is a
+			// refused outcome and is not in this case; a request that never left
+			// (a bad stored path) says nothing about the original write.
+			if res.Sent {
 				_ = c.Outbox.SetState(rec, StateRefused)
 			}
 		}

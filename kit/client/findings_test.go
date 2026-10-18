@@ -308,3 +308,21 @@ func TestReconcileEndsARecordOnADefiniteNotFound(t *testing.T) {
 		t.Fatalf("%s %v", res.JSON(), recs)
 	}
 }
+
+// P2-E: a request that never left says nothing about the original write.
+func TestReconcileLeavesTheRecordWhenTheRequestNeverLeft(t *testing.T) {
+	f := newFake(t, nil)
+	ob := outbox(t)
+	rec, err := ob.Enqueue("zmsg", "send", "op-1", StoredRequest{Method: "POST", Path: "no-slash", Audience: "aud", Dedup: "zmsg.dedup/v1", Body: []byte(`{"n":1}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.SetState(rec, StateUnknown); err != nil {
+		t.Fatal(err)
+	}
+	res := valid(t, f.client(ob).Reconcile(context.Background(), "op-1"))
+	recs, _ := ob.List()
+	if res.Sent || len(recs) != 1 || recs[0].State != StateUnknown || f.count() != 0 {
+		t.Fatalf("%s %v", res.JSON(), recs)
+	}
+}
