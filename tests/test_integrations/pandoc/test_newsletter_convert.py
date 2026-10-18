@@ -801,3 +801,34 @@ def test_mso_hide_alone_is_not_hidden() -> None:
     assert not item.stripped.get("hidden_mso")
     # A different hiding rule next to it still hides.
     assert not _visible('<p style="mso-hide:all;display:none">SENTINEL</p>')
+
+
+def test_the_webkit_sibling_counterexamples_are_kept_and_their_controls_hidden() -> (
+    None
+):
+    """Council follow-up to zc-dtl-webkit-b312-v1: the eight losses WebKit paints."""
+    kept = [
+        '<div style="max-width:0">SENTINEL</div>',
+        '<div style="height:0">SENTINEL</div>',
+        '<div style="line-height:0">SENTINEL</div>',
+        '<div style="width:0;height:0">SENTINEL</div>',
+        '<div style="left:-9999px">SENTINEL</div>',
+        '<div style="top:-9999px">SENTINEL</div>',
+        '<span style="text-indent:-9999px">SENTINEL</span>',
+        '<div style="clip:rect(0,0,0,0)">SENTINEL</div>',
+        '<table><tr><td style="max-height:0;overflow:hidden">SENTINEL</td></tr></table>',
+        '<table><tr><td style="display:table-cell;max-width:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
+    ]
+    for markup in kept:
+        assert _visible(markup), markup
+    hidden = [
+        '<div style="width:0;height:0;overflow:hidden">SENTINEL</div>',
+        '<div style="position:absolute;left:-9999px">SENTINEL</div>',
+        '<div style="position:fixed;top:-9999px">SENTINEL</div>',
+        '<div style="text-indent:-9999px;overflow:hidden">SENTINEL</div>',
+        '<div style="position:absolute;clip:rect(0,0,0,0)">SENTINEL</div>',
+        '<div style="max-height:0;overflow:hidden">SENTINEL</div>',
+    ]
+    for markup in hidden:
+        assert not _visible(markup), markup

@@ -3,8 +3,9 @@ Best-effort detection of text a reader cannot see (ZEOCORE-SOW-33, council M3).
 
 Hidden text is how a message speaks to a machine and not to its reader. This finds
 the common ways: ``hidden``, ``display:none``, ``visibility``, ``opacity:0``,
-``font-size:0``, ``max-height:0`` (only on a clipping, non-inline box; council
-zc-dtl-webkit-b312-v1), zero size, off-screen positioning,
+``font-size:0``, ``max-height:0`` and zero size (only on a clipping, non-inline box),
+off-screen positioning (only when positioned, or an indent on a box), ``clip`` (only on
+a positioned box; council zc-dtl-webkit-b312-v1 and follow-up),
 text coloured like its own background, and the same declarations reached through a
 class or id in a ``<style>`` block. Each kind is counted.
 A style (an attribute or a rule body) longer than ``STYLE_MAX_CHARS`` is not parsed,
@@ -100,11 +101,21 @@ _INLINE_TAGS: Final = frozenset(
     "a abbr b bdi bdo big cite code dfn em font i kbd label mark q s samp small "
     "span strike strong sub sup time tt u var".split()
 )
+#: Table parts: ``max-height``/``max-width`` do not apply to a cell, row or row group.
+_TABLE_TAGS: Final = frozenset(
+    "table caption colgroup col thead tbody tfoot tr td th".split()
+)
 _BOX_DISPLAYS: Final = frozenset(
     {"block", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "table",
      "list-item", "flow-root"}
 )  # fmt: skip
+_TABLE_DISPLAYS: Final = frozenset(
+    {"table-cell", "table-row", "table-row-group", "table-header-group",
+     "table-footer-group", "table-column", "table-column-group", "table-caption"}
+)  # fmt: skip
 _CLIPPING: Final = frozenset({"hidden", "clip"})
+_POSITIONED: Final = frozenset({"absolute", "fixed"})
+_NEGATIVE_OFFSET: Final = re.compile(r"^-[0-9]{3,}(px|em|pt)$")
 
 
 def _clips(decl: dict[str, str]) -> bool:
@@ -114,24 +125,59 @@ def _clips(decl: dict[str, str]) -> bool:
     )
 
 
-def _max_size_applies(decl: dict[str, str], tag: Any) -> bool:  # noqa: ANN401
-    """
-    A zero ``max-height``/``max-width`` hides text only when the box clips it
-    (``overflow:hidden`` or ``clip``) and is not an inline element. Council
-    zc-dtl-webkit-b312-v1: a bare ``max-height:0`` on a span paints in a browser.
-    ``tag`` is None for a ``<style>`` rule, whose elements are not known yet: the
-    inline test then happens where the rule is applied.
-    """
-    if not _clips(decl):
-        return False
-    if tag is None:
-        return True
+def _is_box(decl: dict[str, str], tag: Any) -> bool:  # noqa: ANN401
+    """The element generates a block-level or inline-block box (not a plain inline)."""
     display = decl.get("display", "")
-    if display in _BOX_DISPLAYS:
+    if display in _BOX_DISPLAYS or display in _TABLE_DISPLAYS:
         return True
     if display == "inline":
         return False
     return getattr(tag, "name", "") not in _INLINE_TAGS
+
+
+def _is_table_part(decl: dict[str, str], tag: Any) -> bool:  # noqa: ANN401
+    return (
+        decl.get("display", "") in _TABLE_DISPLAYS
+        or getattr(tag, "name", "") in _TABLE_TAGS
+    )
+
+
+def _kind_applies(kind: str, decl: dict[str, str], tag: Any) -> bool:  # noqa: ANN401
+    """
+    Whether a style that matched the pattern of ``kind`` hides text in a browser.
+
+    Council zc-dtl-webkit-b312-v1 and its follow-up (eight WebKit counterexamples):
+    each of these only works under a condition, and without it the browser paints
+    the text. ``max-height/width:0`` and ``width/height:0`` hide only a box that
+    clips (``overflow:hidden`` or ``clip``) and is not inline; ``max-*`` also never
+    applies to a table cell, row or row group; ``left``/``top`` offsets need
+    ``position:absolute`` or ``fixed``; ``text-indent`` needs a non-inline element;
+    ``clip`` needs ``position:absolute`` or ``fixed``. ``tag`` is None for a
+    ``<style>`` rule, whose elements are not known yet: the element tests then
+    happen where the rule is applied.
+    """
+    if kind in ("max_size", "zero_size"):
+        if not _clips(decl):
+            return False
+        if tag is not None and not _is_box(decl, tag):
+            return False
+        return not (
+            kind == "max_size" and tag is not None and _is_table_part(decl, tag)
+        )
+    if kind == "offscreen":
+        positioned = decl.get("position") in _POSITIONED
+        shifted = positioned and any(
+            _NEGATIVE_OFFSET.match(decl.get(name, "")) for name in ("left", "top")
+        )
+        indented = _NEGATIVE_OFFSET.match(decl.get("text-indent", "")) is not None
+        if indented and tag is not None and not _is_box(decl, tag):
+            indented = False
+        if indented and tag is None:
+            indented = _clips(decl)
+        return shifted or indented
+    if kind == "clip":
+        return decl.get("position") in _POSITIONED
+    return True
 
 
 def _style_kind(
@@ -142,10 +188,11 @@ def _style_kind(
     if len(style) > STYLE_MAX_CHARS:
         return None
     squashed = squash(style)
+    decl = declarations(style)
     for kind, pattern in noise.hidden_patterns:
         if not pattern.search(squashed):
             continue
-        if kind == "max_size" and not _max_size_applies(declarations(style), tag):
+        if not _kind_applies(kind, decl, tag):
             continue  # not hiding: look at the other patterns
         return kind
     return None
@@ -224,10 +271,14 @@ def _by_class_or_id(
     ids: dict[str, str],
 ) -> str | None:
     inline = getattr(tag, "name", "") in _INLINE_TAGS
+    table_part = getattr(tag, "name", "") in _TABLE_TAGS
 
     def applies(kind: str) -> bool:
-        # A max-size rule (already known to clip) does not hide an inline element.
-        return not (kind == "max_size" and inline)
+        # A size rule (already known to clip) does not hide an inline element, and
+        # a max-size rule does not hide a table part.
+        if kind in ("max_size", "zero_size") and inline:
+            return False
+        return not (kind == "max_size" and table_part)
 
     tag_id = tag.get("id")
     if isinstance(tag_id, str) and tag_id in ids and applies(ids[tag_id]):
