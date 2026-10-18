@@ -135,6 +135,15 @@ and back out on any failure.
   write undone inside the window (truncate, then restore) is invisible; owner, ACL and extended
   attributes are not compared; every regular file is hashed in full, several times per update, so a
   large append-only journal costs several full reads.
+- **Custody (key custody, never opened).** `Updater.Custody` lists key-custody paths. The kit never
+  reads them: each is checked by `lstat` identity only (device, inode, mode, owner, group, size,
+  mtime; or that it is absent) before Fetch, just before the switch and after the proof. Any change,
+  including a replaced file with the same bytes, a touched mtime, a file that appears or vanishes,
+  ends the operation as `protected`, the same way a touched Protected file does. A custody path is
+  one entry: for a directory only the directory itself is checked, not what is inside it. It must be
+  absolute, must not go through a link that does not resolve, and must not overlap the install root
+  or a Protected path (Protected files are hashed, so keep key custody out of it). `Guard` refuses a
+  path at or under a custody path. This detects a touch, it does not undo it.
 - **recover looks before it acts.** It first proves the version that is current as it stands (ready and
   verify, no stop). If one of the intent's two versions is running and proved, only the record is left,
   and it is cleared. The app's `Ready` is asked with a zero time (a readiness event at any time counts)
@@ -146,6 +155,15 @@ and back out on any failure.
   back, blocks every later update, rollback or apply until `recover` reads the targets: all at their
   before values, or all at their after values, clears it; a mix stays `recovery_required` with the
   backup path in the document.
+- **rollback --to VERSION** goes back to an installed version named by `--to` (the default is the
+  previous one). An unknown, pruned or not-a-directory version is refused with `not_found`; the current
+  version with `current`. Further back than the previous version, the kit must prove no state migration
+  lies between: it keeps the last 64 switches (each with whether a migration, or a down-migration,
+  crossed it) and walks them back from the current version. A crossed migration, a gap, or no record
+  (a history written before this, or after a recover) is refused as `migration`: a `Down` hook reverses
+  one step only, so go back one version at a time. The same live, fence, preflight and recovery rules
+  apply as for a plain rollback. A refusal is exit 3 (the kit's exit table has no separate code for
+  it); the reason is `not_found`.
 - Refusals: `busy`, `recovery_required`, `current`, `downgrade`, `space`, the live reasons, `protected`.
   A version name that holds `.tmp-` is not a version (that is how an install in progress is marked).
   Exits: 1 (failed), 2 (usage), 3 (refused). `update --check` writes nothing and takes no lock. A failure
