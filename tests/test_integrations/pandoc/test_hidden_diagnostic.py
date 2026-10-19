@@ -54,7 +54,9 @@ def _counts(markup: str) -> dict[str, int]:
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_the_report_agrees_with_the_cleaning_counts(name: str) -> None:
     report = hidden_report(CASES[name])
-    assert {f"hidden_{k}": v for k, v in report["hidden"].items()} == _counts(CASES[name])
+    assert {f"hidden_{k}": v for k, v in report["hidden"].items()} == _counts(
+        CASES[name]
+    )
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
@@ -82,7 +84,9 @@ def test_a_sheet_that_can_be_modelled_narrows_and_reports_no_gate() -> None:
         ("import", "style_import"),
     ],
 )
-def test_an_unmodelled_sheet_names_its_reason_and_the_gate(name: str, reason: str) -> None:
+def test_an_unmodelled_sheet_names_its_reason_and_the_gate(
+    name: str, reason: str
+) -> None:
     report = hidden_report(CASES[name])
     assert reason in report["sheet_unmodelled"]
     assert report["gates"] == {"max_size:unmodelled_sheet": 1}
@@ -91,7 +95,9 @@ def test_an_unmodelled_sheet_names_its_reason_and_the_gate(name: str, reason: st
 def test_an_element_read_but_not_proven_names_the_missing_proof() -> None:
     report = hidden_report(CASES["not-proven-inline"])
     assert report["gates"] == {"max_size:no_proof(no_clip+inline+table_part)": 1}
-    assert report["gate_tags"] == {"max_size:no_proof(no_clip+inline+table_part):div": 1}
+    assert report["gate_tags"] == {
+        "max_size:no_proof(no_clip+inline+table_part):div": 1
+    }
 
 
 def test_a_kind_that_never_narrows_reports_no_gate() -> None:
@@ -101,7 +107,9 @@ def test_a_kind_that_never_narrows_reports_no_gate() -> None:
 
 def test_an_unlisted_tag_is_reported_as_other() -> None:
     report = hidden_report(CASES["weird-tag"])
-    assert list(report["gate_tags"]) == ["max_size:no_proof(no_clip+inline+table_part):other"]
+    assert list(report["gate_tags"]) == [
+        "max_size:no_proof(no_clip+inline+table_part):other"
+    ]
 
 
 def test_bytes_are_decoded_like_the_converter() -> None:

@@ -40,7 +40,10 @@ def hidden_report(html: str | bytes, timeout_seconds: float = 30.0) -> dict[str,
     bs4 = _cleaning.bs4_module()
     _cleaning.precheck(text)
     soup = bs4.BeautifulSoup(
-        text, "html.parser", on_duplicate_attribute="ignore", multi_valued_attributes=None
+        text,
+        "html.parser",
+        on_duplicate_attribute="ignore",
+        multi_valued_attributes=None,
     )
     _cleaning.check_bounds(text, soup, deadline)
     style_blocks = len(soup.find_all("style"))

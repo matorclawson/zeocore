@@ -161,6 +161,7 @@ def flag(ids: dict[str, str], reason: str) -> None:
     elif reason not in current.split(","):
         ids[UNMODELLED] = f"{current},{reason}"
 
+
 #: What a rule or a style we do not model could set that a proof depends on.
 _CONDITION_PROPS: Final = (
     "overflow", "contain", "content-visibility", "position", "float", "display",
@@ -433,7 +434,12 @@ def style_rules(  # noqa: C901 -- the strict triggers of the council's rounds
     classes: dict[str, str] = {}
     ids: dict[str, str] = {}
     # a comment, an escape or a string: the split is untrusted
-    for char, reason in (("/*", "comment"), ("\\", "escape"), ('"', "quote"), ("'", "quote")):
+    for char, reason in (
+        ("/*", "comment"),
+        ("\\", "escape"),
+        ('"', "quote"),
+        ("'", "quote"),
+    ):
         if char in css:
             flag(ids, f"sheet_{reason}")
     css, structure = _masks(css, deadline)  # comments blanked; structure: strings too
