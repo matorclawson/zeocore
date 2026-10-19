@@ -334,7 +334,7 @@ _COMMENT: Final = re.compile(r"/\*.*?(\*/|$)", re.DOTALL)
 
 
 def _boundary_tokens(segment: str) -> str:
-    """The segment of a rule without the `<!--` and `-->` tokens a sheet allows between rules.
+    """The segment without the `<!--` and `-->` tokens a sheet allows between rules.
 
     A browser skips them only at a rule boundary; anywhere else they stay in the
     selector, which is then not a simple one.

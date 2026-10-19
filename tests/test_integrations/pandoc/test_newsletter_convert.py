@@ -1090,7 +1090,8 @@ _COUNCIL_146_ROWS = [
     # round 2: N1 ordering of parentheses, N2 junk before a rule, N3 blockified cells,
     # N4 a comment before a rule
     (
-        '<div style="max-height:0;overflow:hidden;x:)(;display:inline;)(">SENTINEL</div>',
+        '<div style="max-height:0;overflow:hidden;x:)(;display:inline;)(">'
+        "SENTINEL</div>",
         False,
     ),
     (
@@ -1119,7 +1120,8 @@ _COUNCIL_146_ROWS = [
         False,
     ),
     (
-        '<div style="display:table-cell;position:absolute;max-height:0;overflow:hidden">'
+        '<div style="display:table-cell;position:absolute;max-height:0;'
+        'overflow:hidden">'
         "SENTINEL</div>",
         False,
     ),
@@ -1128,7 +1130,8 @@ _COUNCIL_146_ROWS = [
         False,
     ),
     (
-        '<style>@charset "x";/*c*/.pre{display:none}</style><p class="pre">SENTINEL</p>',
+        '<style>@charset "x";/*c*/.pre{display:none}</style>'
+        '<p class="pre">SENTINEL</p>',
         False,
     ),
     (
