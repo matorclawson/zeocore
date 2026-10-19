@@ -325,8 +325,8 @@ def test_validate_takes_the_ui_result_wire_tag_and_the_registered_name() -> None
     for name in ("zeo.ui-result/v1", "ui.result-card"):
         status, answer = _call("validate", name, stdin=raw)
         assert status == 0
-        assert answer["value"]["schema"] == "zeo.ui-result/v1"
         assert answer["value"] == json.loads(raw)
+        assert json.loads(raw)["schema"] == "zeo.ui-result/v1"
 
 
 def test_validate_ui_result_refuses_with_held_and_never_echoes_input() -> None:
@@ -347,4 +347,5 @@ def test_validate_ui_result_refuses_with_held_and_never_echoes_input() -> None:
 def test_schema_takes_the_ui_result_wire_tag() -> None:
     status, answer = _call("schema", "zeo.ui-result/v1")
     assert status == 0
-    assert answer["properties"]["schema"]["const"] == "zeo.ui-result/v1"
+    assert str(answer["$id"]).endswith("/ui.result-card.schema.json")
+    assert '"const": "zeo.ui-result/v1"' in json.dumps(answer)
