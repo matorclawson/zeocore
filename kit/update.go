@@ -46,6 +46,13 @@ type Updater struct {
 	// during an operation: append-only state. Every other protected file keeps
 	// its exact size and bytes.
 	AppendOnly []string
+	// Custody lists key-custody paths. They are never opened: each is checked
+	// by lstat identity alone (device, inode, mode, owner, size, mtime) before
+	// and after the switch, and a change ends the operation as protected. A
+	// custody path is one entry (a file, or a directory as an entry; what is
+	// inside a directory is not looked at), and it must not sit inside or
+	// around a Protected path, because Protected files are hashed.
+	Custody []string
 	// LiveReason is the refusal token when the app is live and holds no idle
 	// fence. Default "live"; a studio sets "studio_live".
 	LiveReason string
@@ -124,6 +131,36 @@ type history struct {
 	Current  string `json:"current"`
 	Previous string `json:"previous"`
 	Migrated bool   `json:"migrated"`
+	// Chain is a linked list of the last 64 switches, oldest first, rewritten
+	// atomically (not a hash chain), each with whether a state migration crossed it. rollback --to walks it to prove none lies between
+	// the current version and the one asked for.
+	Chain []hop `json:"chain,omitempty"`
+}
+
+type hop struct {
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Migrated bool   `json:"migrated"`
+}
+
+const maxChain = 64
+
+// reaches walks the chain back from cur to want. ok says want was reached;
+// crossed says a migration lies on the way.
+func (h history) reaches(cur, want string) (ok, crossed bool) {
+	at := cur
+	for i := len(h.Chain) - 1; i >= 0; i-- {
+		hp := h.Chain[i]
+		if hp.To != at {
+			return false, false
+		}
+		crossed = crossed || hp.Migrated
+		at = hp.From
+		if at == want {
+			return true, crossed
+		}
+	}
+	return false, crossed
 }
 
 func (u *Updater) now() time.Time {
@@ -149,8 +186,9 @@ func (a *App) updateCommands() []Command {
 		{Name: "update", Summary: "Fetch, verify, install beside and switch to a release; back out on any failure.",
 			Flags:  []Flag{{Name: "to", Summary: "The version to install; default the newest.", TakesValue: true}, {Name: "check", Summary: "Stop after the preflight and change nothing."}},
 			Output: SchemaUpdate, Exits: exits, Run: func(c *Context) error { return a.runChange(c, "update") }},
-		{Name: "rollback", Summary: "Switch back to the previous version; refused across a state migration.",
-			Output: SchemaUpdate, Exits: exits, Run: func(c *Context) error { return a.runChange(c, "rollback") }},
+		{Name: "rollback", Summary: "Switch back to the previous version, or to an installed version named by --to; refused across a state migration.",
+			Flags:  []Flag{{Name: "to", Summary: "An installed version to go back to; default the previous one.", TakesValue: true}},
+			Output: SchemaUpdate, Exits: []ExitCode{ExitFailed, ExitRefused, ExitNotFound}, Run: func(c *Context) error { return a.runChange(c, "rollback") }},
 		recoverCmd,
 	}
 }
@@ -181,6 +219,26 @@ func (a *App) validateUpdater() error {
 		}
 		if overlaps(u.Root, p) {
 			return fmt.Errorf("kit: protected path %q overlaps the install root", p)
+		}
+	}
+	for _, p := range u.Custody {
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf("kit: custody path %q must be absolute", p)
+		}
+		if _, dangling := walk(p); dangling {
+			return fmt.Errorf("kit: custody path %q goes through a symbolic link that does not resolve", p)
+		}
+		if overlaps(u.Root, p) {
+			return fmt.Errorf("kit: custody path %q overlaps the install root", p)
+		}
+		// lstat would see the link, not the key it points to, which would go unwatched
+		if fi, err := os.Lstat(p); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("kit: custody path %q is a symbolic link; name the file it points to", p)
+		}
+		for _, q := range u.Protected {
+			if overlaps(q, p) {
+				return fmt.Errorf("kit: custody path %q overlaps protected path %q, whose files are read; keep key custody out of Protected", p, q)
+			}
 		}
 	}
 	for _, p := range u.AppendOnly {
@@ -343,7 +401,7 @@ func (u *Updater) Guard(path string) error {
 	if _, dangling := walk(path); dangling {
 		return Refused("protected", "a path goes through a symbolic link that does not resolve")
 	}
-	for _, p := range u.Protected {
+	for _, p := range append(append([]string(nil), u.Protected...), u.Custody...) {
 		if overlaps(p, path) {
 			return Refused("protected", "a path overlaps a protected path and no update step may touch it")
 		}
@@ -547,6 +605,38 @@ type fileState struct {
 	Size int64
 	Sum  string // sha256 of the first Size bytes, for a regular file
 	Link string // the target of a symbolic link
+	// Custody marks a key-custody entry: Cust is its lstat identity and the
+	// file is never opened.
+	Custody bool
+	Cust    custodyID
+}
+
+// custodyID is what lstat says about a key-custody entry. Nothing else about
+// it is read.
+type custodyID struct {
+	Dev, Ino uint64
+	Mode     fs.FileMode
+	Uid, Gid uint32
+	Size     int64
+	Mtime    int64
+	Ctime    int64 // the change time: a caller cannot restore it
+	Absent   bool
+}
+
+func lstatIdentity(path string) (custodyID, error) {
+	fi, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return custodyID{Absent: true}, nil
+	}
+	if err != nil {
+		return custodyID{}, err
+	}
+	id := custodyID{Mode: fi.Mode(), Size: fi.Size(), Mtime: fi.ModTime().UnixNano()}
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		id.Dev, id.Ino, id.Uid, id.Gid = uint64(st.Dev), uint64(st.Ino), st.Uid, st.Gid
+		id.Ctime = ctimeOf(st)
+	}
+	return id, nil
 }
 
 func (u *Updater) snapshot() (protectedState, error) {
@@ -591,6 +681,13 @@ func (u *Updater) snapshot() (protectedState, error) {
 			return nil, err
 		}
 	}
+	for _, p := range u.Custody {
+		id, err := lstatIdentity(p)
+		if err != nil {
+			return nil, err
+		}
+		st["custody:"+p] = fileState{Custody: true, Cust: id}
+	}
 	return st, nil
 }
 
@@ -632,6 +729,12 @@ func (u *Updater) touched(before protectedState) (bool, error) {
 	}
 	for path, was := range before {
 		is, ok := now[path]
+		if was.Custody {
+			if !ok || !is.Custody || is.Cust != was.Cust {
+				return true, nil
+			}
+			continue
+		}
 		if !ok || is.Mode != was.Mode || is.Link != was.Link {
 			return true, nil
 		}
@@ -744,6 +847,11 @@ func (r *run) finish(o Outcome, reason string, cause error) error {
 	if err != nil {
 		return err
 	}
+	// A version that is not installed is "the thing asked about does not exist":
+	// exit 4, with the RESULT line still outcome=refused reason=not_found.
+	if o == OutcomeRefused && reason == "not_found" {
+		code = ExitNotFound
+	}
 	return ExitOnly(code)
 }
 
@@ -764,6 +872,7 @@ func (a *App) runChange(c *Context, verb string) error {
 		cp := *u
 		cp.Protected = append([]string(nil), u.Protected...)
 		cp.AppendOnly = append([]string(nil), u.AppendOnly...)
+		cp.Custody = append([]string(nil), u.Custody...)
 		u = &cp
 	}
 	r := &run{a: a, u: u, c: c, doc: updateDoc{Schema: SchemaUpdate, App: a.Name, Verb: verb, Steps: []step{}}}
@@ -957,26 +1066,53 @@ func (r *run) install(rel Release, dest string) error {
 
 func (r *run) rollback() error {
 	u := r.u
+	to, _ := r.c.Flag("to")
+	if to != "" && !validVersion(to) {
+		return Usagef("--to is not a version (letters, digits and . _ + - only, at most 64)")
+	}
 	if snap, err := u.snapshot(); err != nil {
 		return r.finish(OutcomeFailed, "protected", err)
 	} else {
 		r.protectedBefore = snap
 	}
 	h := r.a.readHistory()
-	if h.Previous == "" || !validVersion(h.Previous) {
+	target, down := h.Previous, h.Migrated
+	if to != "" {
+		r.doc.To = to
+		if fi, err := os.Stat(u.versionDir(to)); err != nil || !fi.IsDir() {
+			return r.finish(OutcomeRefused, "not_found", fmt.Errorf("version %s is not installed", to))
+		}
+		if to == r.doc.From {
+			return r.finish(OutcomeRefused, "current", fmt.Errorf("version %s is already current", to))
+		}
+		target = to
+		if to != h.Previous {
+			// Further back than the previous version: the kit must be able to
+			// prove no state migration lies between. Down reverses one step, so
+			// it cannot cross several; an unknown way is refused too.
+			ok, crossed := h.reaches(r.doc.From, to)
+			if !ok || crossed {
+				err := fmt.Errorf("cannot prove that no state migration lies between %s and %s; roll back one version at a time", r.doc.From, to)
+				r.step("preflight", err, "")
+				return r.finish(OutcomeRefused, "migration", err)
+			}
+			down = false
+		}
+	}
+	if target == "" || !validVersion(target) {
 		err := errors.New("there is no previous version to roll back to")
 		return r.finish(OutcomeRefused, "no_previous", err)
 	}
-	r.doc.To = h.Previous
-	if _, err := os.Stat(u.versionDir(h.Previous)); err != nil {
-		return r.finish(OutcomeRefused, "no_previous", fmt.Errorf("version %s is no longer installed", h.Previous))
+	r.doc.To = target
+	if _, err := os.Stat(u.versionDir(target)); err != nil {
+		return r.finish(OutcomeRefused, "no_previous", fmt.Errorf("version %s is no longer installed", target))
 	}
-	if h.Migrated && u.Down == nil {
+	if down && u.Down == nil {
 		err := fmt.Errorf("%s migrated the state; the previous binary alone is not enough", r.doc.From)
 		r.step("preflight", err, "")
 		return r.finish(OutcomeRefused, "migration", err)
 	}
-	pre, reason := r.preflight(Release{Version: h.Previous})
+	pre, reason := r.preflight(Release{Version: target})
 	if r.fence != nil {
 		defer r.fence()
 	}
@@ -984,7 +1120,7 @@ func (r *run) rollback() error {
 	if pre != nil {
 		return r.finish(OutcomeRefused, reason, pre)
 	}
-	return r.switchOver(h.Previous, false, h.Migrated)
+	return r.switchOver(target, false, down)
 }
 
 // stopStart runs the optional service hooks.
@@ -1055,6 +1191,10 @@ func (r *run) switchOver(to string, migrates bool, down bool) error {
 		return r.goBack(from, err)
 	}
 	h := history{Current: to, Previous: from, Migrated: migrates}
+	h.Chain = append(append([]hop(nil), a.readHistory().Chain...), hop{From: from, To: to, Migrated: migrates || down})
+	if len(h.Chain) > maxChain {
+		h.Chain = h.Chain[len(h.Chain)-maxChain:]
+	}
 	if err := a.writeHistory(h); err != nil {
 		return r.finish(OutcomeRecoveryRequired, "state", fmt.Errorf("switched, but the history record failed: %w", err))
 	}
