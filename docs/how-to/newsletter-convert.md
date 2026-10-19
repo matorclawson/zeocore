@@ -141,15 +141,19 @@ says what was present. Fidelity limits, stated plainly:
   are **not** applied: text a stylesheet hides stays in the Markdown.
 - `<link>` and `@import` stylesheets are never fetched or read.
 - The `hidden` attribute drops an element even where its own `style` sets a `display`
-  that a browser lets win; `aria-hidden` and `inert` are not considered; a closed
-  `<details>` and a `<dialog>` are not evaluated.
+  that a browser lets win; `aria-hidden` and `inert` are not considered.
 - Clipping, positioning, `opacity`, `font-size:0`, zero or maximum sizes, off-screen
-  offsets, `clip-path`, `content-visibility`, a closed `<details>` and colour on
-  colour are **not** evaluated (the first six are named in a kept element's own style
+  offsets, `clip-path`, `content-visibility`, a closed `<details>`, a `<dialog>` and
+  colour on colour are **not** evaluated (the first six are named in a kept element's own style
   and counted; the rest are not detected).
-- A `display` or `visibility` value that is not a plain keyword (`var()`, `env()`,
-  anything with a bracket) is not evaluated: the text is kept and counted under
-  `inline_display` or `inline_visibility`.
+- A `display` or `visibility` declaration whose value is not a plain keyword (`var()`,
+  `env()`, anything with a bracket) is not evaluated, wherever it stands among the
+  declarations: a later invalid keyword does not clear it (`display:var(--h);display:bogus`
+  is hidden in a browser). The text is kept and counted under `inline_display` or
+  `inline_visibility`.
+- Whitespace INSIDE a keyword is removed before reading, so `display:no ne` and
+  `dis play:none` are read as `display:none` and dropped here where a browser shows
+  the text.
 - Whitespace in a `style` is read as Python reads it, so a no-break space or a vertical
   tab between a name and a value is ignored where a browser would treat the declaration
   as invalid (a `display:` NBSP `none` is dropped here).

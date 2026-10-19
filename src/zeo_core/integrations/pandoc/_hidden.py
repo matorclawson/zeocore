@@ -132,6 +132,16 @@ def _final(style: str, name: str) -> str | None:
     return value
 
 
+def _values(style: str, name: str) -> list[str]:
+    """Every value this style declares for ``name``, in order, no ``!important``."""
+    out: list[str] = []
+    for part in squash(style).split(";"):
+        key, sep, raw = part.partition(":")
+        if sep and key == name:
+            out.append(raw.removesuffix("!important"))
+    return out
+
+
 def _readable(style: str) -> bool:
     """False for a style whose text a browser reads differently from this split."""
     return "/*" not in style and "\\" not in style
@@ -172,10 +182,10 @@ def note_inline(tag: Any, noise: Noise, diagnostics: dict[str, int]) -> None:  #
         if kind in _TECHNIQUES_INLINE and pattern.search(squashed)
     }
     for prop in ("display", "visibility"):
-        # a final value that is not a plain keyword (``var()``, ``env()``, anything
-        # with a bracket) may be ``none`` or ``hidden`` in a browser: count it
-        value = _final(style, prop)
-        if value is not None and not _KEYWORD.fullmatch(value):
+        # ANY declared value that is not a plain keyword (``var()``, ``env()``,
+        # anything with a bracket) may decide the property in a browser, even when a
+        # later invalid keyword follows (``display:var(--h);display:bogus``): count it
+        if any(not _KEYWORD.fullmatch(value) for value in _values(style, prop)):
             named.add(prop)
     for kind in named:
         diagnostics[f"inline_{kind}"] += 1

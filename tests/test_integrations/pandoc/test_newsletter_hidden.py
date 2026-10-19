@@ -368,17 +368,25 @@ def test_a_comment_after_a_real_declaration_leaves_it_undecided_and_counted() ->
         ("--v:hidden;visibility:var(--v)", "inline_visibility"),
         ("visibility:var(--x,hidden)", "inline_visibility"),
         ("visibility:env(x,collapse)", "inline_visibility"),
+        # ANY declared value, not only the final one: a later invalid keyword is
+        # dropped at parse time by a browser, so the earlier var() still decides
+        ("--h:none;display:var(--h);display:bogus", "inline_display"),
+        ("--h:none;display:var(--h);display:hidden", "inline_display"),
+        ("--v:hidden;visibility:var(--v);visibility:bogus", "inline_visibility"),
+        ("display:var(--x,none);display:block", "inline_display"),
+        ("display:block;display:var(--x,none)", "inline_display"),
+        ("visibility:visible;visibility:var(--v)", "inline_visibility"),
     ],
 )
 def test_a_non_literal_value_is_kept_and_counted_once(style: str, key: str) -> None:
     text, counts, diagnostics = _clean(f'<p style="{style}">TEXT</p>')
     assert "TEXT" in text and counts["hidden"] == 0
-    assert diagnostics[key] == 1
+    assert _nonzero(diagnostics) == {key: 1}
 
 
 def test_a_plain_keyword_value_is_not_counted_as_non_literal() -> None:
     _text, _counts, diagnostics = _clean(
-        '<p style="display:inline-block;visibility:visible">T</p>'
+        '<p style="display:inline-block !important;visibility:visible">T</p>'
     )
     assert _nonzero(diagnostics) == {}
 
@@ -465,3 +473,10 @@ def test_the_converter_against_native_webkit_measurements(
     else:
         assert marker in text  # the documented fidelity limit
         assert diagnostics["inline_max_size"] == 1
+
+
+@pytest.mark.parametrize("style", ["display:no ne", "dis play:none"])
+def test_whitespace_inside_a_keyword_is_removed_a_documented_limit(style: str) -> None:
+    # pinned so the limit in the how-to stays true: a browser shows this text
+    text, counts, _diagnostics = _clean(f'<p style="{style}">TEXT</p>')
+    assert "TEXT" not in text and counts["hidden_display"] == 1
