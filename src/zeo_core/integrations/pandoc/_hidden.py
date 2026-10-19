@@ -147,6 +147,20 @@ FOLD: Final = "\x00ci:"
 #: A rule body longer than ``STYLE_MAX_CHARS`` (or a pile of rules that gets there).
 OVERSIZE_RULE: Final = "\x00oversize"
 
+
+def flag(ids: dict[str, str], reason: str) -> None:
+    """
+    Mark the sheet as not modelled, keeping WHY (a fixed code, never document text).
+
+    The value is only ever tested for presence by the proof, so the reasons are for the
+    body-free diagnostic (``diagnostic.hidden_report``) and change no decision.
+    """
+    current = ids.get(UNMODELLED)
+    if current is None:
+        ids[UNMODELLED] = reason
+    elif reason not in current.split(","):
+        ids[UNMODELLED] = f"{current},{reason}"
+
 #: What a rule or a style we do not model could set that a proof depends on.
 _CONDITION_PROPS: Final = (
     "overflow", "contain", "content-visibility", "position", "float", "display",
@@ -418,13 +432,13 @@ def style_rules(  # noqa: C901 -- the strict triggers of the council's rounds
     """
     classes: dict[str, str] = {}
     ids: dict[str, str] = {}
-    if "/*" in css or "\\" in css or '"' in css or "'" in css:
-        ids[UNMODELLED] = (
-            "1"  # a comment, an escape or a string: the split is untrusted
-        )
+    # a comment, an escape or a string: the split is untrusted
+    for char, reason in (("/*", "comment"), ("\\", "escape"), ('"', "quote"), ("'", "quote")):
+        if char in css:
+            flag(ids, f"sheet_{reason}")
     css, structure = _masks(css, deadline)  # comments blanked; structure: strings too
     if _brackets_unsafe(structure):
-        ids[UNMODELLED] = "1"  # an open bracket swallows the rules that follow it
+        flag(ids, "sheet_brackets")  # an open bracket swallows the rules that follow it
     depth, start, selector = 0, 0, ""
     for index, char in enumerate(structure):
         if char == "{":
@@ -432,7 +446,7 @@ def style_rules(  # noqa: C901 -- the strict triggers of the council's rounds
                 selector = _boundary_tokens(css[start:index])
                 start = index + 1
             elif depth == 1 and not selector.startswith("@"):
-                ids[UNMODELLED] = "1"  # CSS nesting: a rule inside a rule
+                flag(ids, "sheet_nesting")  # CSS nesting: a rule inside a rule
             depth += 1
         elif (
             char == ";"
@@ -460,7 +474,7 @@ def _record(  # noqa: C901 -- one branch per strict trigger
     if not selector.startswith("@") and (_unprovable(selector) or _unprovable(body)):
         # a bracket, a quote or an escape in a rule makes the browser's reading of
         # the sheet differ from the split here: no narrowing may rely on the sheet
-        ids[UNMODELLED] = "1"
+        flag(ids, "rule_unreadable")
     simple = (
         not selector.startswith("@")
         and len(selector) <= _SELECTOR_MAX_CHARS
@@ -469,7 +483,7 @@ def _record(  # noqa: C901 -- one branch per strict trigger
     if not simple:
         lowered = body.lower()
         if any(name in lowered for name in _CONDITION_PROPS):
-            ids[UNMODELLED] = "1"
+            flag(ids, "rule_selector_not_simple")
         if selector.startswith("@") or len(selector) > _SELECTOR_MAX_CHARS:
             return
     for part in parts:
@@ -488,7 +502,7 @@ def _record(  # noqa: C901 -- one branch per strict trigger
             table[name] = f"{previous};{body}"
         alias = FOLD + name.lower()
         if table.setdefault(alias, name) != name:
-            ids[UNMODELLED] = "1"  # two spellings of one name: quirks mode merges them
+            flag(ids, "rule_two_spellings")  # two spellings: quirks mode merges them
 
 
 def _rule_texts(  # noqa: C901 -- the bounds of review A1 sit in this loop
@@ -580,13 +594,51 @@ def _parent_plain(
     return _only(occ, "display", _PLAIN_PARENT_DISPLAYS) and "all" not in occ
 
 
+def _not_provable(provable: bool, ids: dict[str, str], texts: list[str]) -> str | None:
+    """Why the declarations cannot be read for a proof, or None when they can."""
+    if UNMODELLED in ids:
+        return "unmodelled_sheet"
+    if not provable:
+        return "case_or_order"
+    if any(_unprovable(text) for text in texts):
+        return "unreadable_declaration"
+    if not _occurrences(texts):
+        return "no_declarations"
+    return None
+
+
+def _why_kept_not(
+    kind: str,
+    tag: Any,  # noqa: ANN401
+    occ: dict[str, list[str]],
+    parent_plain: bool,
+) -> str:
+    """Which part of the proof failed for a kind that was read but not proven false."""
+    if kind != "max_size":
+        return "no_proof"  # zero_size, offscreen and clip have one proof of their own
+    parts = {
+        "no_clip": _no_clip(occ, tag),
+        "inline": _proven_inline(tag, occ, parent_plain),
+        "table_part": _proven_table_part(tag, occ, parent_plain),
+    }
+    failed = [name for name, held in parts.items() if not held]
+    return "no_proof(" + "+".join(failed) + ")"
+
+
 def hidden_kind(  # noqa: C901 -- the order of the council table
     tag: Any,  # noqa: ANN401
     noise: Noise,
     classes: dict[str, str],
     ids: dict[str, str],
+    gates: list[str] | None = None,
 ) -> str | None:
-    """Why this element is hidden from a reader, or None."""
+    """
+    Why this element is hidden from a reader, or None.
+
+    ``gates``, when given, receives ONE fixed code naming the gate that decided: the
+    reason a narrowable kind was not narrowed (``max_size:unmodelled_sheet``) or the
+    kind that hides without a proof. It changes no decision and holds no document text.
+    """
     if tag.has_attr("hidden"):
         return "attribute"
     style = str(tag.get("style", ""))
@@ -609,15 +661,17 @@ def hidden_kind(  # noqa: C901 -- the order of the council table
             if kind not in narrowable:
                 narrowable.append(kind)
     if narrowable:
-        if (
-            not provable
-            or any(_unprovable(text) for text in texts)
-            or not (occ := _occurrences(texts))
-        ):
+        refusal = _not_provable(provable, ids, texts)
+        if refusal is not None:
+            if gates is not None:
+                gates.append(f"{narrowable[0]}:{refusal}")
             return narrowable[0]
+        occ = _occurrences(texts)
         plain = _parent_plain(tag, classes, ids)
         for kind in narrowable:
             if not _keep(kind, tag, occ, plain):
+                if gates is not None:
+                    gates.append(f"{kind}:{_why_kept_not(kind, tag, occ, plain)}")
                 return kind
     if style and _same_colour(tag, style):
         return "color_match"

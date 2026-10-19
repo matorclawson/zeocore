@@ -147,6 +147,33 @@ The tracker hosts, footer patterns and hidden-text patterns are package data
 directory. They are extended by small, data-only pull requests, each with the message
 that showed the pattern and no sender content copied.
 
+## Find out why text was hidden, without the text
+
+A held message that ends with `hidden_max_size` and no output needs a reason, and the
+message must not be copied to get one. `hidden_report` runs the same cleaning and the
+same decision as `convert_newsletter`, needs no pandoc, and returns only counts under
+fixed codes:
+
+```python
+from zeo_core.integrations.pandoc.diagnostic import hidden_report
+
+report = hidden_report(raw_html)   # str or bytes; the HTML never leaves your process
+```
+
+- `hidden`: kind to count, as `stripped` reports it.
+- `gates`: `kind:gate` to count, for each narrowable kind that was dropped.
+  `max_size:unmodelled_sheet` means the stylesheet was not trusted; the others
+  (`case_or_order`, `unreadable_declaration`, `no_declarations`, `no_proof(...)`) mean
+  the element's own styles could not be proven harmless.
+- `gate_tags`: the same, per tag name (a fixed list; any other tag is `other`).
+- `sheet_unmodelled`: why the stylesheet was not modelled: `sheet_quote`,
+  `sheet_comment`, `sheet_escape`, `sheet_brackets`, `sheet_nesting`, `rule_unreadable`,
+  `rule_selector_not_simple`, `rule_two_spellings`, `document_link`,
+  `style_media_type_or_template`, `style_import`.
+- `style_blocks` and `named_rules`: counts.
+
+The report changes no decision and holds no text of the document or of its CSS.
+
 ## Render an issue's Markdown to HTML
 
 ```python

@@ -193,7 +193,7 @@ def css_rules(  # noqa: C901 -- the document-level strict triggers of review B
     classes: dict[str, str] = {}
     ids: dict[str, str] = {}
     if soup.find("link") is not None:
-        ids[_hidden.UNMODELLED] = "1"  # an external stylesheet we cannot read
+        _hidden.flag(ids, "document_link")  # an external stylesheet we cannot read
     for block in soup.find_all("style"):
         deadline.check()
         kind = str(block.get("type", "text/css")).strip().lower()
@@ -202,22 +202,23 @@ def css_rules(  # noqa: C901 -- the document-level strict triggers of review B
             or kind not in ("", "text/css")
             or block.find_parent("template") is not None
         ):
-            ids[_hidden.UNMODELLED] = "1"  # not merged: it may or may not apply
+            _hidden.flag(ids, "style_media_type_or_template")  # may or may not apply
             continue
         text = block.get_text()
         if "@import" in text.lower():
-            ids[_hidden.UNMODELLED] = "1"
+            _hidden.flag(ids, "style_import")
         found_classes, found_ids = _hidden.style_rules(text, noise, deadline)
         for table, found in ((classes, found_classes), (ids, found_ids)):
             for name, body in found.items():
                 if name == _hidden.UNMODELLED:
-                    table[name] = body
+                    for reason in body.split(","):
+                        _hidden.flag(table, reason)  # keep the reasons of every block
                     continue
                 previous = table.get(name)
                 if name.startswith(_hidden.FOLD):
                     # an alias of the real name; two spellings are not provable
                     if previous is not None and previous != body:
-                        ids[_hidden.UNMODELLED] = "1"
+                        _hidden.flag(ids, "rule_two_spellings")
                     table[name] = body
                 # the same selector in two <style> blocks: the later declaration wins
                 elif previous is None:

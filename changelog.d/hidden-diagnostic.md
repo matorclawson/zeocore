@@ -1,0 +1,2 @@
+bump: minor
+**Newsletter converter: `hidden_report`, a body-free reason for each hidden-text decision (zeocore-SOW-41).** `zeo_core.integrations.pandoc.diagnostic.hidden_report(html)` returns counts under fixed codes: which gate stopped a narrowable rule from narrowing, why the stylesheet was not modelled, and the tag names (fixed list) involved. It changes no decision and returns no text of the document.
