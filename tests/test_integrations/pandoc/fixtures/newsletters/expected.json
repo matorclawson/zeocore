@@ -21,7 +21,8 @@
     ]
    ],
    "title": "The week in tools",
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {}
   },
   "02-tracking-pixels": {
    "stripped": {
@@ -29,7 +30,8 @@
    },
    "links": [],
    "title": null,
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {}
   },
   "03-unsubscribe-footer": {
    "stripped": {
@@ -37,18 +39,21 @@
    },
    "links": [],
    "title": null,
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {}
   },
   "04-hidden-text": {
    "stripped": {
-    "hidden": 3,
+    "hidden": 2,
     "hidden_attribute": 1,
-    "hidden_display": 1,
-    "hidden_font_size": 1
+    "hidden_display": 1
    },
    "links": [],
    "title": null,
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {
+    "inline_font_size": 1
+   }
   },
   "05-scripts-and-forms": {
    "stripped": {
@@ -60,7 +65,10 @@
    },
    "links": [],
    "title": null,
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {
+    "stylesheet_blocks": 1
+   }
   },
   "06-hostile-text": {
    "stripped": {
@@ -70,7 +78,8 @@
    },
    "links": [],
    "title": null,
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {}
   },
   "07-table-layout": {
    "stripped": {
@@ -85,13 +94,15 @@
     ]
    ],
    "title": null,
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {}
   },
   "08-non-ascii": {
    "stripped": {},
    "links": [],
    "title": "Café notes",
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {}
   },
   "09-redirect-links": {
    "stripped": {
@@ -121,7 +132,8 @@
    "title": null,
    "warnings": [
     "1 tracked link(s) could not be unwrapped without fetching them"
-   ]
+   ],
+   "diagnostics": {}
   },
   "10-malformed": {
    "stripped": {},
@@ -134,27 +146,32 @@
     ]
    ],
    "title": null,
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {}
   },
   "11-hidden-kinds": {
    "stripped": {
     "styles": 1,
-    "hidden": 13,
+    "hidden": 3,
     "hidden_attribute": 1,
     "hidden_display": 1,
-    "hidden_visibility": 1,
-    "hidden_opacity": 1,
-    "hidden_font_size": 1,
-    "hidden_max_size": 1,
-    "hidden_zero_size": 1,
-    "hidden_offscreen": 1,
-    "hidden_clip": 1,
-    "hidden_color_match": 2,
-    "hidden_style_class": 2
+    "hidden_visibility": 1
    },
    "links": [],
    "title": null,
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {
+    "stylesheet_blocks": 1,
+    "stylesheet_media": 1,
+    "inline_opacity": 1,
+    "inline_font_size": 1,
+    "inline_max_size": 1,
+    "inline_zero_size": 1,
+    "inline_offscreen": 1,
+    "inline_clip": 1,
+    "sheet_display": 2,
+    "sheet_visibility": 1
+   }
   },
   "12-gfm-extensions": {
    "stripped": {
@@ -164,7 +181,8 @@
    },
    "links": [],
    "title": null,
-   "warnings": []
+   "warnings": [],
+   "diagnostics": {}
   }
  }
 }

@@ -1,0 +1,42 @@
+[
+  {
+    "name": "inline_span__visible",
+    "html": "<span style=\"max-height:0;overflow:hidden\">DIFFERENTIAL_SENTINEL</span>",
+    "expected_painted": true
+  },
+  {
+    "name": "inline_span__hidden",
+    "html": "<span style=\"display:block;max-height:0;overflow:hidden\">DIFFERENTIAL_SENTINEL</span>",
+    "expected_painted": false
+  },
+  {
+    "name": "max_width_only__visible",
+    "html": "<div style=\"max-width:0\">DIFFERENTIAL_SENTINEL</div>",
+    "expected_painted": true
+  },
+  {
+    "name": "max_width_only__hidden",
+    "html": "<div style=\"max-width:0;overflow:hidden\">DIFFERENTIAL_SENTINEL</div>",
+    "expected_painted": false
+  },
+  {
+    "name": "table_cell__visible",
+    "html": "<table><tr><td style=\"max-height:0;overflow:hidden\">DIFFERENTIAL_SENTINEL</td></tr></table>",
+    "expected_painted": true
+  },
+  {
+    "name": "table_cell__hidden",
+    "html": "<table><tr><td style=\"display:none;max-height:0;overflow:hidden\">DIFFERENTIAL_SENTINEL</td></tr></table>",
+    "expected_painted": false
+  },
+  {
+    "name": "true_clipped_block__visible",
+    "html": "<div>DIFFERENTIAL_SENTINEL</div>",
+    "expected_painted": true
+  },
+  {
+    "name": "true_clipped_block__hidden",
+    "html": "<div style=\"max-height:0;overflow:hidden\">DIFFERENTIAL_SENTINEL</div>",
+    "expected_painted": false
+  }
+]

@@ -40,21 +40,6 @@ _DROPPED: Final = {
 }
 _SILENT: Final = ("head", "meta", "link", "base", "title")
 _TABLE_TAGS: Final = ("table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption")
-HIDDEN_KINDS: Final = (
-    "attribute",
-    "display",
-    "visibility",
-    "opacity",
-    "font_size",
-    "max_size",
-    "mso",
-    "zero_size",
-    "offscreen",
-    "clip",
-    "color_match",
-    "style_class",
-    "oversize",
-)
 COUNT_KEYS: Final = (
     "scripts",
     "styles",
@@ -62,7 +47,7 @@ COUNT_KEYS: Final = (
     "forms",
     "comments",
     "hidden",
-    *(f"hidden_{kind}" for kind in HIDDEN_KINDS),
+    *(f"hidden_{kind}" for kind in _hidden.HIDDEN_KINDS),
     "pixels",
     "footers",
     "tracked_links",
@@ -184,74 +169,29 @@ def drop_comments(
         node.extract()
 
 
-def css_rules(  # noqa: C901 -- the document-level strict triggers of review B
-    soup: Any,  # noqa: ANN401
-    noise: Noise,
-    deadline: Deadline,
-) -> tuple[dict[str, str], dict[str, str]]:
-    """The hiding ``.class`` and ``#id`` rules from every ``<style>`` block."""
-    classes: dict[str, str] = {}
-    ids: dict[str, str] = {}
-    if soup.find("link") is not None:
-        ids[_hidden.UNMODELLED] = "1"  # an external stylesheet we cannot read
-    for block in soup.find_all("style"):
-        deadline.check()
-        kind = str(block.get("type", "text/css")).strip().lower()
-        if (
-            block.has_attr("media")
-            or kind not in ("", "text/css")
-            or block.find_parent("template") is not None
-        ):
-            ids[_hidden.UNMODELLED] = "1"  # not merged: it may or may not apply
-            continue
-        text = block.get_text()
-        if "@import" in text.lower():
-            ids[_hidden.UNMODELLED] = "1"
-        found_classes, found_ids = _hidden.style_rules(text, noise, deadline)
-        for table, found in ((classes, found_classes), (ids, found_ids)):
-            for name, body in found.items():
-                if name == _hidden.UNMODELLED:
-                    table[name] = body
-                    continue
-                previous = table.get(name)
-                if name.startswith(_hidden.FOLD):
-                    # an alias of the real name; two spellings are not provable
-                    if previous is not None and previous != body:
-                        ids[_hidden.UNMODELLED] = "1"
-                    table[name] = body
-                # the same selector in two <style> blocks: the later declaration wins
-                elif previous is None:
-                    table[name] = body
-                elif (
-                    _hidden.OVERSIZE_RULE in (previous, body)
-                    or len(previous) + len(body) + 1 > _hidden.STYLE_MAX_CHARS
-                ):
-                    table[name] = _hidden.OVERSIZE_RULE
-                else:
-                    table[name] = f"{previous};{body}"
-    return classes, ids
-
-
 def drop_hidden(
     soup: Any,  # noqa: ANN401
     noise: Noise,
     counts: dict[str, int],
-    rules: tuple[dict[str, str], dict[str, str]],
+    diagnostics: dict[str, int],
     deadline: Deadline,
 ) -> None:
-    """Remove elements a reader cannot see, counting each kind."""
-    classes, ids = rules
+    """Remove elements the HTML itself marks not rendered; report the rest."""
     for tag in soup.find_all(True):
         deadline.check()
         if gone(tag):
             continue
         if len(str(tag.get("style", ""))) > _hidden.STYLE_MAX_CHARS:
             counts["style_oversize"] += 1  # not parsed: see STYLE_MAX_CHARS
-        kind = _hidden.hidden_kind(tag, noise, classes, ids)
+        kind = _hidden.hidden_kind(tag)
         if kind is not None:
             counts["hidden"] += 1
             counts[f"hidden_{kind}"] += 1
+            if kind == "visibility":
+                _hidden.note_dropped_visible(tag, diagnostics)
             tag.decompose()
+        else:
+            _hidden.note_inline(tag, noise, diagnostics)
 
 
 def _size_of(value: Any) -> int | None:  # noqa: ANN401
