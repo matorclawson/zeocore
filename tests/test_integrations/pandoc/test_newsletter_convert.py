@@ -1224,3 +1224,16 @@ def test_a_sheet_of_many_strings_is_masked_in_linear_time() -> None:
     started = time.monotonic()
     assert not _visible(markup)
     assert time.monotonic() - started < 5
+
+
+_WEBKIT = Path(__file__).parent / "fixtures" / "webkit" / "sow41-differential.json"
+
+
+@pytest.mark.parametrize(
+    "case", json.loads(_WEBKIT.read_text()), ids=lambda c: c["name"]
+)
+def test_the_converter_agrees_with_native_webkit_on_dt_librarys_pairs(
+    case: dict[str, object],
+) -> None:
+    html = str(case["html"]).replace("DIFFERENTIAL_SENTINEL", "SENTINEL")
+    assert _visible(html) is case["expected_painted"], case["name"]
