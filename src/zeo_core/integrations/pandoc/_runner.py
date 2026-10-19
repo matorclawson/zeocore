@@ -181,7 +181,9 @@ def _copy_and_verify(
     return PandocBinary(path=str(target), version=version, sha256=copy_sha), work
 
 
-def find_pandoc(expected_sha256: str | None = None) -> PandocBinary:
+def find_pandoc(
+    expected_sha256: str | None = None, *, path: str | None = None
+) -> PandocBinary:
     """
     A verified private copy of the pandoc on ``PATH``: its version and digest.
 
@@ -194,8 +196,17 @@ def find_pandoc(expected_sha256: str | None = None) -> PandocBinary:
     older than 2.15 (no ``--sandbox``), or changes while it is copied. The copy is
     made once per process and reused while the source's path, size and modification
     time are the same; a later change to the copy itself is refused at the next run.
+
+    ``path`` names the binary directly: an ABSOLUTE path, used instead of any ``PATH``
+    lookup (a relative path is refused as ``pandoc_missing``). The verification, the
+    private copy and ``expected_sha256`` work exactly as for the ``PATH`` binary.
     """
-    found = shutil.which("pandoc")
+    if path is not None:
+        if not os.path.isabs(path):
+            raise refusal("pandoc_missing")
+        found: str | None = path
+    else:
+        found = shutil.which("pandoc")
     if found is None:
         raise refusal("pandoc_missing")
     real = os.path.realpath(found)

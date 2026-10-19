@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2026-10-13",
+  "version": "2026-10-18",
   "note": "A starting set, reviewed with the code. zeonewsroom adds hosts and patterns found in the pilot mail by small data-only pull requests, each with the message that showed it and no sender content copied.",
   "pixel_hosts": [
     "list-manage.com",
@@ -94,10 +94,6 @@
     {
       "kind": "max_size",
       "pattern": "max-(height|width):0(px|pt|em|rem)?(?![.0-9a-z%])"
-    },
-    {
-      "kind": "mso",
-      "pattern": "mso-hide:all"
     },
     {
       "kind": "zero_size",

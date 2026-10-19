@@ -1,0 +1,2 @@
+bump: patch
+**Two test flakes that kept main red.** `TestC4Deadlines` (kit/client) held its accepted connections in a variable nobody read, so a garbage collection closed them early and the "before send" case saw an early error (it failed about one run in forty under `-race`); the connections are now referenced until the test ends. `test_a_modified_copy_is_refused_before_it_runs` appended to the private pandoc copy right after running it and hit `ETXTBSY` on Linux; the open is retried for up to a second. Tests only.

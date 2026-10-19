@@ -164,7 +164,11 @@ func (c *Client) Call(ctx context.Context, r Request) Result {
 	if c.Endpoint.Local || c.Endpoint.Origin == "" {
 		return c.result(r, OutcomeRefused, false, "endpoint")
 	}
-	if c.Service != "" && r.Service != c.Service {
+	// A client reaches one service; its credential goes nowhere else.
+	if !validService(c.Service) {
+		return c.result(r, OutcomeRefused, false, "endpoint")
+	}
+	if r.Service != c.Service {
 		return c.result(r, OutcomeRefused, false, "origin")
 	}
 	authz := ""
@@ -376,7 +380,7 @@ func (c *Client) sendRecord(ctx context.Context, rec Record, authz string) Resul
 	}
 	// A record is sent only by the client of its own service, to the audience it
 	// was written for: the credential never goes anywhere else.
-	if (c.Service != "" && rec.Service != c.Service) ||
+	if rec.Service != c.Service ||
 		(c.Endpoint.Credential && (r.Audience == "" || r.Audience != c.Endpoint.Audience)) {
 		return Result{Outcome: OutcomeRefused, Reason: str("origin")}
 	}

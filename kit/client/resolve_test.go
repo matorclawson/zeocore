@@ -405,12 +405,15 @@ func TestR20BundleAndCredentialFileAreChecked(t *testing.T) {
 
 // R21: a credentialed entry needs a bundle or a pin.
 func TestR21ACredentialedEntryNeedsABundleOrAPin(t *testing.T) {
-	doc := `{"schema":"zeo.endpoints/v1","ca_bundle":null,"services":{"a":` + entry(pinned, "") + `}}`
-	assertRefusal(t, hostLoad(t, goodTree(doc)), "host_config")
-	pin := strings.Replace(doc, `"spki_sha256":null`, `"spki_sha256":"`+strings.Repeat("a", 64)+`"`, 1)
+	// Stand on a platform whose verifier ignores the environment, so that ONLY
+	// this entry rule can refuse: on Linux "ca_bundle is required on this
+	// platform" would refuse the same file and hide the rule from the mutation.
 	old := platformIgnoresEnv
 	t.Cleanup(func() { platformIgnoresEnv = old })
 	platformIgnoresEnv = true
+	doc := `{"schema":"zeo.endpoints/v1","ca_bundle":null,"services":{"a":` + entry(pinned, "") + `}}`
+	assertRefusal(t, hostLoad(t, goodTree(doc)), "host_config")
+	pin := strings.Replace(doc, `"spki_sha256":null`, `"spki_sha256":"`+strings.Repeat("a", 64)+`"`, 1)
 	if err := hostLoad(t, goodTree(pin)); err != nil {
 		t.Fatalf("a pin is enough where the platform verifier ignores the environment: %v", err)
 	}

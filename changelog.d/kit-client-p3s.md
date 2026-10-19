@@ -1,0 +1,2 @@
+bump: patch
+**kit/client: the council's P3s of #141, and a mutation row that survived on Linux.** A client needs a service (Call and every sent record check it); a reconcile does not send a record another process holds; a drain does not end a record whose request never left; the R21 test stands on a platform that ignores the environment so the rule is exercised on Linux too. `scripts/mutate.sh` documents `MUTATE_JOBS=1` for audit runs. Standard library only.
