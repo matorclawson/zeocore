@@ -8,11 +8,11 @@ element is not converted when the HTML itself marks it not rendered:
 * its own ``style`` attribute declares ``display:none``;
 * its own ``style`` attribute declares ``visibility:hidden`` or ``collapse``.
 
-In a ``style`` attribute the last VALID declaration of a property wins (a value that is
-not a known keyword is ignored, as a browser does) and ``!important`` beats a later
-normal declaration. An attribute over ``STYLE_MAX_CHARS`` is not parsed (padding must
-not cost time), and one holding a comment or an escape is not decided: both are
-reported.
+In a ``style`` attribute the last declaration of a property wins and ``!important``
+beats a later normal declaration. A later value this code does not know (say
+``display:none;display:-webkit-box``) leaves the property UNDECIDED: kept and counted.
+An attribute over ``STYLE_MAX_CHARS`` is not parsed (padding must not cost time), and
+one holding a comment or an escape is not decided: both are reported.
 
 NOT EVALUATED, only reported: everything that depends on CSS beyond that. Class and id
 rules, selectors, ``@media``, inheritance, ``<link>`` and ``@import`` stylesheets,
@@ -59,18 +59,6 @@ TECHNIQUES: Final = (
 #: are decided when the element's own style says so, so a count there means the style
 #: named it and it was NOT decided: a later or more important declaration, say).
 _TECHNIQUES_INLINE: Final = TECHNIQUES
-
-#: Values read for the two decided properties. Anything else (and ``var()``) in a
-#: declaration is ignored as invalid, except the CSS-wide keywords, which override.
-_DISPLAY_VALUES: Final = frozenset({
-    "none", "block", "inline", "inline-block", "flex", "inline-flex", "grid",
-    "inline-grid", "table", "inline-table", "table-row", "table-cell",
-    "table-row-group", "table-header-group", "table-footer-group", "table-column",
-    "table-column-group", "table-caption", "list-item", "contents", "flow-root",
-    "run-in",
-})  # fmt: skip
-_VISIBILITY_VALUES: Final = frozenset({"visible", "hidden", "collapse"})
-_WIDE: Final = frozenset({"inherit", "initial", "unset", "revert", "revert-layer"})
 
 #: Every key of ``diagnostics``, always present (zero when absent).
 DIAGNOSTIC_KEYS: Final = (
@@ -120,12 +108,14 @@ def declarations(style: str) -> dict[str, str]:
     return out
 
 
-def _final(style: str, name: str, known: frozenset[str]) -> str | None:
-    """The value a browser would use for ``name`` from this style, or None.
+def _final(style: str, name: str) -> str | None:
+    """The value this style gives ``name`` last, or None where it never declares it.
 
-    A declaration whose value is not a known keyword (or a CSS-wide one) is ignored as
-    invalid; ``!important`` is not overridden by a later normal declaration. A CSS-wide
-    keyword or ``var()`` overrides and is returned as is (it is not ``none``).
+    ``!important`` is not overridden by a later normal declaration. Any later value
+    overrides, a keyword this code does not know included (``-webkit-box``, ``block
+    flow``, ``env()``): a browser may show what it cannot tell from an invalid value,
+    so the property is then UNDECIDED, the text is kept, and ``note_inline`` counts it
+    where the style names the technique.
     """
     value: str | None = None
     held = False
@@ -137,8 +127,7 @@ def _final(style: str, name: str, known: frozenset[str]) -> str | None:
         raw = raw.removesuffix("!important")
         if held and not flagged:
             continue
-        if raw in known or raw in _WIDE or raw.startswith("var("):
-            value, held = raw, flagged
+        value, held = raw, flagged
     return value
 
 
@@ -159,9 +148,9 @@ def hidden_kind(tag: Any) -> str | None:  # noqa: ANN401
         or not _readable(style)
     ):
         return None
-    if _final(style, "display", _DISPLAY_VALUES) == "none":
+    if _final(style, "display") == "none":
         return "display"
-    if _final(style, "visibility", _VISIBILITY_VALUES) in ("hidden", "collapse"):
+    if _final(style, "visibility") in ("hidden", "collapse"):
         return "visibility"
     return None
 
@@ -186,7 +175,11 @@ def note_dropped_visible(tag: Any, diagnostics: dict[str, int]) -> None:  # noqa
     for child in tag.find_all(True, style=True):
         style = child.get("style")
         if isinstance(style, str) and len(style) <= STYLE_MAX_CHARS:
-            if _final(style, "visibility", _VISIBILITY_VALUES) == "visible":
+            if not _readable(style):
+                visible = "visible" in squash(style)  # not decided: count it
+            else:
+                visible = _final(style, "visibility") == "visible"
+            if visible:
                 diagnostics["visible_descendant_dropped"] += 1
 
 

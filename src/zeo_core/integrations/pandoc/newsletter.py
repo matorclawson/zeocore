@@ -88,7 +88,11 @@ class ConvertedItem:
     ``diagnostics`` is REQUIRED and always holds every key of
     ``_hidden.DIAGNOSTIC_KEYS``: what CSS could hide that was present and NOT
     evaluated (stylesheets, links, ``@import``, ``@media``, techniques named in a kept
-    element's own style or in the ``<style>`` text). Zero means none was seen.
+    element's own style or in the ``<style>`` text). Zero means none of THOSE was seen:
+    techniques not listed are not detected (``clip-path``, ``content-visibility``, a
+    closed ``<details>`` or a ``<dialog>``, colour on colour, other spellings of zero
+    such as ``opacity:0.0`` or ``font-size:0.0px``, ``transform:scale(0)``,
+    ``mso-hide:all``, a small size with ``overflow:hidden``).
     ``converter`` is the convert step's own tuple (pandoc version, binary digest,
     flags, cleaner version, data-file version and digest), so a stored item says
     exactly what produced it. ``sender_verified`` and ``authentication`` come only

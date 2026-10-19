@@ -126,9 +126,10 @@ that showed the pattern and no sender content copied.
 **Decided, from the element alone** (no stylesheet, no cascade, no inheritance): an
 element is not converted when it has the `hidden` attribute, or its own `style`
 attribute declares `display:none`, or `visibility:hidden` or `collapse`. Within a
-`style` attribute the last VALID declaration of a property wins (a value that is not a
-known keyword is ignored, as a browser does) and `!important` beats a later normal
-declaration. An ancestor that is dropped takes its descendants with it, including a
+`style` attribute the last declaration of a property wins and `!important` beats a
+later normal declaration; a later value the converter does not know
+(`display:none;display:-webkit-box`) leaves the property **undecided**: the text is kept
+and the technique is counted. An ancestor that is dropped takes its descendants with it, including a
 descendant that declares `visibility:visible` (counted in `visible_descendant_dropped`).
 A `style` holding a comment or an escape is not decided (counted in
 `inline_style_unparsed`, and under the technique it names).
@@ -139,6 +140,9 @@ says what was present. Fidelity limits, stated plainly:
 - Class and id rules, selectors, `@media`, `@supports`, inheritance and the cascade
   are **not** applied: text a stylesheet hides stays in the Markdown.
 - `<link>` and `@import` stylesheets are never fetched or read.
+- The `hidden` attribute drops an element even where its own `style` sets a `display`
+  that a browser lets win; `aria-hidden` and `inert` are not considered; a closed
+  `<details>` and a `<dialog>` are not evaluated.
 - Clipping, positioning, `opacity`, `font-size:0`, zero or maximum sizes, off-screen
   offsets, `clip-path`, `content-visibility`, a closed `<details>` and colour on
   colour are **not** evaluated (the first six are named in a kept element's own style
@@ -167,8 +171,12 @@ says what was present. Fidelity limits, stated plainly:
   important declaration); `inline_style_unparsed`: kept elements whose `style` was too
   long, or held a comment or an escape; `visible_descendant_dropped`: descendants of a
   dropped `visibility:hidden` element that declared `visibility:visible`.
-- Every element-local hidden form is therefore either dropped or counted: an all-zero
-  `diagnostics` means none was seen.
+- Every element-local `display` or `visibility` form is therefore either dropped or
+  counted. An all-zero `diagnostics` means none of THESE keys was seen: techniques not
+  listed are not detected (`clip-path`, `content-visibility`, a closed `<details>` or a
+  `<dialog>`, colour on colour, other spellings of zero such as `opacity:0.0` or
+  `font-size:0.0px`, `transform:scale(0)`, `mso-hide:all`, a small size with
+  `overflow:hidden`).
 
 What a non-zero count means is the caller's decision. For newsletters that is the
 application's preprocessing (zeonewsroom): a message with non-zero diagnostics has

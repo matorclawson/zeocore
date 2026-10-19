@@ -263,7 +263,11 @@ def test_an_element_local_hidden_form_is_dropped_or_reported_never_silent(
     [
         ("display:none!important;display:block", True),
         ("display:block!important;display:none", False),
-        ("display:none;display:bogus", True),
+        ("display:none;display:bogus", False),
+        ("display:none;display:-webkit-box", False),
+        ("display:none;display:-moz-box", False),
+        ("display:none;display:block flow", False),
+        ("display:none;display:env(x)", False),
         ("display:block!important;display:none!important", True),
         ("display:none!important;display:block!important", False),
         ("display:none;display:var(--x)", False),
@@ -271,7 +275,7 @@ def test_an_element_local_hidden_form_is_dropped_or_reported_never_silent(
         ("display:bogus", False),
         ("visibility:hidden!important;visibility:visible", True),
         ("visibility:visible!important;visibility:hidden", False),
-        ("visibility:hidden;visibility:bogus", True),
+        ("visibility:hidden;visibility:bogus", False),
         ("visibility:visible!important;visibility:hidden!important", True),
         ("visibility:collapse;visibility:inherit", False),
     ],
@@ -327,6 +331,40 @@ def test_a_comment_inside_a_sheet_does_not_hide_a_technique_from_the_count() -> 
     _text, _counts, diagnostics = _clean(f"<style>{sheet}</style><p>T</p>")
     assert diagnostics["sheet_display"] == 1
     assert diagnostics["sheet_opacity"] == 1
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        "display:none;display:-webkit-box",
+        "display:none;display:block flow",
+        "display:none;display:bogus",
+        "visibility:hidden;visibility:bogus",
+    ],
+)
+def test_an_unknown_later_value_leaves_the_property_undecided_and_counted(
+    style: str,
+) -> None:
+    text, counts, diagnostics = _clean(f'<p style="{style}">TEXT</p>')
+    assert "TEXT" in text and counts["hidden"] == 0
+    assert diagnostics["inline_display"] + diagnostics["inline_visibility"] == 1
+
+
+def test_a_comment_after_a_real_declaration_leaves_it_undecided_and_counted() -> None:
+    # the guard in hidden_kind: without it this split reads display:none and drops
+    text, counts, diagnostics = _clean('<p style="display:none;/* x */">TEXT</p>')
+    assert "TEXT" in text and counts["hidden"] == 0
+    assert diagnostics["inline_style_unparsed"] == 1
+    assert diagnostics["inline_display"] == 1
+
+
+def test_a_visible_child_with_a_commented_style_is_counted_not_skipped() -> None:
+    markup = (
+        '<div style="visibility:hidden">'
+        '<p style="visibility:/* x */visible">A</p></div>'
+    )
+    _text, _counts, diagnostics = _clean(markup)
+    assert diagnostics["visible_descendant_dropped"] == 1
 
 
 def test_a_quote_in_a_style_attribute_is_not_tokenised_and_is_reported() -> None:
