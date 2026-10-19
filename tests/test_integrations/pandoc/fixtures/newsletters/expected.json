@@ -139,14 +139,13 @@
   "11-hidden-kinds": {
    "stripped": {
     "styles": 1,
-    "hidden": 14,
+    "hidden": 13,
     "hidden_attribute": 1,
     "hidden_display": 1,
     "hidden_visibility": 1,
     "hidden_opacity": 1,
     "hidden_font_size": 1,
     "hidden_max_size": 1,
-    "hidden_mso": 1,
     "hidden_zero_size": 1,
     "hidden_offscreen": 1,
     "hidden_clip": 1,

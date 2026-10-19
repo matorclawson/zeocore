@@ -173,9 +173,15 @@ def convert_newsletter(
     date: datetime | str,
     max_bytes: int = DEFAULT_MAX_BYTES,
     timeout_s: float = DEFAULT_TIMEOUT_S,
+    pandoc_path: str | None = None,
+    expected_pandoc_sha256: str | None = None,
 ) -> ConvertedItem:
     """
     Convert one message's already-decoded HTML into clean Markdown.
+
+    ``pandoc_path`` (an absolute path) and ``expected_pandoc_sha256`` pin the binary:
+    with a path, no ``PATH`` lookup happens; with a digest, a binary with another
+    digest is refused as ``renderer_mismatch`` before it is executed.
 
     ``source``, ``sender`` and ``date`` are explicit and kept on the result; the
     sender is whatever the caller says it is (see ``DecodedMessage.sender_verified``).
@@ -194,7 +200,7 @@ def convert_newsletter(
     text, data, warnings = _as_text(html_in, max_bytes)
     noise = _noise.load()
     soup, counts, links, opaque, title = _clean(text, noise, deadline)
-    binary = find_pandoc()
+    binary = find_pandoc(expected_pandoc_sha256, path=pandoc_path)
     out = run_pandoc(
         binary,
         list(PANDOC_FLAGS),
@@ -240,6 +246,8 @@ def convert_decoded_message(
     source: str,
     max_bytes: int = DEFAULT_MAX_BYTES,
     timeout_s: float = DEFAULT_TIMEOUT_S,
+    pandoc_path: str | None = None,
+    expected_pandoc_sha256: str | None = None,
 ) -> ConvertedItem:
     """
     Convert a decoded message: its HTML, or its plain text wrapped as paragraphs.
@@ -266,6 +274,8 @@ def convert_decoded_message(
         date=decoded.date or "unknown",
         max_bytes=max_bytes,
         timeout_s=timeout_s,
+        pandoc_path=pandoc_path,
+        expected_pandoc_sha256=expected_pandoc_sha256,
     )
     return ConvertedItem(
         markdown=item.markdown,
