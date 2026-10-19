@@ -1138,6 +1138,37 @@ _COUNCIL_146_ROWS = [
         '<style><!-- .pre{display:none} --></style><p class="pre">SENTINEL</p>',
         False,
     ),
+    # round 3: an open bracket in one rule swallows the rules after it in a browser
+    (
+        "<style>.q{b:url(a}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.q{b:url(a})}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.q{b:(a}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.q{b:[a}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    # a string is one token: its braces and comment marks are not structure
+    (
+        '<style>.a{content:"/*"}.pre{display:none}.b{content:"*/"}</style>'
+        '<p class="pre">SENTINEL</p>',
+        False,
+    ),
+    (
+        "<style>.a{content:'}'}.pre{display:none}</style><p class=\"pre\">SENTINEL</p>",
+        False,
+    ),
     # B3 keywords, B4 auto, B7, B8, B10
     ('<p style="max-height:0;overflow:initial">SENTINEL</p>', False),
     ('<p style="max-height:0;overflow:unset">SENTINEL</p>', False),

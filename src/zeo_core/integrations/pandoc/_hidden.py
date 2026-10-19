@@ -330,7 +330,40 @@ def _same_colour(tag: Any, style: str) -> bool:  # noqa: ANN401
     return bool(colour) and colour == _bg_of_ancestors(tag)
 
 
-_COMMENT: Final = re.compile(r"/\*.*?(\*/|$)", re.DOTALL)
+def _blank(text: str, start: int, end: int) -> str:
+    return text[:start] + " " * (end - start) + text[end:]
+
+
+def _masks(css: str) -> tuple[str, str]:
+    """
+    The sheet with comments blanked, and with comments AND strings blanked.
+
+    Both have the length of ``css``, so a position in one is a position in the other
+    and in the original. A browser reads a comment as nothing and a string as one
+    token, so a brace, a semicolon or a parenthesis inside either is not structure.
+    A string ends at its quote or at a newline; a backslash skips the next character;
+    an unterminated comment runs to the end.
+    """
+    plain, structure = css, css
+    index, length = 0, len(css)
+    while index < length:
+        char = css[index]
+        if char == "/" and css.startswith("/*", index):
+            end = css.find("*/", index + 2)
+            end = length if end < 0 else end + 2
+            plain = _blank(plain, index, end)
+            structure = _blank(structure, index, end)
+            index = end
+        elif char in "\"'":
+            end = index + 1
+            while end < length and css[end] != char and css[end] != "\n":
+                end += 2 if css[end] == "\\" else 1
+            end = min(end + 1, length)
+            structure = _blank(structure, index, end)
+            index = end
+        else:
+            index += 1
+    return plain, structure
 
 
 def _boundary_tokens(segment: str) -> str:
@@ -345,7 +378,7 @@ def _boundary_tokens(segment: str) -> str:
     return segment.strip()
 
 
-def style_rules(
+def style_rules(  # noqa: C901 -- the strict triggers of the council's rounds
     css: str,
     noise: Noise,  # noqa: ARG001 -- kept so the caller's signature does not change
     deadline: Any = None,  # noqa: ANN401
@@ -366,9 +399,12 @@ def style_rules(
         ids[UNMODELLED] = (
             "1"  # a comment, an escape or a string: the split is untrusted
         )
-    css = _COMMENT.sub(" ", css)  # a comment is nothing between the tokens of a rule
+    css, structure = _masks(css)  # comments are blanked; structure also blanks strings
+    for opener, closer in ("()", "[]"):
+        if structure.count(opener) != structure.count(closer):
+            ids[UNMODELLED] = "1"  # an open bracket swallows the rules that follow it
     depth, start, selector = 0, 0, ""
-    for index, char in enumerate(css):
+    for index, char in enumerate(structure):
         if char == "{":
             if depth == 0:
                 selector = _boundary_tokens(css[start:index])
@@ -379,7 +415,7 @@ def style_rules(
         elif (
             char == ";"
             and depth == 0
-            and _boundary_tokens(css[start:index]).startswith("@")
+            and _boundary_tokens(structure[start:index]).startswith("@")
         ):
             start = index + 1  # a statement (`@charset`, `@layer a;`): not a selector
         elif char == "}" and depth:
@@ -392,13 +428,17 @@ def style_rules(
     return classes, ids
 
 
-def _record(
+def _record(  # noqa: C901 -- one branch per strict trigger
     selector: str,
     body: str,
     classes: dict[str, str],
     ids: dict[str, str],
 ) -> None:
     parts = [part.strip() for part in selector.split(",")]
+    if not selector.startswith("@") and (_unprovable(selector) or _unprovable(body)):
+        # a bracket, a quote or an escape in a rule makes the browser's reading of
+        # the sheet differ from the split here: no narrowing may rely on the sheet
+        ids[UNMODELLED] = "1"
     simple = (
         not selector.startswith("@")
         and len(selector) <= _SELECTOR_MAX_CHARS
