@@ -38,6 +38,10 @@ type fakeApp struct {
 	touchIn   map[string]bool
 	statusErr bool
 	asIsOK    bool
+	// custody is Updater.Custody; custodyAct names, per hook, what the hook
+	// does to custody[0]: "write", "rewrite", "replace", "create", "chtimes" or "remove".
+	custody    []string
+	custodyAct map[string]string
 }
 
 func newFake2(t *testing.T) *fakeApp {
@@ -59,6 +63,28 @@ func (f *fakeApp) hit(name string) error {
 	f.calls = append(f.calls, name)
 	if f.touchIn[name] {
 		_ = os.WriteFile(filepath.Join(f.prot, "approver.key"), []byte("changed by "+name), 0o600)
+	}
+	if act := f.custodyAct[name]; act != "" {
+		p := f.custody[0]
+		switch act {
+		case "write":
+			_ = os.WriteFile(p, []byte("changed"), 0o600)
+		case "rewrite": // the same bytes, with the mtime put back
+			fi, _ := os.Stat(p)
+			b, _ := os.ReadFile(p)
+			_ = os.WriteFile(p, b, 0o600)
+			_ = os.Chtimes(p, fi.ModTime(), fi.ModTime())
+		case "replace":
+			b, _ := os.ReadFile(p)
+			_ = os.Remove(p)
+			_ = os.WriteFile(p, b, 0o600)
+		case "create":
+			_ = os.WriteFile(p, []byte("x"), 0o600)
+		case "chtimes":
+			_ = os.Chtimes(p, time.Unix(5, 0), time.Unix(5, 0))
+		case "remove":
+			_ = os.Remove(p)
+		}
 	}
 	if n := f.fail[name]; n > 0 {
 		f.fail[name] = n - 1
@@ -154,6 +180,7 @@ func (f *fakeApp) app() *kit.App {
 			return func() { f.calls = append(f.calls, "unfence") }, nil
 		}
 	}
+	u.Custody = f.custody
 	u.LiveReason = "studio_live"
 	app.Updater = u
 	return app
