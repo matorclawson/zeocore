@@ -17,6 +17,7 @@ import pytest
 from zeo_core.cli.schemas import render_schema
 from zeo_core.contracts.ui import UiRefused, errors_of, validate_bytes
 from zeo_core.contracts.ui import _unicode16 as unicode16
+from zeo_core.contracts.ui.card import _PATTERN_D
 from zeo_core.contracts.ui.wire import MAX_COMPONENT_BYTES, MAX_RESPONSE_BYTES
 
 FIXTURE = (
@@ -593,7 +594,7 @@ def test_schema_describes_the_same_subset() -> None:
 
 
 def _schema_accepts(doc: object) -> bool:
-    import jsonschema  # type: ignore[import-untyped]  # no stubs; a dev dependency
+    import jsonschema  # type: ignore[import-untyped]  # no stubs; the host runtime provides jsonschema
 
     schema = render_schema("ui.result-card")
     return bool(jsonschema.Draft202012Validator(schema).is_valid(doc))
@@ -749,3 +750,37 @@ def test_the_exported_schema_says_it_is_necessary_but_not_sufficient() -> None:
     assert (
         "NECESSARY BUT NOT SUFFICIENT" in render_schema("ui.result-card")["description"]
     )
+
+
+_BAD_FACT_CODES = [
+    "ui_fact_integer", "ui_fact_integer", "ui_fact_integer_range", "ui_fact_integer",
+    "ui_fact_boolean", "ui_fact_null", "ui_fact_string", "ui_fact_string",
+    "ui_text_bytes", "ui_decimal_shape", "ui_decimal_shape", "ui_decimal_shape",
+    "ui_decimal_negative_zero", "ui_decimal_negative_zero", "ui_currency_needs_scale",
+    "ui_scale_digits", "string_pattern_mismatch", "ui_currency_scale_kind",
+    "ui_timestamp_shape", "ui_url_profile", "ui_url_profile", "ui_url_profile",
+    "ui_url_fragment", "ui_url_port", "ui_url_profile", "literal_error",
+]  # fmt: skip
+
+
+def test_every_badly_typed_fact_has_its_exact_code() -> None:
+    marks = [
+        m
+        for m in test_badly_typed_facts_are_refused.pytestmark
+        if m.name == "parametrize"
+    ]
+    facts = list(marks[0].args[1])
+    assert len(facts) == len(_BAD_FACT_CODES)
+    for fact, code in zip(facts, _BAD_FACT_CODES, strict=True):
+        assert refusal(dump(with_fact(**fact))).code == code, fact
+
+
+def test_the_exported_text_fact_carries_the_class_d_pattern() -> None:
+    schema = render_schema("ui.result-card")
+    fact = next(v for k, v in schema["$defs"].items() if k.startswith("Fact"))
+    text = next(
+        b["then"]["properties"]["value"]
+        for b in fact["allOf"]
+        if b["if"]["properties"]["value_type"]["const"] == "text"
+    )
+    assert text["pattern"] == _PATTERN_D
