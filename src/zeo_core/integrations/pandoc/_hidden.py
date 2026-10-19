@@ -330,40 +330,63 @@ def _same_colour(tag: Any, style: str) -> bool:  # noqa: ANN401
     return bool(colour) and colour == _bg_of_ancestors(tag)
 
 
-def _blank(text: str, start: int, end: int) -> str:
-    return text[:start] + " " * (end - start) + text[end:]
-
-
-def _masks(css: str) -> tuple[str, str]:
+def _masks(css: str, deadline: Any = None) -> tuple[str, str]:  # noqa: ANN401
     """
     The sheet with comments blanked, and with comments AND strings blanked.
 
     Both have the length of ``css``, so a position in one is a position in the other
     and in the original. A browser reads a comment as nothing and a string as one
     token, so a brace, a semicolon or a parenthesis inside either is not structure.
-    A string ends at its quote or at a newline; a backslash skips the next character;
-    an unterminated comment runs to the end.
+    A string ends at its quote or at a newline (LF, CR or FF); a backslash skips the
+    next character; an unterminated comment runs to the end. One linear pass: the
+    two masks are built from lists, and the deadline is checked as it goes.
     """
-    plain, structure = css, css
-    index, length = 0, len(css)
+    plain, structure = list(css), list(css)
+    index, length, steps = 0, len(css), 0
     while index < length:
         char = css[index]
         if char == "/" and css.startswith("/*", index):
             end = css.find("*/", index + 2)
             end = length if end < 0 else end + 2
-            plain = _blank(plain, index, end)
-            structure = _blank(structure, index, end)
+            blank = [" "] * (end - index)
+            plain[index:end] = blank
+            structure[index:end] = blank
             index = end
         elif char in "\"'":
             end = index + 1
-            while end < length and css[end] != char and css[end] != "\n":
+            while end < length and css[end] != char and css[end] not in "\n\r\f":
                 end += 2 if css[end] == "\\" else 1
             end = min(end + 1, length)
-            structure = _blank(structure, index, end)
+            structure[index:end] = [" "] * (end - index)
             index = end
         else:
             index += 1
-    return plain, structure
+        steps += 1
+        if deadline is not None and steps % 4096 == 0:
+            deadline.check()
+    return "".join(plain), "".join(structure)
+
+
+def _brackets_unsafe(structure: str) -> bool:
+    """
+    A bracket the browser reads differently from the brace split used here.
+
+    An open ``(`` or ``[`` swallows everything up to its close, braces and semicolons
+    included, so any ``{``, ``}`` or ``;`` inside one, a close that does not match the
+    open on top, or an open left at the end means the split cannot be trusted. The
+    order matters, not only the counts.
+    """
+    stack: list[str] = []
+    pairs = {")": "(", "]": "["}
+    for char in structure:
+        if char in "([":
+            stack.append(char)
+        elif char in pairs:
+            if not stack or stack.pop() != pairs[char]:
+                return True
+        elif stack and char in "{};":
+            return True
+    return bool(stack)
 
 
 def _boundary_tokens(segment: str) -> str:
@@ -399,10 +422,9 @@ def style_rules(  # noqa: C901 -- the strict triggers of the council's rounds
         ids[UNMODELLED] = (
             "1"  # a comment, an escape or a string: the split is untrusted
         )
-    css, structure = _masks(css)  # comments are blanked; structure also blanks strings
-    for opener, closer in ("()", "[]"):
-        if structure.count(opener) != structure.count(closer):
-            ids[UNMODELLED] = "1"  # an open bracket swallows the rules that follow it
+    css, structure = _masks(css, deadline)  # comments blanked; structure: strings too
+    if _brackets_unsafe(structure):
+        ids[UNMODELLED] = "1"  # an open bracket swallows the rules that follow it
     depth, start, selector = 0, 0, ""
     for index, char in enumerate(structure):
         if char == "{":

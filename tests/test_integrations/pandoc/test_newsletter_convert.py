@@ -1169,6 +1169,22 @@ _COUNCIL_146_ROWS = [
         "<style>.a{content:'}'}.pre{display:none}</style><p class=\"pre\">SENTINEL</p>",
         False,
     ),
+    # round 4: the ORDER of brackets, also across at-rules
+    (
+        "<style>@media y{.c{d:(}}.x{display:inline}@media x{.a{b:)}}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>@media y{.c{d:[}}.x{display:inline}@media x{.a{b:]}}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.c{d:(]}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
     # B3 keywords, B4 auto, B7, B8, B10
     ('<p style="max-height:0;overflow:initial">SENTINEL</p>', False),
     ('<p style="max-height:0;overflow:unset">SENTINEL</p>', False),
@@ -1200,3 +1216,11 @@ _COUNCIL_146_ROWS = [
 @pytest.mark.parametrize(("markup", "visible"), _COUNCIL_146_ROWS)
 def test_council_146_findings(markup: str, visible: bool) -> None:
     assert _visible(markup) is visible, markup
+
+
+def test_a_sheet_of_many_strings_is_masked_in_linear_time() -> None:
+    sheet = ".a{content:" + "''" * 200_000 + "}.pre{display:none}"
+    markup = f'<style>{sheet}</style><p class="pre">SENTINEL</p>'
+    started = time.monotonic()
+    assert not _visible(markup)
+    assert time.monotonic() - started < 5
