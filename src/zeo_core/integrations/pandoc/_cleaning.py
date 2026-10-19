@@ -187,6 +187,8 @@ def drop_hidden(
         if kind is not None:
             counts["hidden"] += 1
             counts[f"hidden_{kind}"] += 1
+            if kind == "visibility":
+                _hidden.note_dropped_visible(tag, diagnostics)
             tag.decompose()
         else:
             _hidden.note_inline(tag, noise, diagnostics)

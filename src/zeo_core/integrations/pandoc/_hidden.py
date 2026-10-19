@@ -8,18 +8,22 @@ element is not converted when the HTML itself marks it not rendered:
 * its own ``style`` attribute declares ``display:none``;
 * its own ``style`` attribute declares ``visibility:hidden`` or ``collapse``.
 
-In a ``style`` attribute the last declaration of a property wins and ``!important`` is
-read; an attribute over ``STYLE_MAX_CHARS`` is not parsed (padding must not cost time)
-and is reported, not decided.
+In a ``style`` attribute the last VALID declaration of a property wins (a value that is
+not a known keyword is ignored, as a browser does) and ``!important`` beats a later
+normal declaration. An attribute over ``STYLE_MAX_CHARS`` is not parsed (padding must
+not cost time), and one holding a comment or an escape is not decided: both are
+reported.
 
 NOT EVALUATED, only reported: everything that depends on CSS beyond that. Class and id
 rules, selectors, ``@media``, inheritance, ``<link>`` and ``@import`` stylesheets,
 clipping and positioning, ``opacity``, ``font-size:0``, zero or maximum sizes,
 off-screen offsets, colour on colour. For those the converter keeps the text and
 returns counts under fixed names (``diagnostics``): how many kept elements name a
-technique in their own style, how often each technique appears in the ``<style>``
-text, and how many stylesheets, links, imports and ``@media`` rules were present and
-not evaluated. The caller decides what a non-zero count means.
+technique in their own style (including ``display:none`` or ``visibility:hidden`` that
+was not decided, for example because a later declaration overrides it), how often each
+technique appears in the ``<style>`` text, and how many stylesheets, links, imports and
+``@media`` rules were present and not evaluated. The caller decides what a non-zero
+count means.
 
 The converter makes no claim that kept text is visible to a reader, or that dropped
 text was hidden in every client. What it guarantees is the safety of the result
@@ -51,8 +55,22 @@ TECHNIQUES: Final = (
     "offscreen",
     "clip",
 )
-#: The techniques that are only reported when a kept element names them inline.
-_REPORTED_INLINE: Final = TECHNIQUES[2:]
+#: A kept element that names any technique in its own style is counted (the first two
+#: are decided when the element's own style says so, so a count there means the style
+#: named it and it was NOT decided: a later or more important declaration, say).
+_TECHNIQUES_INLINE: Final = TECHNIQUES
+
+#: Values read for the two decided properties. Anything else (and ``var()``) in a
+#: declaration is ignored as invalid, except the CSS-wide keywords, which override.
+_DISPLAY_VALUES: Final = frozenset({
+    "none", "block", "inline", "inline-block", "flex", "inline-flex", "grid",
+    "inline-grid", "table", "inline-table", "table-row", "table-cell",
+    "table-row-group", "table-header-group", "table-footer-group", "table-column",
+    "table-column-group", "table-caption", "list-item", "contents", "flow-root",
+    "run-in",
+})  # fmt: skip
+_VISIBILITY_VALUES: Final = frozenset({"visible", "hidden", "collapse"})
+_WIDE: Final = frozenset({"inherit", "initial", "unset", "revert", "revert-layer"})
 
 #: Every key of ``diagnostics``, always present (zero when absent).
 DIAGNOSTIC_KEYS: Final = (
@@ -62,7 +80,8 @@ DIAGNOSTIC_KEYS: Final = (
     "stylesheet_media",
     "stylesheet_scan_truncated",
     "inline_style_unparsed",
-    *(f"inline_{name}" for name in _REPORTED_INLINE),
+    "visible_descendant_dropped",
+    *(f"inline_{name}" for name in _TECHNIQUES_INLINE),
     *(f"sheet_{name}" for name in TECHNIQUES),
 )
 
@@ -77,14 +96,55 @@ def squash(style: str) -> str:
     return re.sub(r"\s+", "", style.lower())
 
 
+_COMMENT: Final = re.compile(r"/\*.*?(\*/|$)", re.DOTALL)
+
+
 def declarations(style: str) -> dict[str, str]:
-    """The ``name: value`` pairs of a style, lower-cased, without ``!important``."""
+    """The ``name: value`` pairs of a style, lower-cased, without ``!important``.
+
+    The last declaration of a name wins, except that an ``!important`` one is not
+    overridden by a later normal one.
+    """
     out: dict[str, str] = {}
+    important: set[str] = set()
     for part in squash(style).split(";"):
         name, sep, value = part.partition(":")
-        if sep and name:
-            out[name] = value.removesuffix("!important")
+        if not sep or not name:
+            continue
+        flagged = value.endswith("!important")
+        if name in important and not flagged:
+            continue
+        out[name] = value.removesuffix("!important")
+        if flagged:
+            important.add(name)
     return out
+
+
+def _final(style: str, name: str, known: frozenset[str]) -> str | None:
+    """The value a browser would use for ``name`` from this style, or None.
+
+    A declaration whose value is not a known keyword (or a CSS-wide one) is ignored as
+    invalid; ``!important`` is not overridden by a later normal declaration. A CSS-wide
+    keyword or ``var()`` overrides and is returned as is (it is not ``none``).
+    """
+    value: str | None = None
+    held = False
+    for part in squash(style).split(";"):
+        key, sep, raw = part.partition(":")
+        if not sep or key != name:
+            continue
+        flagged = raw.endswith("!important")
+        raw = raw.removesuffix("!important")
+        if held and not flagged:
+            continue
+        if raw in known or raw in _WIDE or raw.startswith("var("):
+            value, held = raw, flagged
+    return value
+
+
+def _readable(style: str) -> bool:
+    """False for a style whose text a browser reads differently from this split."""
+    return "/*" not in style and "\\" not in style
 
 
 def hidden_kind(tag: Any) -> str | None:  # noqa: ANN401
@@ -92,12 +152,16 @@ def hidden_kind(tag: Any) -> str | None:  # noqa: ANN401
     if tag.has_attr("hidden"):
         return "attribute"
     style = tag.get("style")
-    if not isinstance(style, str) or not style or len(style) > STYLE_MAX_CHARS:
+    if (
+        not isinstance(style, str)
+        or not style
+        or len(style) > STYLE_MAX_CHARS
+        or not _readable(style)
+    ):
         return None
-    declared = declarations(style)
-    if declared.get("display") == "none":
+    if _final(style, "display", _DISPLAY_VALUES) == "none":
         return "display"
-    if declared.get("visibility") in ("hidden", "collapse"):
+    if _final(style, "visibility", _VISIBILITY_VALUES) in ("hidden", "collapse"):
         return "visibility"
     return None
 
@@ -107,13 +171,23 @@ def note_inline(tag: Any, noise: Noise, diagnostics: dict[str, int]) -> None:  #
     style = tag.get("style")
     if not isinstance(style, str) or not style:
         return
-    if len(style) > STYLE_MAX_CHARS:
-        diagnostics["inline_style_unparsed"] += 1
-        return
-    squashed = squash(style)
+    if len(style) > STYLE_MAX_CHARS or not _readable(style):
+        diagnostics["inline_style_unparsed"] += 1  # not decided, so not silent
+        if len(style) > STYLE_MAX_CHARS:
+            return
+    squashed = squash(_COMMENT.sub("", style))
     for kind, pattern in noise.hidden_patterns:
-        if kind in _REPORTED_INLINE and pattern.search(squashed):
+        if kind in _TECHNIQUES_INLINE and pattern.search(squashed):
             diagnostics[f"inline_{kind}"] += 1
+
+
+def note_dropped_visible(tag: Any, diagnostics: dict[str, int]) -> None:  # noqa: ANN401
+    """Count descendants of a dropped element that declare ``visibility:visible``."""
+    for child in tag.find_all(True, style=True):
+        style = child.get("style")
+        if isinstance(style, str) and len(style) <= STYLE_MAX_CHARS:
+            if _final(style, "visibility", _VISIBILITY_VALUES) == "visible":
+                diagnostics["visible_descendant_dropped"] += 1
 
 
 def note_sheets(
@@ -130,7 +204,7 @@ def note_sheets(
         diagnostics["stylesheet_blocks"] += 1
         if block.has_attr("media"):
             diagnostics["stylesheet_media"] += 1
-        text = squash(block.get_text())
+        text = squash(_COMMENT.sub("", block.get_text())).replace("{", ";")
         if len(text) > budget:
             diagnostics["stylesheet_scan_truncated"] = 1
             text = text[:budget]

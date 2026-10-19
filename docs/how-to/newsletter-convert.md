@@ -126,8 +126,12 @@ that showed the pattern and no sender content copied.
 **Decided, from the element alone** (no stylesheet, no cascade, no inheritance): an
 element is not converted when it has the `hidden` attribute, or its own `style`
 attribute declares `display:none`, or `visibility:hidden` or `collapse`. Within a
-`style` attribute the last declaration of a property wins and `!important` is read. An
-ancestor that is dropped takes its descendants with it.
+`style` attribute the last VALID declaration of a property wins (a value that is not a
+known keyword is ignored, as a browser does) and `!important` beats a later normal
+declaration. An ancestor that is dropped takes its descendants with it, including a
+descendant that declares `visibility:visible` (counted in `visible_descendant_dropped`).
+A `style` holding a comment or an escape is not decided (counted in
+`inline_style_unparsed`, and under the technique it names).
 
 **Not evaluated, only reported.** The converter keeps the text and `item.diagnostics`
 says what was present. Fidelity limits, stated plainly:
@@ -139,8 +143,9 @@ says what was present. Fidelity limits, stated plainly:
   offsets, `clip-path`, `content-visibility`, a closed `<details>` and colour on
   colour are **not** evaluated (the first six are named in a kept element's own style
   and counted; the rest are not detected).
-- A later invalid declaration, a comment or an escape inside a `style` attribute can
-  make the converter read a different value than a browser would.
+- Strings are not tokenised: a `;` inside a quoted value splits a `style` attribute, so
+  a declaration a browser reads as part of a string can be read as a declaration (an
+  invalid value is ignored; a technique it names is still counted).
 - A `style` attribute over 4096 characters is not parsed; the element is kept and
   counted in `inline_style_unparsed` and `stripped["style_oversize"]`.
 
@@ -155,9 +160,15 @@ says what was present. Fidelity limits, stated plainly:
 - `sheet_display`, `sheet_visibility`, `sheet_opacity`, `sheet_font_size`,
   `sheet_max_size`, `sheet_zero_size`, `sheet_offscreen`, `sheet_clip`: how often each
   technique appears in the `<style>` text.
-- `inline_opacity`, `inline_font_size`, `inline_max_size`, `inline_zero_size`,
-  `inline_offscreen`, `inline_clip`: kept elements that name the technique in their own
-  `style`; `inline_style_unparsed`: kept elements whose `style` was too long to parse.
+- `inline_display`, `inline_visibility`, `inline_opacity`, `inline_font_size`,
+  `inline_max_size`, `inline_zero_size`, `inline_offscreen`, `inline_clip`: KEPT
+  elements that name the technique in their own `style` (for `display` and `visibility`
+  that means it was named and not decided, for example overridden by a later or more
+  important declaration); `inline_style_unparsed`: kept elements whose `style` was too
+  long, or held a comment or an escape; `visible_descendant_dropped`: descendants of a
+  dropped `visibility:hidden` element that declared `visibility:visible`.
+- Every element-local hidden form is therefore either dropped or counted: an all-zero
+  `diagnostics` means none was seen.
 
 What a non-zero count means is the caller's decision. For newsletters that is the
 application's preprocessing (zeonewsroom): a message with non-zero diagnostics has

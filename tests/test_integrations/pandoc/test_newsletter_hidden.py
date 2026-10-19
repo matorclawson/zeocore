@@ -231,6 +231,132 @@ def test_sheet_scanning_checks_the_deadline_per_block() -> None:
     assert room.checks >= 50
 
 
+# --- the council's findings on #153 (a48a2c93) ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        "display:none/**/",
+        "display:/**/none",
+        "disp\\lay:none",
+        "display:none!important;display:block",
+        "display:block!important;display:none",
+        "display:none;display:bogus",
+        "visibility:hidden/**/",
+        "visibility:/**/hidden",
+        "visib\\ility:hidden",
+        "visibility:hidden!important;visibility:visible",
+        "visibility:hidden;visibility:bogus",
+    ],
+)
+def test_an_element_local_hidden_form_is_dropped_or_reported_never_silent(
+    style: str,
+) -> None:
+    """Zero diagnostics means none was seen: no hidden form may keep text silently."""
+    text, counts, diagnostics = _clean(f'<p style="{style}">TEXT</p>')
+    assert counts["hidden"] == 1 or _nonzero(diagnostics), (text, style)
+
+
+@pytest.mark.parametrize(
+    ("style", "dropped"),
+    [
+        ("display:none!important;display:block", True),
+        ("display:block!important;display:none", False),
+        ("display:none;display:bogus", True),
+        ("display:block!important;display:none!important", True),
+        ("display:none!important;display:block!important", False),
+        ("display:none;display:var(--x)", False),
+        ("display:none;display:inherit", False),
+        ("display:bogus", False),
+        ("visibility:hidden!important;visibility:visible", True),
+        ("visibility:visible!important;visibility:hidden", False),
+        ("visibility:hidden;visibility:bogus", True),
+        ("visibility:visible!important;visibility:hidden!important", True),
+        ("visibility:collapse;visibility:inherit", False),
+    ],
+)
+def test_precedence_and_invalid_values_follow_the_browser(
+    style: str, dropped: bool
+) -> None:
+    text, counts, _diagnostics = _clean(f'<p style="{style}">TEXT</p>')
+    assert (counts["hidden"] == 1) is dropped
+    assert ("TEXT" not in text) is dropped
+
+
+@pytest.mark.parametrize(
+    ("style", "key"),
+    [
+        ("display:none/**/", "inline_style_unparsed"),
+        ("display:/**/none", "inline_style_unparsed"),
+        ("disp\\lay:none", "inline_style_unparsed"),
+        ("display:/**/none", "inline_display"),
+        ("display:block!important;display:none", "inline_display"),
+        ("display:none;display:var(--x)", "inline_display"),
+        ("visibility:/**/hidden", "inline_visibility"),
+        ("visibility:visible!important;visibility:hidden", "inline_visibility"),
+    ],
+)
+def test_an_undecided_hidden_form_is_counted_where_it_is_named(
+    style: str, key: str
+) -> None:
+    _text, counts, diagnostics = _clean(f'<p style="{style}">TEXT</p>')
+    assert counts["hidden"] == 0
+    assert diagnostics[key] >= 1
+
+
+def test_a_visible_child_of_a_dropped_hidden_parent_is_counted() -> None:
+    markup = (
+        '<div style="visibility:hidden"><p style="visibility:visible">A</p>'
+        '<p style="visibility:visible">B</p><p>C</p></div>'
+    )
+    text, counts, diagnostics = _clean(markup)
+    assert counts["hidden_visibility"] == 1
+    assert "A" not in text  # the documented limit: the parent takes them with it
+    assert diagnostics["visible_descendant_dropped"] == 2
+
+
+def test_a_first_declaration_in_a_rule_is_seen_in_the_sheet_counts() -> None:
+    sheet = ".a{width:0}.b{height:0;color:red}.c{x:y;line-height:0}"
+    _text, _counts, diagnostics = _clean(f"<style>{sheet}</style><p>T</p>")
+    assert diagnostics["sheet_zero_size"] == 3
+
+
+def test_a_comment_inside_a_sheet_does_not_hide_a_technique_from_the_count() -> None:
+    sheet = ".a{display:/**/none}.b{opacity:/*x*/0}"
+    _text, _counts, diagnostics = _clean(f"<style>{sheet}</style><p>T</p>")
+    assert diagnostics["sheet_display"] == 1
+    assert diagnostics["sheet_opacity"] == 1
+
+
+def test_a_quote_in_a_style_attribute_is_not_tokenised_and_is_reported() -> None:
+    # documented limit: strings are not tokenised, so a `;` inside one splits the style;
+    # the piece reads as an invalid value and is ignored, and the technique is counted
+    text, counts, diagnostics = _clean("<p style=\"content:'a;display:none'\">TEXT</p>")
+    assert "TEXT" in text and counts["hidden"] == 0
+    assert diagnostics["inline_display"] == 1
+
+
+@pytest.mark.parametrize(
+    ("style", "pixel"),
+    [
+        ("width:1px!important;width:50px;height:1px", True),
+        ("width:50px!important;width:1px!important;height:1px", True),
+        ("width:1px!important;width:50px!important;height:1px", False),
+        ("width:50px;width:1px;height:1px", True),
+        ("width:1px;width:50px;height:1px", False),
+    ],
+)
+def test_a_declared_size_follows_precedence_when_a_pixel_is_judged(
+    style: str, pixel: bool
+) -> None:
+    """``declarations`` serves the pixel check: last wins, ``!important`` is kept."""
+    _text, counts, _diagnostics = _clean(
+        f'<p>T</p><img src="https://example.org/a.png" style="{style}">'
+    )
+    assert (counts["pixels"] == 1) is pixel
+
+
 # --- browser evidence: where the converter agrees with WebKit, and where not ---
 
 _WEBKIT = json.loads(
