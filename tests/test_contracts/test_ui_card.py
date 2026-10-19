@@ -551,10 +551,10 @@ def test_schema_describes_the_same_subset() -> None:
 
 
 def _schema_accepts(doc: object) -> bool:
-    import jsonschema
+    import jsonschema  # type: ignore[import-untyped]  # no stubs; a dev dependency
 
     schema = render_schema("ui.result-card")
-    return jsonschema.Draft202012Validator(schema).is_valid(doc)
+    return bool(jsonschema.Draft202012Validator(schema).is_valid(doc))
 
 
 def _runtime_accepts(doc: object) -> bool:
