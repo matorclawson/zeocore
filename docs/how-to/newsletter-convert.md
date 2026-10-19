@@ -86,8 +86,29 @@ What it does, in order:
 3. Removes **hidden text**, counted by kind in `stripped` (`hidden_display`,
    `hidden_visibility`, `hidden_opacity`, `hidden_font_size`, `hidden_max_size`,
    `hidden_zero_size`, `hidden_offscreen`, `hidden_clip`,
-   `hidden_color_match`, `hidden_style_class`, `hidden_attribute`). `mso-hide:all` alone is **not** treated as hidden (only Outlook honours it; the council's ruling zc-dtl-webkit-b312-v1). Rules inside
+   `hidden_color_match`, `hidden_style_class`, `hidden_attribute`). A technique counts
+   only where a browser really hides the text (a loss the council ruled): `max-height`
+   or `max-width:0`, and `width`, `height` or `line-height:0`, hide only an element
+   that clips (`overflow` hidden or clip) and is not inline, and `max-*` never hides a
+   table cell, row or row group; a negative `left` or `top` needs a positioned element
+   (absolute, fixed, relative or sticky), while a negative `margin-left` or
+   `margin-top` always counts; a negative `text-indent` needs a non-inline element;
+   `clip` needs `position:absolute` or `fixed`; `mso-hide:all` alone is **not**
+   hidden (only Outlook honours it). An element is judged by its own `style` and the
+   `<style>` rules for its classes and id together, the same way. A technique is
+   kept only where its condition is **shown false** from fully read styles: anything
+   the converter does not model (a rule with another selector or inside an at-rule that
+   sets `overflow`, `contain`, `position`, `display` or `float`, an `!important`, a CSS
+   comment or escape, a `var()`, a CSS-wide keyword, `all`, a later invalid value, two
+   class rules that disagree, a class matched only by case, an unknown `display`, a
+   `<link>`, an `@import`, a `<style media>` or `<template>` style, a flex or grid
+   parent) makes it hide the text, as before the narrowing. Rules inside
    `@media` are not applied, because they may hide content only on a small screen.
+   Limits: clipping by an ancestor is not modelled (an element is judged by itself, so a
+   non-clipping child of a clipping parent is kept). Limits, not detected: standalone `content-visibility:hidden`, `clip-path`, `font:0/0`,
+   `transform:scale(0)`, a closed `<details>` and a `<dialog>`. Text is parsed as a
+   browser does where it matters: the first of two equal attributes wins, and a class is
+   split on ASCII whitespace only.
    A `style` attribute or rule body longer than 4096 characters is **not parsed**
    (padding must not cost time) and is **treated as hidden**: the element is dropped
    and counted in `stripped["style_oversize"]` and `stripped["hidden_oversize"]`, so
