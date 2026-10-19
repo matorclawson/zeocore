@@ -215,7 +215,10 @@ def css_rules(  # noqa: C901 -- the document-level strict triggers of review B
                     continue
                 previous = table.get(name)
                 if name.startswith(_hidden.FOLD):
-                    table[name] = body  # an alias of the real name
+                    # an alias of the real name; two spellings are not provable
+                    if previous is not None and previous != body:
+                        ids[_hidden.UNMODELLED] = "1"
+                    table[name] = body
                 # the same selector in two <style> blocks: the later declaration wins
                 elif previous is None:
                     table[name] = body

@@ -128,8 +128,7 @@ _PLAIN_PARENT_DISPLAYS: Final = frozenset(
     {"block", "inline", "inline-block", "none", "table", "list-item", "flow-root"}
     | _TABLE_DISPLAYS
 )  # fmt: skip
-_NEGATIVE_OFFSET: Final = re.compile(r"^-[0-9]{3,}(px|em|pt)$")
-_OFFSET_PROP: Final = re.compile(r"(left|top|text-indent)$")
+_OFFSET_NAMES: Final = frozenset({"left", "top", "text-indent"})
 _ZERO_LINE: Final = re.compile(r"^0(px|em|pt|%)?$")
 _VISIBLE: Final = re.compile(r"^(visible)+$")
 #: How many classes of one element that have a rule are examined.
@@ -143,6 +142,7 @@ _NARROWABLE: Final = frozenset({"max_size", "zero_size", "offscreen", "clip"})
 UNMODELLED: Final = "\x00unmodelled"
 #: Prefix of the case-folded alias of a rule name (the browser matches class and id
 #: names case-insensitively in quirks mode, which an HTML fragment may be in).
+_ASCII_SPACE: Final = re.compile(r"[ \t\n\f\r]+")
 FOLD: Final = "\x00ci:"
 #: A rule body longer than ``STYLE_MAX_CHARS`` (or a pile of rules that gets there).
 OVERSIZE_RULE: Final = "\x00oversize"
@@ -154,9 +154,17 @@ _CONDITION_PROPS: Final = (
 )  # fmt: skip
 
 
+#: A declaration is not split on `;` inside brackets or quotes, so any of these makes
+#: our split untrusted (council P0-2), besides `!important`, comments and escapes.
+_UNREADABLE: Final = ("!", "/*", "\\", "[", "]", "{", "}", '"', "'")
+
+
 def _unprovable(text: str) -> bool:
     """A style we cannot read as a browser does: `!important`, a comment, an escape."""
-    return "!" in text or "/*" in text or "\\" in text
+    if any(char in text for char in _UNREADABLE):
+        return True
+    # a `;` inside brackets does not end a declaration: unbalanced parts are untrusted
+    return any(part.count("(") != part.count(")") for part in text.split(";"))
 
 
 def _occurrences(texts: list[str]) -> dict[str, list[str]]:
@@ -175,12 +183,25 @@ def _only(occ: dict[str, list[str]], name: str, allowed: frozenset[str]) -> bool
     return all(value in allowed for value in occ.get(name, ()))
 
 
-def _no_clip(occ: dict[str, list[str]]) -> bool:
-    """PROVEN: the box does not clip (overflow, contain and content-visibility)."""
+#: Elements whose user-agent style may clip by default (not modelled): never narrowed.
+_UA_CLIPPING: Final = frozenset(
+    "marquee textarea select button input iframe object embed canvas video audio img "
+    "svg math details dialog meter progress fieldset legend summary".split()
+)  # fmt: skip
+
+
+def _no_clip(
+    occ: dict[str, list[str]],
+    tag: Any = None,  # noqa: ANN401
+) -> bool:
+    """PROVEN: the box does not clip (any overflow, contain, content-visibility)."""
+    if getattr(tag, "name", "") in _UA_CLIPPING:
+        return False
     overflow = all(
         _VISIBLE.match(value)
-        for name in ("overflow", "overflow-x", "overflow-y")
-        for value in occ.get(name, ())
+        for name, values in occ.items()
+        if "overflow" in name
+        for value in values
     )
     return (
         overflow
@@ -214,12 +235,48 @@ def _proven_inline(
 def _proven_table_part(
     tag: Any,  # noqa: ANN401
     occ: dict[str, list[str]],
+    parent_plain: bool,
 ) -> bool:
-    """PROVEN: a table cell, row or row group, decided by ``display`` when it is set."""
+    """PROVEN: a table cell, row or row group in a plain parent (not blockified)."""
+    if "all" in occ or not parent_plain:
+        return False
     shown = occ.get("display", [])
     if shown:
-        return all(value in _TABLE_DISPLAYS for value in shown) and "all" not in occ
-    return getattr(tag, "name", "") in _TABLE_TAGS and "all" not in occ
+        return all(value in _TABLE_DISPLAYS for value in shown)
+    parent = getattr(getattr(tag, "parent", None), "name", "")
+    return getattr(tag, "name", "") in _TABLE_TAGS and parent in _TABLE_TAGS
+
+
+_OFFSET_VALUE: Final = re.compile(r"^(-?[0-9]+(\.[0-9]+)?(px|em|pt|rem|%)?|auto)$")
+
+
+def _offscreen_harmless(  # noqa: C901 -- one branch per property of the table
+    tag: Any,  # noqa: ANN401
+    occ: dict[str, list[str]],
+    parent_plain: bool,
+    static: bool,
+) -> bool:
+    """PROVEN: no offset of the style moves the text off screen (a closed grammar)."""
+    for name, values in occ.items():
+        if name not in _OFFSET_NAMES and not name.startswith("margin"):
+            continue
+        for value in values:
+            if not _OFFSET_VALUE.match(value):
+                return False  # each-line, hanging, calc, a keyword: not proven
+            if not value.startswith("-"):
+                continue
+            if name in ("left", "top"):
+                if not static:  # a positioned box moves
+                    return False
+            elif name == "text-indent":
+                # inherited by block children, and inline only if proven so
+                if tag.find(True) is not None:
+                    return False
+                if not _proven_inline(tag, occ, parent_plain):
+                    return False
+            else:  # a negative margin moves any box
+                return False
+    return True
 
 
 def _keep(  # noqa: C901 -- one branch per kind of the council table
@@ -231,14 +288,16 @@ def _keep(  # noqa: C901 -- one branch per kind of the council table
     """Whether the text is PROVEN visible although a style of ``kind`` matched."""
     if kind == "max_size":
         return (
-            _no_clip(occ)
+            _no_clip(occ, tag)
             or _proven_inline(tag, occ, parent_plain)
-            or _proven_table_part(tag, occ)
+            or _proven_table_part(tag, occ, parent_plain)
         )
     if kind == "zero_size":
         # line-height applies to an inline box, so an inline proof does not cover it
         shrunk = any(_ZERO_LINE.match(v) for v in occ.get("line-height", ()))
-        return _no_clip(occ) or (not shrunk and _proven_inline(tag, occ, parent_plain))
+        return _no_clip(occ, tag) or (
+            not shrunk and _proven_inline(tag, occ, parent_plain)
+        )
     static = _only(occ, "position", frozenset({"static"})) and "all" not in occ
     if kind == "clip":
         # ``clip`` applies to absolutely positioned boxes only
@@ -246,21 +305,7 @@ def _keep(  # noqa: C901 -- one branch per kind of the council table
             "all" not in occ
         )
     if kind == "offscreen":
-        for name, values in occ.items():
-            if not _OFFSET_PROP.search(name):
-                continue
-            for value in values:
-                if not _NEGATIVE_OFFSET.match(value):
-                    continue
-                if name in ("left", "top"):
-                    if not static:  # a positioned box moves
-                        return False
-                elif name == "text-indent":
-                    if not _proven_inline(tag, occ, parent_plain):
-                        return False
-                else:  # margin-left, margin-top and the rest move any box
-                    return False
-        return True
+        return _offscreen_harmless(tag, occ, parent_plain, static)
     return False
 
 
@@ -294,11 +339,15 @@ def style_rules(
     for index, char in enumerate(css):
         if char == "{":
             if depth == 0:
-                selector = css[start:index].strip()
+                selector = (
+                    css[start:index].replace("<!--", "").replace("-->", "").strip()
+                )
                 start = index + 1
             elif depth == 1 and not selector.startswith("@"):
                 ids[UNMODELLED] = "1"  # CSS nesting: a rule inside a rule
             depth += 1
+        elif char == ";" and depth == 0:
+            start = index + 1  # a statement (`@charset`, `@layer a;`): not a selector
         elif char == "}" and depth:
             depth -= 1
             if depth == 0:
@@ -341,7 +390,9 @@ def _record(
             table[name] = OVERSIZE_RULE  # bounded: a pile of rules cannot cost time
         else:
             table[name] = f"{previous};{body}"
-        table.setdefault(FOLD + name.lower(), name)
+        alias = FOLD + name.lower()
+        if table.setdefault(alias, name) != name:
+            ids[UNMODELLED] = "1"  # two spellings of one name: quirks mode merges them
 
 
 def _rule_texts(  # noqa: C901 -- the bounds of review A1 sit in this loop
@@ -363,7 +414,10 @@ def _rule_texts(  # noqa: C901 -- the bounds of review A1 sit in this loop
     total = 0
     seen: set[str] = set()
     matched = 0
-    for token in tag.get("class") or ():
+    raw = tag.get("class") or ()
+    # a browser splits on ASCII whitespace only; a class with another space is one token
+    tokens = _ASCII_SPACE.split(raw.strip(" \t\n\f\r")) if isinstance(raw, str) else raw
+    for token in tokens:
         if token in seen:
             continue
         seen.add(token)
@@ -456,9 +510,8 @@ def hidden_kind(  # noqa: C901 -- the order of the council table
                 continue
             if kind not in _NARROWABLE:
                 return kind if (style and index == 0) else "style_class"
-            narrowable.append(kind if (style and index == 0) else "style_class")
-            narrowable[-1] = kind
-            break
+            if kind not in narrowable:
+                narrowable.append(kind)
     if narrowable:
         if (
             not provable

@@ -1026,3 +1026,87 @@ def test_a_pile_of_repeated_classes_is_bounded_and_hidden() -> None:
     body = "x{max-height:0;overflow:hidden}"
     markup = f'<style>.{body}</style><p class="{" ".join(["x"] * 5000)}">SENTINEL</p>'
     assert not _visible(markup)
+
+
+_COUNCIL_146_ROWS = [
+    # P0-1: every kind of one style is checked, a non-narrowable one hides at once
+    ('<div style="height:0;position:absolute;left:-9999px">SENTINEL</div>', False),
+    ('<div style="height:0;display:none">SENTINEL</div>', False),
+    # P0-2: a `;` inside brackets or quotes does not end a declaration
+    (
+        '<div style="max-height:0;overflow:hidden;x:(;display:inline;)">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<div style=\"max-height:0;overflow:hidden;x:'a;display:inline'\">"
+        "SENTINEL</div>",
+        False,
+    ),
+    # P1-3: a closed grammar for every offset value
+    ('<span style="text-indent:-9999px each-line">SENTINEL</span>', False),
+    ('<span style="text-indent:-9999px hanging">SENTINEL</span>', False),
+    # P1-4: text-indent is inherited by block children
+    ('<span style="text-indent:-9999px"><div>SENTINEL</div></span>', False),
+    # P1-5: a table part under a flex parent is blockified
+    (
+        '<table><tr style="display:flex"><td style="max-height:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
+        False,
+    ),
+    # P1-6: two spellings of one class name are merged in quirks mode
+    (
+        "<style>.foo{overflow:visible}.FOO{overflow:hidden}</style>"
+        '<p class="foo" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+    # P1-7: a browser splits a class on ASCII whitespace only
+    (
+        "<style>.foo{overflow:hidden}</style>"
+        '<p class="foo\u00a0z" style="max-height:0">SENTINEL</p>',
+        True,
+    ),
+    # P1-8: a browser keeps the first of two equal attributes
+    ('<div style="display:none" style="color:red">SENTINEL</div>', False),
+    # P2-9: any overflow property clips
+    ('<p style="max-height:0;overflow-block:hidden">SENTINEL</p>', False),
+    ('<textarea style="max-height:0">SENTINEL</textarea>', False),
+    # P2-10: a leading comment token or statement at-rule does not eat a selector
+    (
+        '<style><!-- .pre{display:none} --></style><p class="pre">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style>@layer a;.pre{display:none}</style><p class="pre">SENTINEL</p>',
+        False,
+    ),
+    # B3 keywords, B4 auto, B7, B8, B10
+    ('<p style="max-height:0;overflow:initial">SENTINEL</p>', False),
+    ('<p style="max-height:0;overflow:unset">SENTINEL</p>', False),
+    ('<p style="max-height:0;overflow:revert">SENTINEL</p>', False),
+    ('<p style="max-height:0;overflow:auto">SENTINEL</p>', False),
+    (
+        "<style>div > p{overflow:hidden}</style>"
+        '<div><p style="max-height:0">SENTINEL</p></div>',
+        False,
+    ),
+    (
+        "<template><style>.x{overflow:hidden}</style></template>"
+        '<p class="x" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style type="text/plain">.x{overflow:hidden}</style>'
+        '<p class="x" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+    (
+        "<style>@import url(a.css);.x{overflow:hidden}</style>"
+        '<p class="x" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+]
+
+
+@pytest.mark.parametrize(("markup", "visible"), _COUNCIL_146_ROWS)
+def test_council_146_findings(markup: str, visible: bool) -> None:
+    assert _visible(markup) is visible, markup

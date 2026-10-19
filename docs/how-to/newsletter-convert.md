@@ -104,6 +104,10 @@ What it does, in order:
    `<link>`, an `@import`, a `<style media>` or `<template>` style, a flex or grid
    parent) makes it hide the text, as before the narrowing. Rules inside
    `@media` are not applied, because they may hide content only on a small screen.
+   Limits, not detected: standalone `content-visibility:hidden`, `clip-path`, `font:0/0`,
+   `transform:scale(0)`, a closed `<details>` and a `<dialog>`. Text is parsed as a
+   browser does where it matters: the first of two equal attributes wins, and a class is
+   split on ASCII whitespace only.
    A `style` attribute or rule body longer than 4096 characters is **not parsed**
    (padding must not cost time) and is **treated as hidden**: the element is dropped
    and counted in `stripped["style_oversize"]` and `stripped["hidden_oversize"]`, so
