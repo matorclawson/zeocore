@@ -227,13 +227,36 @@ def test_a_file_that_changes_while_it_is_copied_is_refused(
     assert caught.value.code == "pandoc_failed"
 
 
+def _append_to_executable(path: str, data: bytes) -> None:
+    """
+    Append to a file that was just executed.
+
+    Linux can still report the binary busy (``ETXTBSY``) for a moment after its
+    process has exited, and a concurrent fork elsewhere can briefly hold it; the open
+    is retried for up to a second before the error is allowed to fail the test.
+    """
+    import errno
+    import time
+
+    for _ in range(50):
+        try:
+            with open(path, "ab") as handle:  # noqa: PTH123
+                handle.write(data)
+            return
+        except OSError as error:
+            if error.errno != errno.ETXTBSY:
+                raise
+            time.sleep(0.02)
+    with open(path, "ab") as handle:  # noqa: PTH123
+        handle.write(data)
+
+
 def test_a_modified_copy_is_refused_before_it_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(_runner, "_PRIVATE", {})  # a fresh copy; the real one is kept
     copy = _runner.find_pandoc()
-    with open(copy.path, "ab") as handle:  # noqa: PTH123
-        handle.write(b"\0")
+    _append_to_executable(copy.path, b"\0")
     with pytest.raises(NewsletterRefusalError) as again:
         _runner.find_pandoc()
     assert again.value.code == "pandoc_failed"

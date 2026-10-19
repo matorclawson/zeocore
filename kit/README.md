@@ -54,7 +54,11 @@ with `GOPROXY=off` and `-mod=readonly`. `consumer_test.go` proves a vendored con
 
 `make kit-verify` (Go 1.27 on PATH; the Python gate needs no Go): gofmt, `go vet`, `go test -race`,
 and `scripts/mutate.sh scripts/mutations.txt`, which breaks each guard in turn and fails if no test
-notices. `scripts/mutate.sh` is a copy of zeoarchitect's `scripts/mutate.sh` at `35f6681`.
+notices. `scripts/mutate.sh` began as a copy of zeoarchitect's `scripts/mutate.sh` at `35f6681`; it now
+runs every row on its own scratch copy of the module (the checkout is never touched), after the
+UNMUTATED copy has passed the same tests, and runs `MUTATE_JOBS` rows at a time (default the CPU
+count, at most 4). Under load a timing test can fail a mutant for the wrong reason, so for an
+audit run it serially: `MUTATE_JOBS=1 ./scripts/mutate.sh scripts/mutations.txt`.
 
 ## Conformance
 
@@ -170,3 +174,38 @@ and back out on any failure.
   to create the lock or the state directory is `failed`, not `busy`. `--to` must be a version word; the
   value is not echoed. Hook error texts and intent fields are folded to one line. Install directories
   (`versions/*.tmp-<pid>`) left by a crashed process are removed at the next install.
+
+## client (DRAFT, ZEOCORE-SOW-35 rev g)
+
+`kit/client` is the shared client contract: how a tool finds a service that may run on this host or on
+another, and what it does when the service does not answer. It is a **draft** until the council's joint
+review of the messenger, runtime and client designs rules; nothing in it is adopted, and no name in it is
+final. Standard library only.
+
+- **The root-owned host file decides** (`LoadHost`, `Resolve`). Its owner, mode, parents, symlinks and size
+  are checked at read time, and a failure refuses (`host_config`); the credential, the CA bundle and the
+  credential file get the same checks. A variable can only select an origin the file lists. **A release
+  build with no host file refuses**; only a binary built with `-tags zeodev` takes a variable, and it
+  never attaches the credential or runs a privileged local verb.
+- **Transport:** no redirects, no environment proxy, HTTP/1.1 only, trust roots from the bundle (never
+  `SSL_CERT_*`), an optional key pin. A TLS verification failure is a refusal (exit 3), not an outage.
+- **Calls:** a read fails closed (no cache), retries at most twice before any byte is sent, inside one
+  deadline. A write is stored in the outbox first, made `unknown` durably before any byte is emitted, and
+  never retried inside one call: it completes, is refused, is spooled (only if asked and the owner's
+  contract de-duplicates by key), or is `dispatch_unknown` with its operation id and spool id.
+- **Ordering:** a new write never overtakes queued or unknown records of the same service; a torn
+  (`.bad`) file holds the order until `Resolve`; a `.suspect` or `.stale` file is not a record and does
+  not. An unknown record is resent only by `Reconcile`, with the
+  same key.
+- **Result:** `zeo.client-result/v1` with a closed reason set per outcome and its exit mapping;
+  `dispatch_unknown` is exit 1, never 6.
+
+Known limits of the client (council #141, recorded, not fixed here):
+
+- A sent record whose rewrite fails at the directory sync is set aside as `.suspect`, which `Resolve` may
+  discard as "never sent". The record is then no longer ordered ahead of later writes.
+- The incarnation file is written without a lock or an fsync: two first opens may write different
+  values (their records go to `.bad` and hold the order), and a crash can leave a short file (open
+  refuses). Both fail closed.
+- `checkPath` reads mode bits only: a macOS ACL that grants write is not seen.
+- `Client.Roots` is set by hand; a nil value on Linux makes the system verifier read `SSL_CERT_*`.
