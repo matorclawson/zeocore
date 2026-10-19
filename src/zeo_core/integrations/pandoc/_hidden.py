@@ -163,8 +163,19 @@ def _unprovable(text: str) -> bool:
     """A style we cannot read as a browser does: `!important`, a comment, an escape."""
     if any(char in text for char in _UNREADABLE):
         return True
-    # a `;` inside brackets does not end a declaration: unbalanced parts are untrusted
-    return any(part.count("(") != part.count(")") for part in text.split(";"))
+    # a `;` inside parentheses does not end a declaration, and `)(` opens a block: the
+    # depth must never go negative and must be 0 at every `;` and at the end
+    depth = 0
+    for char in text:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return True
+        elif char == ";" and depth:
+            return True
+    return depth != 0
 
 
 def _occurrences(texts: list[str]) -> dict[str, list[str]]:
@@ -240,6 +251,11 @@ def _proven_table_part(
     """PROVEN: a table cell, row or row group in a plain parent (not blockified)."""
     if "all" in occ or not parent_plain:
         return False
+    # float and position blockify a cell, so it is no table part any more
+    if not _only(occ, "float", frozenset({"none"})) or not _only(
+        occ, "position", frozenset({"static", "relative", "sticky"})
+    ):
+        return False
     shown = occ.get("display", [])
     if shown:
         return all(value in _TABLE_DISPLAYS for value in shown)
@@ -314,6 +330,21 @@ def _same_colour(tag: Any, style: str) -> bool:  # noqa: ANN401
     return bool(colour) and colour == _bg_of_ancestors(tag)
 
 
+_COMMENT: Final = re.compile(r"/\*.*?(\*/|$)", re.DOTALL)
+
+
+def _boundary_tokens(segment: str) -> str:
+    """The segment of a rule without the `<!--` and `-->` tokens a sheet allows between rules.
+
+    A browser skips them only at a rule boundary; anywhere else they stay in the
+    selector, which is then not a simple one.
+    """
+    segment = segment.lstrip()
+    while segment.startswith(("<!--", "-->")):
+        segment = segment[4 if segment.startswith("<!--") else 3 :].lstrip()
+    return segment.strip()
+
+
 def style_rules(
     css: str,
     noise: Noise,  # noqa: ARG001 -- kept so the caller's signature does not change
@@ -335,18 +366,21 @@ def style_rules(
         ids[UNMODELLED] = (
             "1"  # a comment, an escape or a string: the split is untrusted
         )
+    css = _COMMENT.sub(" ", css)  # a comment is nothing between the tokens of a rule
     depth, start, selector = 0, 0, ""
     for index, char in enumerate(css):
         if char == "{":
             if depth == 0:
-                selector = (
-                    css[start:index].replace("<!--", "").replace("-->", "").strip()
-                )
+                selector = _boundary_tokens(css[start:index])
                 start = index + 1
             elif depth == 1 and not selector.startswith("@"):
                 ids[UNMODELLED] = "1"  # CSS nesting: a rule inside a rule
             depth += 1
-        elif char == ";" and depth == 0:
+        elif (
+            char == ";"
+            and depth == 0
+            and _boundary_tokens(css[start:index]).startswith("@")
+        ):
             start = index + 1  # a statement (`@charset`, `@layer a;`): not a selector
         elif char == "}" and depth:
             depth -= 1

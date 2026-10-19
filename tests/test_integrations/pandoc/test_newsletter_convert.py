@@ -1087,6 +1087,54 @@ _COUNCIL_146_ROWS = [
         False,
     ),
     ('<div style="display:inline-block;max-width:0">SENTINEL</div>', True),
+    # round 2: N1 ordering of parentheses, N2 junk before a rule, N3 blockified cells,
+    # N4 a comment before a rule
+    (
+        '<div style="max-height:0;overflow:hidden;x:)(;display:inline;)(">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.x{max-height:0;overflow:hidden;y:)(;display:inline;)(}</style>"
+        '<div class="x">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>junk;.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.x-->{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.x<!--{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        '<table><tr><td style="float:left;max-height:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
+        False,
+    ),
+    (
+        '<div style="display:table-cell;position:absolute;max-height:0;overflow:hidden">'
+        "SENTINEL</div>",
+        False,
+    ),
+    (
+        '<style>/* preheader */ .pre{display:none}</style><p class="pre">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style>@charset "x";/*c*/.pre{display:none}</style><p class="pre">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style><!-- .pre{display:none} --></style><p class="pre">SENTINEL</p>',
+        False,
+    ),
     # B3 keywords, B4 auto, B7, B8, B10
     ('<p style="max-height:0;overflow:initial">SENTINEL</p>', False),
     ('<p style="max-height:0;overflow:unset">SENTINEL</p>', False),
