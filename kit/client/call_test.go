@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -177,7 +178,7 @@ func TestT11HTTP11Only(t *testing.T) {
 	t.Cleanup(srv.Close)
 	roots := x509.NewCertPool()
 	roots.AddCert(srv.Certificate())
-	c := &Client{Endpoint: Endpoint{Origin: strings.ToLower(srv.URL), Source: SourceHost, Audience: "aud"}, Roots: roots, Sleep: func(time.Duration) {}}
+	c := &Client{Endpoint: Endpoint{Origin: strings.ToLower(srv.URL), Source: SourceHost, Audience: "aud"}, Service: "zmsg", Roots: roots, Sleep: func(time.Duration) {}}
 	if res := valid(t, call(c, readReq())); res.Outcome != OutcomeOK || proto != "HTTP/1.1" {
 		t.Fatalf("%s proto %q", res.JSON(), proto)
 	}
@@ -353,13 +354,27 @@ func TestC4Deadlines(t *testing.T) {
 	}
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer ln.Close()
+	// Hold every accepted connection open and REFERENCED: a connection nobody
+	// references is closed by its finalizer at the next garbage collection, which
+	// ended the handshake early and flaked this test under -race.
+	var held []net.Conn
+	var mu sync.Mutex
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range held {
+			_ = c.Close()
+		}
+	}()
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			_ = c // hold the connection: the TLS handshake never completes
+			mu.Lock()
+			held = append(held, c) // the TLS handshake never completes
+			mu.Unlock()
 		}
 	}()
 	c := slow.client(nil)
@@ -598,7 +613,7 @@ func TestAWriteWithoutAnIdGetsOne(t *testing.T) {
 
 func TestALocalEndpointIsNotCalledOverHTTP(t *testing.T) {
 	f := newFake(t, nil)
-	c := &Client{Endpoint: Endpoint{Local: true, Origin: f.origin(), Source: SourceHost}, Roots: f.roots, Outbox: outbox(t)}
+	c := &Client{Endpoint: Endpoint{Local: true, Origin: f.origin(), Source: SourceHost}, Service: "zmsg", Roots: f.roots, Outbox: outbox(t)}
 	if res := valid(t, call(c, readReq())); res.Outcome != OutcomeRefused || f.count() != 0 {
 		t.Fatalf("%s", res.JSON())
 	}
