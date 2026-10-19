@@ -41,7 +41,9 @@ CASES: dict[str, str] = {
     "not-proven-inline": "<div style='max-height:0;overflow:hidden'>SENTINEL</div>",
     "plain-hidden-attr": "<p hidden>SENTINEL</p>",
     "display-none": "<p style='display:none'>SENTINEL</p>",
-    "weird-tag": "<custom-SENTINEL style='max-height:0;overflow:hidden'>x</custom-SENTINEL>",
+    "weird-tag": (
+        "<custom-SENTINEL style='max-height:0;overflow:hidden'>x</custom-SENTINEL>"
+    ),
 }
 
 
