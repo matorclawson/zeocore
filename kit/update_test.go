@@ -39,7 +39,7 @@ type fakeApp struct {
 	statusErr bool
 	asIsOK    bool
 	// custody is Updater.Custody; custodyAct names, per hook, what the hook
-	// does to custody[0]: "write", "replace", "create", "chtimes" or "remove".
+	// does to custody[0]: "write", "rewrite", "replace", "create", "chtimes" or "remove".
 	custody    []string
 	custodyAct map[string]string
 }
@@ -69,6 +69,11 @@ func (f *fakeApp) hit(name string) error {
 		switch act {
 		case "write":
 			_ = os.WriteFile(p, []byte("changed"), 0o600)
+		case "rewrite": // the same bytes, with the mtime put back
+			fi, _ := os.Stat(p)
+			b, _ := os.ReadFile(p)
+			_ = os.WriteFile(p, b, 0o600)
+			_ = os.Chtimes(p, fi.ModTime(), fi.ModTime())
 		case "replace":
 			b, _ := os.ReadFile(p)
 			_ = os.Remove(p)

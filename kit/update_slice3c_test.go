@@ -5,12 +5,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func custodyFile(t *testing.T, f *fakeApp) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "approver.key")
 	if err := os.WriteFile(p, []byte("custody"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// far in the past, so no write in a test can land on the same mtime
+	past := time.Unix(1_000_000_000, 0)
+	if err := os.Chtimes(p, past, past); err != nil {
 		t.Fatal(err)
 	}
 	f.custody = []string{p}
@@ -98,6 +104,14 @@ func TestCustodyPathsAreValidatedAndGuarded(t *testing.T) {
 	}
 	if err := app.Updater.Guard(filepath.Join(p, "child")); err == nil {
 		t.Error("Guard accepted a path under a custody path")
+	}
+	target := filepath.Join(t.TempDir(), "real.key")
+	if err := os.WriteFile(target, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.Updater.Custody = []string{link(t, target, filepath.Join(t.TempDir(), "k.link"))}
+	if err := app.Validate(); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Errorf("a custody path that is a link was accepted: %v", err)
 	}
 	dangling := link(t, filepath.Join(t.TempDir(), "nothing"), filepath.Join(t.TempDir(), "l"))
 	app.Updater.Custody = []string{dangling}
@@ -245,5 +259,20 @@ func TestADownMigrationCountsAsCrossedInTheChain(t *testing.T) {
 	}
 	if u := f.do("rollback", "--to", "2.0.0"); u.code != 3 || u.reason != "migration" {
 		t.Fatalf("%+v", u)
+	}
+}
+
+// A same-size write whose mtime is put back is still seen: the change time cannot be restored.
+func TestACustodyWriteWithTheMtimeRestoredIsATouch(t *testing.T) {
+	f := newFake2(t)
+	p := custodyFile(t, f)
+	past := time.Unix(1_000_000_000, 0)
+	if err := os.Chtimes(p, past, past); err != nil {
+		t.Fatal(err)
+	}
+	f.install1()
+	f.custodyAct = map[string]string{"install": "rewrite"}
+	if u := f.do("update"); u.reason != "protected" || f.current() != "1.0.0" {
+		t.Fatalf("%+v current %s", u, f.current())
 	}
 }

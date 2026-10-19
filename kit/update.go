@@ -131,8 +131,8 @@ type history struct {
 	Current  string `json:"current"`
 	Previous string `json:"previous"`
 	Migrated bool   `json:"migrated"`
-	// Chain is the last switches, oldest first, each with whether a state
-	// migration crossed it. rollback --to walks it to prove none lies between
+	// Chain is a linked list of the last 64 switches, oldest first, rewritten
+	// atomically (not a hash chain), each with whether a state migration crossed it. rollback --to walks it to prove none lies between
 	// the current version and the one asked for.
 	Chain []hop `json:"chain,omitempty"`
 }
@@ -230,6 +230,10 @@ func (a *App) validateUpdater() error {
 		}
 		if overlaps(u.Root, p) {
 			return fmt.Errorf("kit: custody path %q overlaps the install root", p)
+		}
+		// lstat would see the link, not the key it points to, which would go unwatched
+		if fi, err := os.Lstat(p); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("kit: custody path %q is a symbolic link; name the file it points to", p)
 		}
 		for _, q := range u.Protected {
 			if overlaps(q, p) {
@@ -615,6 +619,7 @@ type custodyID struct {
 	Uid, Gid uint32
 	Size     int64
 	Mtime    int64
+	Ctime    int64 // the change time: a caller cannot restore it
 	Absent   bool
 }
 
@@ -629,6 +634,7 @@ func lstatIdentity(path string) (custodyID, error) {
 	id := custodyID{Mode: fi.Mode(), Size: fi.Size(), Mtime: fi.ModTime().UnixNano()}
 	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
 		id.Dev, id.Ino, id.Uid, id.Gid = uint64(st.Dev), uint64(st.Ino), st.Uid, st.Gid
+		id.Ctime = ctimeOf(st)
 	}
 	return id, nil
 }

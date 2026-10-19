@@ -141,11 +141,12 @@ and back out on any failure.
   large append-only journal costs several full reads.
 - **Custody (key custody, never opened).** `Updater.Custody` lists key-custody paths. The kit never
   reads them: each is checked by `lstat` identity only (device, inode, mode, owner, group, size,
-  mtime; or that it is absent) before Fetch, just before the switch and after the proof. Any change,
+  mtime, change time; or that it is absent) before Fetch, just before the switch and after the proof. Any change,
   including a replaced file with the same bytes, a touched mtime, a file that appears or vanishes,
   ends the operation as `protected`, the same way a touched Protected file does. A custody path is
   one entry: for a directory only the directory itself is checked, not what is inside it. It must be
-  absolute, must not go through a link that does not resolve, and must not overlap the install root
+  absolute, must not go through a link that does not resolve, must not itself be a link (name the file it
+  points to), and must not overlap the install root
   or a Protected path (Protected files are hashed, so keep key custody out of it). `Guard` refuses a
   path at or under a custody path. This detects a touch, it does not undo it.
 - **recover looks before it acts.** It first proves the version that is current as it stands (ready and
