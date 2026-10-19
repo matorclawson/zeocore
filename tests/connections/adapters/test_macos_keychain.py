@@ -716,6 +716,7 @@ _PROBE_TIMEOUT_SECONDS = 10
 # assumed to be environmental. Exit 36 is errSecInteractionNotAllowed: the
 # keychain is locked and this session may not prompt to unlock it.
 _ENVIRONMENTAL_REFUSALS = {36: "User interaction is not allowed"}
+_NO_DEFAULT_KEYCHAIN = "SecKeychainCopyDefault: A default keychain could not be found"
 
 
 def _probe_default_keychain() -> tuple[str, str | None]:
@@ -750,6 +751,11 @@ def _probe_default_keychain() -> tuple[str, str | None]:
 
     located = run(["default-keychain"])
     keychain = located.stdout.strip().strip('"')
+    if located.returncode == 1 and _NO_DEFAULT_KEYCHAIN in located.stderr:
+        return "", (
+            "default keychain is unavailable in this session "
+            f"(security(1) default-keychain exit 1: {_NO_DEFAULT_KEYCHAIN})"
+        )
     if located.returncode != 0 or not keychain:
         raise RuntimeError(
             "security(1) could not name the default keychain "
@@ -930,6 +936,123 @@ class TestKeychainProofGateContract:
                 probe=self._probe_returning("/k/login.keychain-db", None),
             ) == ("run", "/k/login.keychain-db")
 
+    @pytest.mark.parametrize("required", [False, True])
+    def test_no_default_keychain_has_an_explicit_mode_bound_outcome(
+        self, monkeypatch: pytest.MonkeyPatch, required: bool
+    ) -> None:
+        calls: list[list[str]] = []
+
+        def missing_default(
+            args: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            return subprocess.CompletedProcess(
+                args, 1, stdout="", stderr=f"security: {_NO_DEFAULT_KEYCHAIN}."
+            )
+
+        monkeypatch.setattr(subprocess, "run", missing_default)
+        outcome, detail = _keychain_decision(
+            platform_supported=True, required=required, probe=_probe_default_keychain
+        )
+        assert calls == [["/usr/bin/security", "default-keychain"]]
+        assert outcome == ("fail" if required else "skip"), detail
+        assert _NO_DEFAULT_KEYCHAIN in detail
+        if required:
+            assert "ZEOCORE_REQUIRE_KEYCHAIN_PROOF=1" in detail
+        else:
+            assert "stdin-transport proof NOT run" in detail
+
+    @pytest.mark.parametrize("required", [False, True])
+    @pytest.mark.parametrize(
+        ("exit_code", "stdout", "stderr"),
+        [
+            (36, "", f"security: {_NO_DEFAULT_KEYCHAIN}."),
+            (2, "", f"security: {_NO_DEFAULT_KEYCHAIN}."),
+            (1, "", "security: another error"),
+            (1, f"security: {_NO_DEFAULT_KEYCHAIN}.", ""),
+            (0, "", f"security: {_NO_DEFAULT_KEYCHAIN}."),
+        ],
+        ids=[
+            "wrong-exit-36",
+            "wrong-exit-2",
+            "wrong-message",
+            "stdout-only",
+            "empty-success",
+        ],
+    )
+    def test_an_unrecognised_default_keychain_answer_fails_in_both_modes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        required: bool,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
+    ) -> None:
+        def answer(
+            args: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            assert args == ["/usr/bin/security", "default-keychain"]
+            return subprocess.CompletedProcess(
+                args, exit_code, stdout=stdout, stderr=stderr
+            )
+
+        monkeypatch.setattr(subprocess, "run", answer)
+        outcome, detail = _keychain_decision(
+            platform_supported=True, required=required, probe=_probe_default_keychain
+        )
+        assert outcome == "fail", detail
+        assert "keychain probe error" in detail
+
+    @pytest.mark.parametrize("required", [False, True])
+    def test_default_keychain_probe_timeout_is_never_a_skip(
+        self, monkeypatch: pytest.MonkeyPatch, required: bool
+    ) -> None:
+        def timeout(
+            args: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            raise subprocess.TimeoutExpired(cmd=args, timeout=_PROBE_TIMEOUT_SECONDS)
+
+        monkeypatch.setattr(subprocess, "run", timeout)
+        outcome, detail = _keychain_decision(
+            platform_supported=True, required=required, probe=_probe_default_keychain
+        )
+        assert outcome == "fail", detail
+        assert "keychain probe error" in detail
+
+    @pytest.mark.parametrize(
+        ("keychain", "refusal", "accepted"),
+        [
+            ("/k/login.keychain-db", None, True),
+            ("/k/login.keychain-db", "exit 36: User interaction is not allowed", True),
+            ("", f"default-keychain exit 1: {_NO_DEFAULT_KEYCHAIN}", True),
+            ("", None, False),
+            ("", "exit 36: User interaction is not allowed", False),
+            (
+                "/k/login.keychain-db",
+                f"default-keychain exit 1: {_NO_DEFAULT_KEYCHAIN}",
+                False,
+            ),
+            ("", "default-keychain exit 1: unrelated failure", False),
+        ],
+    )
+    def test_the_real_answer_assertion_accepts_only_recognised_outcomes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        keychain: str,
+        refusal: str | None,
+        accepted: bool,
+    ) -> None:
+        monkeypatch.setattr(
+            sys.modules[__name__],
+            "_probe_default_keychain",
+            lambda: (keychain, refusal),
+        )
+        if accepted:
+            self.test_the_probe_classifies_this_hosts_real_answer()
+        else:
+            with pytest.raises(AssertionError):
+                self.test_the_probe_classifies_this_hosts_real_answer()
+
     @pytest.mark.skipif(
         not (_IS_MACOS and _SECURITY_AVAILABLE),
         reason="requires a real macOS security(1) binary",
@@ -939,9 +1062,18 @@ class TestKeychainProofGateContract:
         refusal; anything else raises and fails this test."""
 
         keychain, refusal = _probe_default_keychain()
-        assert keychain
         if refusal is not None:
-            assert "exit 36" in refusal and "User interaction is not allowed" in refusal
+            assert (
+                bool(keychain)
+                and "exit 36" in refusal
+                and "User interaction is not allowed" in refusal
+            ) or (
+                keychain == ""
+                and "default-keychain exit 1" in refusal
+                and _NO_DEFAULT_KEYCHAIN in refusal
+            )
+        else:
+            assert keychain
 
 
 def _writes_the_real_keychain(source: str) -> bool:
