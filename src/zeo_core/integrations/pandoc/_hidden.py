@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 from typing import Any, Final
 
+from zeo_core.integrations.pandoc import _selectors
 from zeo_core.integrations.pandoc._noise import Noise
 
 #: How far up to look for a background colour.
@@ -433,9 +434,9 @@ def style_rules(  # noqa: C901 -- the strict triggers of the council's rounds
     """
     classes: dict[str, str] = {}
     ids: dict[str, str] = {}
-    # a comment, an escape or a string: the split is untrusted
+    # an escape or a string: the split is untrusted (a comment is not: ``_masks``
+    # blanks every comment form before the split)
     for char, reason in (
-        ("/*", "comment"),
         ("\\", "escape"),
         ('"', "quote"),
         ("'", "quote"),
@@ -470,6 +471,28 @@ def style_rules(  # noqa: C901 -- the strict triggers of the council's rounds
     return classes, ids
 
 
+def _pending(selector: str, parts: list[str], ids: dict[str, str]) -> None:
+    """
+    A rule that could set a property a proof depends on, with a selector not plain.
+
+    If every part is in the bounded grammar of ``_selectors`` the rule is kept to be
+    checked against each candidate element; otherwise (an at-rule, a selector over the
+    bound, a part outside the grammar, too many such rules) the sheet is not modelled.
+    """
+    if selector.startswith("@") or len(selector) > _SELECTOR_MAX_CHARS:
+        flag(ids, "rule_selector_not_simple")
+        return
+    for part in parts:
+        if _SIMPLE_SELECTOR.match(part):
+            continue  # a plain .class or #id is read from the tables
+        if _selectors.parse_chain(part) is None:
+            flag(ids, "rule_selector_not_simple")
+            return
+        if not _selectors.add_pending(ids, part):
+            flag(ids, "rule_too_many")
+            return
+
+
 def _record(  # noqa: C901 -- one branch per strict trigger
     selector: str,
     body: str,
@@ -489,7 +512,7 @@ def _record(  # noqa: C901 -- one branch per strict trigger
     if not simple:
         lowered = body.lower()
         if any(name in lowered for name in _CONDITION_PROPS):
-            flag(ids, "rule_selector_not_simple")
+            _pending(selector, parts, ids)
         if selector.startswith("@") or len(selector) > _SELECTOR_MAX_CHARS:
             return
     for part in parts:
@@ -555,7 +578,11 @@ def _rule_texts(  # noqa: C901 -- the bounds of review A1 sit in this loop
     tag_id = tag.get("id")
     if isinstance(tag_id, str):
         name = tag_id if tag_id in ids else ids.get(FOLD + tag_id.lower())
-        if name is not None and name in ids and name != UNMODELLED:
+        if (
+            name is not None
+            and name in ids
+            and name not in (UNMODELLED, _selectors.PENDING)
+        ):
             if name != tag_id:
                 provable = False
             body = ids[name]
@@ -593,6 +620,8 @@ def _parent_plain(
     bodies, provable, oversize = _rule_texts(parent, classes, ids)
     if oversize or not provable or len(style) > STYLE_MAX_CHARS:
         return False
+    if _selectors.may_match(parent, ids):
+        return False  # a rule that may match the parent could make it flex or grid
     texts = [*bodies, style]
     if any(_unprovable(text) for text in texts):
         return False
@@ -600,10 +629,17 @@ def _parent_plain(
     return _only(occ, "display", _PLAIN_PARENT_DISPLAYS) and "all" not in occ
 
 
-def _not_provable(provable: bool, ids: dict[str, str], texts: list[str]) -> str | None:
+def _not_provable(
+    provable: bool,
+    ids: dict[str, str],
+    texts: list[str],
+    tag: Any,  # noqa: ANN401
+) -> str | None:
     """Why the declarations cannot be read for a proof, or None when they can."""
     if UNMODELLED in ids:
         return "unmodelled_sheet"
+    if _selectors.may_match(tag, ids):
+        return "rule_may_match"
     if not provable:
         return "case_or_order"
     if any(_unprovable(text) for text in texts):
@@ -667,7 +703,7 @@ def hidden_kind(  # noqa: C901 -- the order of the council table
             if kind not in narrowable:
                 narrowable.append(kind)
     if narrowable:
-        refusal = _not_provable(provable, ids, texts)
+        refusal = _not_provable(provable, ids, texts, tag)
         if refusal is not None:
             if gates is not None:
                 gates.append(f"{narrowable[0]}:{refusal}")

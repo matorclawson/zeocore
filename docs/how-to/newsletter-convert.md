@@ -97,12 +97,20 @@ What it does, in order:
    hidden (only Outlook honours it). An element is judged by its own `style` and the
    `<style>` rules for its classes and id together, the same way. A technique is
    kept only where its condition is **shown false** from fully read styles: anything
-   the converter does not model (a rule with another selector or inside an at-rule that
-   sets `overflow`, `contain`, `position`, `display` or `float`, an `!important`, a CSS
-   comment or escape, a `var()`, a CSS-wide keyword, `all`, a later invalid value, two
+   the converter does not model (a rule inside an at-rule, or with a selector outside the
+   grammar below, that sets `overflow`, `contain`, `position`, `display` or `float`, an
+   `!important`, a CSS escape or string, a `var()`, a CSS-wide keyword, `all`, a later invalid value, two
    class rules that disagree, a class matched only by case, an unknown `display`, a
    `<link>`, an `@import`, a `<style media>` or `<template>` style, a flex or grid
-   parent) makes it hide the text, as before the narrowing. Rules inside
+   parent) makes it hide the text, as before the narrowing. A rule with a selector that
+   is not a plain `.class` or `#id` (`td p`, `div .note`, `body`) leaves the sheet
+   modelled only if it **provably cannot match** the element and its ancestors. The
+   selector must be a comma list of descendant chains, each a type, class or id
+   compound (`td`, `p.note`, `div #top`), at most 8 compounds and 256 characters, and
+   at most 32 such rules per document; names are compared without regard to case. A
+   rule that can match, an attribute or pseudo selector, `>`, `+`, `~`, `*`, a
+   namespace, an escape or a longer selector keeps the sheet unmodelled. A CSS comment
+   is not a trigger. Rules inside
    `@media` are not applied, because they may hide content only on a small screen.
    Limits: clipping by an ancestor is not modelled (an element is judged by itself, so a
    non-clipping child of a clipping parent is kept). Limits, not detected: standalone `content-visibility:hidden`, `clip-path`, `font:0/0`,
@@ -163,12 +171,12 @@ report = hidden_report(raw_html)   # str or bytes; the HTML never leaves your pr
 - `hidden`: kind to count, as `stripped` reports it.
 - `gates`: `kind:gate` to count, for each narrowable kind that was dropped.
   `max_size:unmodelled_sheet` means the stylesheet was not trusted; the others
-  (`case_or_order`, `unreadable_declaration`, `no_declarations`, `no_proof(...)`) mean
+  (`rule_may_match`, `case_or_order`, `unreadable_declaration`, `no_declarations`, `no_proof(...)`) mean
   the element's own styles could not be proven harmless.
 - `gate_tags`: the same, per tag name (a fixed list; any other tag is `other`).
 - `sheet_unmodelled`: why the stylesheet was not modelled: `sheet_quote`,
-  `sheet_comment`, `sheet_escape`, `sheet_brackets`, `sheet_nesting`, `rule_unreadable`,
-  `rule_selector_not_simple`, `rule_two_spellings`, `document_link`,
+  `sheet_escape`, `sheet_brackets`, `sheet_nesting`, `rule_unreadable`,
+  `rule_selector_not_simple`, `rule_too_many`, `rule_two_spellings`, `document_link`,
   `style_media_type_or_template`, `style_import`.
 - `style_blocks` and `named_rules`: counts.
 

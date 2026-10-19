@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from zeo_core.integrations.pandoc import _hidden
+from zeo_core.integrations.pandoc import _hidden, _selectors
 from zeo_core.integrations.pandoc._noise import Noise
 from zeo_core.integrations.pandoc._runner import Deadline
 from zeo_core.integrations.pandoc.refusals import refusal
@@ -210,6 +210,11 @@ def css_rules(  # noqa: C901 -- the document-level strict triggers of review B
         found_classes, found_ids = _hidden.style_rules(text, noise, deadline)
         for table, found in ((classes, found_classes), (ids, found_ids)):
             for name, body in found.items():
+                if name == _selectors.PENDING:
+                    for selector in body.split("\x01"):
+                        if not _selectors.add_pending(table, selector):
+                            _hidden.flag(table, "rule_too_many")
+                    continue
                 if name == _hidden.UNMODELLED:
                     for reason in body.split(","):
                         _hidden.flag(table, reason)  # keep the reasons of every block

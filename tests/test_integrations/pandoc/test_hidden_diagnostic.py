@@ -81,7 +81,6 @@ def test_a_sheet_that_can_be_modelled_narrows_and_reports_no_gate() -> None:
     ("name", "reason"),
     [
         ("quote-anywhere", "sheet_quote"),
-        ("comment-anywhere", "sheet_comment"),
         ("link-element", "document_link"),
         ("import", "style_import"),
     ],
@@ -122,3 +121,9 @@ def test_bytes_are_decoded_like_the_converter() -> None:
 def test_the_module_imports_nothing_that_needs_pandoc() -> None:
     source = Path(newsletter.__file__).with_name("diagnostic.py").read_text("utf-8")
     assert "run_pandoc" not in source
+
+
+def test_a_comment_no_longer_marks_the_sheet_unmodelled() -> None:
+    report = hidden_report(CASES["comment-anywhere"])
+    assert report["sheet_unmodelled"] == {}
+    assert report["gates"] == {}
