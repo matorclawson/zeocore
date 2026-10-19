@@ -142,7 +142,14 @@ def _clean(
     counts = dict.fromkeys(_cleaning.COUNT_KEYS, 0)
     try:
         _cleaning.precheck(text)
-        soup = bs4.BeautifulSoup(text, "html.parser")
+        soup = bs4.BeautifulSoup(
+            text,
+            "html.parser",
+            # a browser keeps the FIRST of two equal attributes (bs4 keeps the last),
+            # and splits a class on ASCII whitespace only
+            on_duplicate_attribute="ignore",
+            multi_valued_attributes=None,
+        )
         deadline.check()
         _cleaning.check_bounds(text, soup, deadline)
         title = _cleaning.title_of(soup)

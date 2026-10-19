@@ -768,12 +768,459 @@ def test_a_relative_or_mismatched_pandoc_is_refused(
 
 
 def _visible(markup: str) -> bool:
-    return "SENTINEL" in _convert(markup).markdown
+    item = _convert(markup)
+    return "SENTINEL" in item.markdown
+
+
+def test_max_size_hides_only_a_clipping_box_that_is_not_inline() -> None:
+    """Council zc-dtl-webkit-b312-v1: WebKit paints the other cases."""
+    # Hidden: a block box that clips.
+    assert not _visible('<div style="max-height:0;overflow:hidden">SENTINEL</div>')
+    assert not _visible('<p style="max-width:0;overflow:clip">SENTINEL</p>')
+    assert not _visible(
+        '<span style="display:block;max-height:0;overflow:hidden">SENTINEL</span>'
+    )
+    # Painted: no clipping, or an inline element, or an explicit inline display.
+    assert _visible('<p style="max-height:0">SENTINEL</p>')
+    assert _visible('<span style="max-height:0;overflow:hidden">SENTINEL</span>')
+    assert _visible(
+        '<div style="display:inline;max-height:0;overflow:hidden">SENTINEL</div>'
+    )
+
+
+def test_a_style_rule_with_max_size_follows_the_same_rule() -> None:
+    css = "<style>.z{max-height:0;overflow:hidden}.y{max-height:0}</style>"
+    assert not _visible(css + '<div class="z">SENTINEL</div>')
+    assert _visible(css + '<span class="z">SENTINEL</span>')
+    assert _visible(css + '<div class="y">SENTINEL</div>')
 
 
 def test_mso_hide_alone_is_not_hidden() -> None:
-    """Council zc-dtl-webkit-b312-v1: mso-hide is Outlook-only; a browser paints it."""
     item = _convert('<p style="mso-hide:all">SENTINEL</p>')
     assert "SENTINEL" in item.markdown
     assert not item.stripped.get("hidden_mso")
+    # A different hiding rule next to it still hides.
     assert not _visible('<p style="mso-hide:all;display:none">SENTINEL</p>')
+
+
+def test_the_webkit_sibling_counterexamples_are_kept_and_their_controls_hidden() -> (
+    None
+):
+    """Council follow-up to zc-dtl-webkit-b312-v1: the eight losses WebKit paints."""
+    kept = [
+        '<div style="max-width:0">SENTINEL</div>',
+        '<div style="height:0">SENTINEL</div>',
+        '<div style="line-height:0">SENTINEL</div>',
+        '<div style="width:0;height:0">SENTINEL</div>',
+        '<div style="left:-9999px">SENTINEL</div>',
+        '<div style="top:-9999px">SENTINEL</div>',
+        '<span style="text-indent:-9999px">SENTINEL</span>',
+        '<div style="clip:rect(0,0,0,0)">SENTINEL</div>',
+        '<table><tr><td style="max-height:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
+        '<table><tr><td style="display:table-cell;max-width:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
+    ]
+    for markup in kept:
+        assert _visible(markup), markup
+    hidden = [
+        '<div style="width:0;height:0;overflow:hidden">SENTINEL</div>',
+        '<div style="position:absolute;left:-9999px">SENTINEL</div>',
+        '<div style="position:fixed;top:-9999px">SENTINEL</div>',
+        '<div style="text-indent:-9999px;overflow:hidden">SENTINEL</div>',
+        '<div style="position:absolute;clip:rect(0,0,0,0)">SENTINEL</div>',
+        '<div style="max-height:0;overflow:hidden">SENTINEL</div>',
+    ]
+    for markup in hidden:
+        assert not _visible(markup), markup
+
+
+# (declarations, tag, hidden in a browser). Council zc-zcore144-765d-v1: an element
+# is judged the same way whether the declarations are inline, in a class rule or in
+# an id rule.
+_PARITY = [
+    ("display:block;max-height:0;overflow:hidden", "span", True),
+    ("max-height:0;overflow:hidden", "span", False),
+    ("max-height:0;overflow:hidden hidden", "div", True),
+    ("max-height:0;overflow:clip clip", "div", True),
+    ("max-height:0", "div", False),
+    ("max-height:0;overflow:hidden", "td", False),
+    ("max-height:0;overflow:hidden", "caption", True),
+    ("display:table-cell;max-height:0;overflow:hidden", "div", False),
+    ("display:table-row;max-width:0;overflow:hidden", "div", False),
+    ("width:0;height:0;overflow:hidden", "div", True),
+    ("width:0;height:0;overflow:hidden", "span", False),
+    ("position:absolute;width:0;height:0;overflow:hidden", "span", True),
+    ("float:left;max-height:0;overflow:hidden", "span", True),
+    ("line-height:0;overflow:hidden", "div", True),
+    ("line-height:0;overflow:hidden", "span", True),
+    ("line-height:0", "div", False),
+    ("height:0", "div", False),
+    ("text-indent:-9999px", "div", True),
+    ("text-indent:-9999px", "span", False),
+    ("text-indent:-9999px;overflow:hidden", "span", False),
+    ("position:relative;left:-9999px", "div", True),
+    ("position:sticky;top:-9999px", "div", True),
+    ("position:absolute;left:-9999px", "div", True),
+    ("left:-9999px", "div", False),
+    ("margin-left:-9999px", "div", True),
+    ("margin-top:-9999px", "div", True),
+    ("position:absolute;clip:rect(0,0,0,0)", "div", True),
+    ("position:absolute;clip:rect(0,0,0,0)", "span", True),
+    ("position:relative;clip:rect(0,0,0,0)", "div", False),
+    ("clip:rect(0,0,0,0)", "div", False),
+    ("mso-hide:all", "div", False),
+    ("mso-hide:all;display:none", "div", True),
+]
+
+
+@pytest.mark.parametrize(("decls", "tag", "hidden"), _PARITY)
+def test_inline_class_and_id_judge_an_element_the_same_way(
+    decls: str, tag: str, hidden: bool
+) -> None:
+    inner = "<tr><td>SENTINEL</td></tr>" if tag == "caption" else "SENTINEL"
+
+    def wrap(open_tag: str) -> str:
+        body = f"{open_tag}{inner}</{tag}>"
+        if tag in ("td", "caption"):
+            body = (
+                f"<table>{open_tag}SENTINEL</{tag}></table>"
+                if tag == "caption"
+                else f"<table><tr>{open_tag}SENTINEL</{tag}></tr></table>"
+            )
+        return body
+
+    inline = wrap(f'<{tag} style="{decls}">')
+    by_class = f"<style>.r{{{decls}}}</style>" + wrap(f'<{tag} class="r">')
+    by_id = f"<style>#r{{{decls}}}</style>" + wrap(f'<{tag} id="r">')
+    for markup in (inline, by_class, by_id):
+        assert _visible(markup) is (not hidden), markup
+
+
+def test_two_style_blocks_for_one_class_are_merged() -> None:
+    markup = (
+        "<style>.a{display:block}</style><style>.a{max-height:0;overflow:hidden}</style>"
+        '<span class="a">SENTINEL</span>'
+    )
+    assert not _visible(markup)
+
+
+def test_an_oversize_style_rule_hides() -> None:
+    padding = "x:y;" * 2000
+    markup = f"<style>.big{{{padding}}}</style><div class='big'>SENTINEL</div>"
+    assert not _visible(markup)
+
+
+# "Narrow only on proof" (council zc-zcore144-47f4-v2): where something unmodelled
+# could set the condition, the text is hidden as before the narrowing.
+_UNPROVABLE = [
+    # !important in a rule beats an inline value
+    (
+        "<style>.c{overflow:hidden!important}</style>"
+        '<div class="c" style="max-height:0;overflow:visible">SENTINEL</div>'
+    ),
+    # two class rules disagree: the stylesheet order, not the class order, decides
+    (
+        "<style>.a{overflow:visible}.b{overflow:hidden}</style>"
+        '<div class="a b" style="max-height:0">SENTINEL</div>'
+    ),
+    # another selector, a universal selector, an element selector, an at-rule
+    '<style>div{overflow:hidden}</style><div style="max-height:0">SENTINEL</div>',
+    '<style>*{overflow:hidden}</style><div style="max-height:0">SENTINEL</div>',
+    ('<style>p{position:absolute}</style><p style="left:-9999px">SENTINEL</p>'),
+    (
+        "<style>@media screen{.x{overflow:hidden}}</style>"
+        '<div class="x" style="max-height:0">SENTINEL</div>'
+    ),
+    # auto, scroll and contain clip a zero-height box
+    '<div style="max-height:0;overflow:auto">SENTINEL</div>',
+    '<div style="max-height:0;overflow:scroll">SENTINEL</div>',
+    '<div style="max-height:0;contain:paint">SENTINEL</div>',
+    # a comment or an escape in a style
+    '<span style="max-height:0;/**/overflow:hidden">SENTINEL</span>',
+    '<span style="max-height:0;overflow:\\68idden">SENTINEL</span>',
+    # an unknown display is not proven inline
+    '<span style="display:foo;max-height:0;overflow:hidden">SENTINEL</span>',
+]
+
+
+@pytest.mark.parametrize("markup", _UNPROVABLE)
+def test_a_narrowing_applies_only_where_the_condition_is_shown_false(
+    markup: str,
+) -> None:
+    assert not _visible(markup), markup
+
+
+def test_a_pile_of_rules_for_one_selector_is_bounded_and_hides() -> None:
+    rules = "".join(f".p{{width:{n}px}}" for n in range(3000))
+    started = time.monotonic()
+    item = _convert(f"<style>{rules}</style><div class='p'>SENTINEL</div>")
+    assert time.monotonic() - started < 5
+    assert "SENTINEL" not in item.markdown
+
+
+_WHITELIST_ROWS = [
+    # kept: the condition is proven false
+    ('<p style="max-height:0">SENTINEL</p>', True),
+    ('<span style="max-height:0;overflow:hidden">SENTINEL</span>', True),
+    (
+        '<div><span style="max-height:0;overflow:hidden">SENTINEL</span></div>',
+        True,
+    ),
+    (
+        '<table><tr><td style="max-height:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
+        True,
+    ),
+    # hidden: anything we cannot prove
+    ('<p style="max-height:0 ! important;overflow:hidden">SENTINEL</p>', False),
+    ('<p style="max-height:0;overflow:hidden;overflow:none">SENTINEL</p>', False),
+    ('<p style="max-height:0;overflow:var(--o)">SENTINEL</p>', False),
+    ('<p style="max-height:0;overflow:inherit">SENTINEL</p>', False),
+    ('<p style="max-height:0;content-visibility:hidden">SENTINEL</p>', False),
+    ('<p style="max-height:0;contain:paint">SENTINEL</p>', False),
+    ('<p style="max-height:0;all:unset;overflow:hidden">SENTINEL</p>', False),
+    (
+        '<div style="display:flex"><span style="max-height:0;overflow:hidden">'
+        "SENTINEL</span></div>",
+        False,
+    ),
+    (
+        '<table><tr><td style="display:block;max-height:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
+        False,
+    ),
+    (
+        "<style>@media print{.x{overflow:visible}}</style>"
+        '<p class="x" style="max-height:0;overflow:hidden">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style media="print">.x{overflow:hidden}</style>'
+        '<p class="x" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<link rel="stylesheet" href="a.css"><p style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+    (
+        "<style>.x{overflow:hidden}</style>"
+        '<p class="X" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style>.x{overflow:hidden}</style><p class="x" style="max-height:0">'
+        "SENTINEL</p>",
+        False,
+    ),
+]
+
+
+@pytest.mark.parametrize(("markup", "visible"), _WHITELIST_ROWS)
+def test_whitelist_keeps_text_only_on_proof(markup: str, visible: bool) -> None:
+    assert _visible(markup) is visible, markup
+
+
+def test_a_pile_of_repeated_classes_is_bounded_and_hidden() -> None:
+    body = "x{max-height:0;overflow:hidden}"
+    markup = f'<style>.{body}</style><p class="{" ".join(["x"] * 5000)}">SENTINEL</p>'
+    assert not _visible(markup)
+
+
+_COUNCIL_146_ROWS = [
+    # P0-1: every kind of one style is checked, a non-narrowable one hides at once
+    ('<div style="height:0;position:absolute;left:-9999px">SENTINEL</div>', False),
+    ('<div style="height:0;display:none">SENTINEL</div>', False),
+    # P0-2: a `;` inside brackets or quotes does not end a declaration
+    (
+        '<div style="max-height:0;overflow:hidden;x:(;display:inline;)">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<div style=\"max-height:0;overflow:hidden;x:'a;display:inline'\">"
+        "SENTINEL</div>",
+        False,
+    ),
+    # P1-3: a closed grammar for every offset value
+    ('<span style="text-indent:-9999px each-line">SENTINEL</span>', False),
+    ('<span style="text-indent:-9999px hanging">SENTINEL</span>', False),
+    # P1-4: text-indent is inherited by block children
+    ('<span style="text-indent:-9999px"><div>SENTINEL</div></span>', False),
+    # P1-5: a table part under a flex parent is blockified
+    (
+        '<table><tr style="display:flex"><td style="max-height:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
+        False,
+    ),
+    # P1-6: two spellings of one class name are merged in quirks mode
+    (
+        "<style>.foo{overflow:visible}.FOO{overflow:hidden}</style>"
+        '<p class="foo" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+    # P1-7: a browser splits a class on ASCII whitespace only
+    (
+        "<style>.foo{overflow:hidden}</style>"
+        '<p class="foo\u00a0z" style="max-height:0">SENTINEL</p>',
+        True,
+    ),
+    # P1-8: a browser keeps the first of two equal attributes
+    ('<div style="display:none" style="color:red">SENTINEL</div>', False),
+    # P2-9: any overflow property clips
+    ('<p style="max-height:0;overflow-block:hidden">SENTINEL</p>', False),
+    ('<textarea style="max-height:0">SENTINEL</textarea>', False),
+    # P2-10: a leading comment token or statement at-rule does not eat a selector
+    (
+        '<style><!-- .pre{display:none} --></style><p class="pre">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style>@layer a;.pre{display:none}</style><p class="pre">SENTINEL</p>',
+        False,
+    ),
+    # zeofetch receipt 0118f101: a preheader is hidden by display; an inline-block with
+    # max-width:0 and no clipping is painted
+    (
+        '<div style="display:none;max-height:0px;max-width:0px;opacity:0;'
+        'overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    ('<div style="display:inline-block;max-width:0">SENTINEL</div>', True),
+    # round 2: N1 ordering of parentheses, N2 junk before a rule, N3 blockified cells,
+    # N4 a comment before a rule
+    (
+        '<div style="max-height:0;overflow:hidden;x:)(;display:inline;)(">'
+        "SENTINEL</div>",
+        False,
+    ),
+    (
+        "<style>.x{max-height:0;overflow:hidden;y:)(;display:inline;)(}</style>"
+        '<div class="x">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>junk;.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.x-->{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.x<!--{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        '<table><tr><td style="float:left;max-height:0;overflow:hidden">'
+        "SENTINEL</td></tr></table>",
+        False,
+    ),
+    (
+        '<div style="display:table-cell;position:absolute;max-height:0;'
+        'overflow:hidden">'
+        "SENTINEL</div>",
+        False,
+    ),
+    (
+        '<style>/* preheader */ .pre{display:none}</style><p class="pre">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style>@charset "x";/*c*/.pre{display:none}</style>'
+        '<p class="pre">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style><!-- .pre{display:none} --></style><p class="pre">SENTINEL</p>',
+        False,
+    ),
+    # round 3: an open bracket in one rule swallows the rules after it in a browser
+    (
+        "<style>.q{b:url(a}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.q{b:url(a})}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.q{b:(a}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.q{b:[a}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    # a string is one token: its braces and comment marks are not structure
+    (
+        '<style>.a{content:"/*"}.pre{display:none}.b{content:"*/"}</style>'
+        '<p class="pre">SENTINEL</p>',
+        False,
+    ),
+    (
+        "<style>.a{content:'}'}.pre{display:none}</style><p class=\"pre\">SENTINEL</p>",
+        False,
+    ),
+    # round 4: the ORDER of brackets, also across at-rules
+    (
+        "<style>@media y{.c{d:(}}.x{display:inline}@media x{.a{b:)}}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>@media y{.c{d:[}}.x{display:inline}@media x{.a{b:]}}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    (
+        "<style>.c{d:(]}.x{display:inline}</style>"
+        '<div class="x" style="max-height:0;overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    # B3 keywords, B4 auto, B7, B8, B10
+    ('<p style="max-height:0;overflow:initial">SENTINEL</p>', False),
+    ('<p style="max-height:0;overflow:unset">SENTINEL</p>', False),
+    ('<p style="max-height:0;overflow:revert">SENTINEL</p>', False),
+    ('<p style="max-height:0;overflow:auto">SENTINEL</p>', False),
+    (
+        "<style>div > p{overflow:hidden}</style>"
+        '<div><p style="max-height:0">SENTINEL</p></div>',
+        False,
+    ),
+    (
+        "<template><style>.x{overflow:hidden}</style></template>"
+        '<p class="x" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+    (
+        '<style type="text/plain">.x{overflow:hidden}</style>'
+        '<p class="x" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+    (
+        "<style>@import url(a.css);.x{overflow:hidden}</style>"
+        '<p class="x" style="max-height:0">SENTINEL</p>',
+        False,
+    ),
+]
+
+
+@pytest.mark.parametrize(("markup", "visible"), _COUNCIL_146_ROWS)
+def test_council_146_findings(markup: str, visible: bool) -> None:
+    assert _visible(markup) is visible, markup
+
+
+def test_a_sheet_of_many_strings_is_masked_in_linear_time() -> None:
+    sheet = ".a{content:" + "''" * 200_000 + "}.pre{display:none}"
+    markup = f'<style>{sheet}</style><p class="pre">SENTINEL</p>'
+    started = time.monotonic()
+    assert not _visible(markup)
+    assert time.monotonic() - started < 5

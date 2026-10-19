@@ -184,7 +184,7 @@ def drop_comments(
         node.extract()
 
 
-def css_rules(
+def css_rules(  # noqa: C901 -- the document-level strict triggers of review B
     soup: Any,  # noqa: ANN401
     noise: Noise,
     deadline: Deadline,
@@ -192,11 +192,43 @@ def css_rules(
     """The hiding ``.class`` and ``#id`` rules from every ``<style>`` block."""
     classes: dict[str, str] = {}
     ids: dict[str, str] = {}
+    if soup.find("link") is not None:
+        ids[_hidden.UNMODELLED] = "1"  # an external stylesheet we cannot read
     for block in soup.find_all("style"):
         deadline.check()
-        found_classes, found_ids = _hidden.style_rules(block.get_text(), noise)
-        classes.update(found_classes)
-        ids.update(found_ids)
+        kind = str(block.get("type", "text/css")).strip().lower()
+        if (
+            block.has_attr("media")
+            or kind not in ("", "text/css")
+            or block.find_parent("template") is not None
+        ):
+            ids[_hidden.UNMODELLED] = "1"  # not merged: it may or may not apply
+            continue
+        text = block.get_text()
+        if "@import" in text.lower():
+            ids[_hidden.UNMODELLED] = "1"
+        found_classes, found_ids = _hidden.style_rules(text, noise, deadline)
+        for table, found in ((classes, found_classes), (ids, found_ids)):
+            for name, body in found.items():
+                if name == _hidden.UNMODELLED:
+                    table[name] = body
+                    continue
+                previous = table.get(name)
+                if name.startswith(_hidden.FOLD):
+                    # an alias of the real name; two spellings are not provable
+                    if previous is not None and previous != body:
+                        ids[_hidden.UNMODELLED] = "1"
+                    table[name] = body
+                # the same selector in two <style> blocks: the later declaration wins
+                elif previous is None:
+                    table[name] = body
+                elif (
+                    _hidden.OVERSIZE_RULE in (previous, body)
+                    or len(previous) + len(body) + 1 > _hidden.STYLE_MAX_CHARS
+                ):
+                    table[name] = _hidden.OVERSIZE_RULE
+                else:
+                    table[name] = f"{previous};{body}"
     return classes, ids
 
 
