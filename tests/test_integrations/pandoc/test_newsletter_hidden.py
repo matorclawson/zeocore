@@ -229,3 +229,36 @@ def test_sheet_scanning_checks_the_deadline_per_block() -> None:
     room = _Counting()
     _hidden.note_sheets(soup, _noise.load(), _hidden.new_diagnostics(), room)
     assert room.checks >= 50
+
+
+# --- browser evidence: where the converter agrees with WebKit, and where not ---
+
+_WEBKIT = json.loads(
+    (
+        Path(__file__).parent / "fixtures" / "webkit" / "sow41-differential.json"
+    ).read_text("utf-8")
+)
+
+
+@pytest.mark.parametrize("case", _WEBKIT, ids=[c["name"] for c in _WEBKIT])
+def test_the_converter_against_native_webkit_measurements(
+    case: dict[str, object],
+) -> None:
+    """
+    Four pairs measured in native WebKit (dt-library, org-ducktyper-ai@7b4762a2).
+
+    Painted text is always kept. Text WebKit does not paint is dropped only where the
+    element's own style says ``display:none``; where WebKit hides it by clipping, the
+    converter KEEPS it (CSS clipping is not evaluated) and reports it in diagnostics.
+    """
+    marker = "DIFFERENTIAL_SENTINEL"
+    text, counts, diagnostics = _clean(str(case["html"]))
+    painted = bool(case["expected_painted"])
+    if painted:
+        assert marker in text
+        return
+    if "display:none" in str(case["html"]):
+        assert marker not in text and counts["hidden_display"] == 1
+    else:
+        assert marker in text  # the documented fidelity limit
+        assert diagnostics["inline_max_size"] == 1
