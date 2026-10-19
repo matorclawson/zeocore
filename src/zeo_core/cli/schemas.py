@@ -41,11 +41,28 @@ SCHEMAS: Final[dict[str, str]] = {
     "hosted.operation-response": (
         "zeo_core.integrations.hosted.client:HostedOperationResponse"
     ),
+    "ui.result-card": "zeo_core.contracts.ui.card:UiCardResult",
     "revolut.account": "zeo_core.integrations.revolut.models:Account",
     # TransactionQuery waits for its wire alias ("from", contract §6): its
     # schema today would name the Python field "from_".
     "revolut.transaction-page": "zeo_core.integrations.revolut.models:TransactionPage",
 }
+
+
+#: Names other than the registered one that select the same contract. The wire tag
+#: of a UI result is ``zeo.ui-result/v1``; ``zeocore validate`` and ``zeocore schema``
+#: accept it for the one-card subset (zeocore-SOW-42).
+ALIASES: Final[dict[str, str]] = {"zeo.ui-result/v1": "ui.result-card"}
+
+#: Contracts whose limits are properties of the bytes as received: ``zeocore
+#: validate`` hands them the raw stdin, not a parsed value.
+BYTE_CONTRACTS: Final = frozenset({"ui.result-card"})
+
+
+def resolve(name: str) -> str | None:
+    """The registered name for ``name`` (itself, or the alias), or None."""
+    name = ALIASES.get(name, name)
+    return name if name in SCHEMAS else None
 
 
 def adapter(name: str) -> TypeAdapter[Any]:

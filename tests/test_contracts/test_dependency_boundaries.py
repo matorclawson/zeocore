@@ -31,7 +31,8 @@ class DependencyChecker:
         "__future__",
     }
 
-    ALLOWED_THIRD_PARTY = {"pydantic"}
+    # pydantic_core: pydantic's own engine, home of PydanticCustomError (stable codes)
+    ALLOWED_THIRD_PARTY = {"pydantic", "pydantic_core"}
 
     # Forbidden modules (from other ZeoCore rings)
     FORBIDDEN_MODULES = {

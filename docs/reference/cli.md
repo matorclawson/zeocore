@@ -225,7 +225,26 @@ A change to these rules is a new `cli_protocol`, announced like a contract chang
 | `hosted.operation-response` | `HostedOperationResponse` |
 | `revolut.account` | Revolut `Account` |
 | `revolut.transaction-page` | Revolut `TransactionPage` |
+| `ui.result-card` | `UiCardResult`: `zeo.ui-result/v1` with one read-only card (zeocore-SOW-42); `zeo.ui-result/v1` names it too |
 
+- **`ui.result-card` is the one-card subset of `zeo.ui-result/v1`.** The wire tag
+  `zeo.ui-result/v1` selects it in `zeocore validate` and `zeocore schema`. The document
+  must have exactly one component of kind `card` with an empty `action_refs`; a table,
+  chart, form, button or second component is refused as unsupported, never coerced.
+  Limits are measured on the JSON text as received (response 262,144 bytes, component
+  65,536 bytes, depth 9); text classes S, D and L are bounded in UTF-8 bytes under the
+  pinned Unicode 16.0.0 tables. The JSON Schema's `maxLength` counts characters, which
+  is a looser bound than bytes: only `zeocore validate` applies the byte bounds.
+  The exported schema is **necessary, not sufficient**: it never refuses a document the
+  validator accepts, and it refuses the structural errors (unknown key, missing key,
+  wrong type for a fact's `value_type`, an explicit null for an optional key, a second
+  component, any other kind, a non-empty `action_refs`, counts, id and timestamp shapes).
+  What only `zeocore validate` checks: UTF-8 byte lengths and the Unicode 16.0.0 text
+  classes, calendar validity (leap days), `observed_at` not after `produced_at` and
+  `expires_at` after `observed_at`, negative zero and the digits-equal-`scale` rule,
+  that an integer is written as an integer token (`1.0` is an integer to JSON Schema),
+  duplicate keys, the response and component byte limits and the depth bound. Do not
+  treat plain JSON Schema validation as equivalent to `zeocore validate`.
 - **A name is a promise.** It keeps naming the same contract until a major
   version. New names are additive.
 - **The files are committed** in the repository under `contracts/zeocore-v1/`

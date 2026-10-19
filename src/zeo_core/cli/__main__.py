@@ -78,7 +78,7 @@ from .protocol import (
     own_action,
     with_next_action,
 )
-from .schemas import SCHEMAS, adapter, render_schema
+from .schemas import BYTE_CONTRACTS, SCHEMAS, adapter, render_schema, resolve
 
 OK, INVALID = EXIT_DONE, EXIT_INVALID
 #: The schema of the answer to an unknown or missing command.
@@ -124,14 +124,19 @@ def _version(args: Sequence[str], _stdin: bytes) -> Answer:
 def _schema(args: Sequence[str], _stdin: bytes) -> Answer:
     if list(args) == ["list"]:
         return OK, {"ok": True, "schemas": sorted(SCHEMAS)}
-    if len(args) != 1 or args[0] not in SCHEMAS:
+    name = resolve(args[0]) if len(args) == 1 else None
+    if name is None:
         return _invalid("schema takes 'list' or one schema name")
-    return OK, render_schema(args[0])
+    return OK, render_schema(name)
 
 
 def _validate(args: Sequence[str], stdin: bytes) -> Answer:
-    if len(args) != 1 or args[0] not in SCHEMAS:
+    name = resolve(args[0]) if len(args) == 1 else None
+    if name is None:
         return _invalid("validate takes one schema name")
+    if name in BYTE_CONTRACTS:
+        return _validate_bytes_contract(name, stdin)
+    args = [name]
     try:
         value = parse_json(stdin)
     except ProtocolError as error:
@@ -161,6 +166,35 @@ def _validate(args: Sequence[str], stdin: bytes) -> Answer:
     return OK, {
         "ok": True,
         "value": validator.dump_python(model, mode="json", by_alias=True),
+    }
+
+
+def _validate_bytes_contract(name: str, stdin: bytes) -> Answer:
+    """A contract with byte-level limits: the raw stdin is the document."""
+    from zeo_core.contracts.ui import errors_of, validate_bytes
+
+    errors = errors_of(stdin)
+    if errors:
+        declared = _field_names(render_schema(name))
+        return EXIT_HELD, {
+            "ok": False,
+            "outcome": "invalid",
+            "errors": [
+                {
+                    "loc": [
+                        part if isinstance(part, int) or part in declared else "*"
+                        for part in item["loc"]
+                    ],
+                    "type": item["type"],
+                }
+                for item in errors
+            ],
+        }
+    return OK, {
+        "ok": True,
+        "value": validate_bytes(stdin).model_dump(
+            mode="json", by_alias=True, exclude_none=True
+        ),
     }
 
 

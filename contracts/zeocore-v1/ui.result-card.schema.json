@@ -1,0 +1,606 @@
+{
+  "$defs": {
+    "CardComponent": {
+      "additionalProperties": false,
+      "properties": {
+        "accessibility_label": {
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
+          "title": "Accessibility Label",
+          "type": "string"
+        },
+        "fallback_text": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
+          "title": "Fallback Text",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "card",
+          "title": "Kind",
+          "type": "string"
+        },
+        "props": {
+          "$ref": "#/$defs/CardProps"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/Snapshot"
+        },
+        "title": {
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "accessibility_label",
+        "fallback_text",
+        "props"
+      ],
+      "title": "CardComponent",
+      "type": "object"
+    },
+    "CardProps": {
+      "additionalProperties": false,
+      "properties": {
+        "action_refs": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Action Refs",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 8,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/Fact"
+          },
+          "maxItems": 12,
+          "title": "Facts",
+          "type": "array"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "status": {
+          "$ref": "#/$defs/Status"
+        },
+        "summary": {
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "facts",
+        "evidence",
+        "action_refs"
+      ],
+      "title": "CardProps",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "operation",
+            "receipt",
+            "document",
+            "source"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "Fact": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "text"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "maxLength": 1024,
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "integer"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "boolean"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "null"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "timestamp"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "url"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "maxLength": 1024,
+                "pattern": "^https://[A-Za-z0-9]",
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "decimal_string"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "dependentRequired": {
+              "currency": [
+                "scale"
+              ]
+            },
+            "properties": {
+              "value": {
+                "pattern": "^-?(0|[1-9][0-9]{0,30})(\\.[0-9]{1,18})?$",
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "currency": {
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
+          "title": "Label",
+          "type": "string"
+        },
+        "scale": {
+          "maximum": 18,
+          "minimum": 0,
+          "title": "Scale",
+          "type": "integer"
+        },
+        "value": {
+          "title": "Value"
+        },
+        "value_type": {
+          "enum": [
+            "text",
+            "integer",
+            "decimal_string",
+            "boolean",
+            "timestamp",
+            "url",
+            "null"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "value_type",
+        "value"
+      ],
+      "title": "Fact",
+      "type": "object"
+    },
+    "InReplyTo": {
+      "additionalProperties": false,
+      "properties": {
+        "invocation": {
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+          "title": "Invocation",
+          "type": "string"
+        },
+        "operation": {
+          "pattern": "^[a-z][a-z0-9_.-]{0,127}$",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "invocation"
+      ],
+      "title": "InReplyTo",
+      "type": "object"
+    },
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "current": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Current"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Total"
+        },
+        "unit": {
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "current",
+        "total",
+        "unit"
+      ],
+      "title": "Progress",
+      "type": "object"
+    },
+    "Snapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "maxLength": 20,
+          "minLength": 20,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "observed_at": {
+          "maxLength": 20,
+          "minLength": 20,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        }
+      },
+      "required": [
+        "source",
+        "observed_at"
+      ],
+      "title": "Snapshot",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "operation",
+            "receipt",
+            "document",
+            "source"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "Status": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "healthy",
+            "degraded",
+            "error",
+            "unknown",
+            "stale",
+            "unavailable"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "text"
+      ],
+      "title": "Status",
+      "type": "object"
+    }
+  },
+  "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/ui.result-card.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "``zeo.ui-result/v1`` with one read-only card (the zeocore-SOW-42 subset).\n\nThis JSON Schema is NECESSARY BUT NOT SUFFICIENT: it refuses the structural errors\nand never refuses a document the validator accepts, but UTF-8 byte lengths, the\nUnicode 16.0.0 text classes beyond the BMP, calendar validity, snapshot ordering,\ndecimal scale digits, duplicate keys and the byte limits are checked only by\n``zeocore validate``. Conformance means ``zeocore validate`` plus the shared\nvectors.",
+  "properties": {
+    "complete": {
+      "title": "Complete",
+      "type": "boolean"
+    },
+    "components": {
+      "items": {
+        "$ref": "#/$defs/CardComponent"
+      },
+      "maxItems": 1,
+      "minItems": 1,
+      "title": "Components",
+      "type": "array"
+    },
+    "in_reply_to": {
+      "$ref": "#/$defs/InReplyTo"
+    },
+    "plain_text": {
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
+      "title": "Plain Text",
+      "type": "string"
+    },
+    "produced_at": {
+      "maxLength": 20,
+      "minLength": 20,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "title": "Produced At",
+      "type": "string"
+    },
+    "result_id": {
+      "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+      "title": "Result Id",
+      "type": "string"
+    },
+    "schema": {
+      "const": "zeo.ui-result/v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "result_id",
+    "in_reply_to",
+    "produced_at",
+    "complete",
+    "plain_text",
+    "components"
+  ],
+  "title": "UiCardResult",
+  "type": "object"
+}

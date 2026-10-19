@@ -124,7 +124,8 @@ ENTRIES: Final[tuple[Entry, ...]] = (
     ),
     Entry(
         "validate",
-        "validate stdin against a contract schema; errors never echo input",
+        "validate stdin against a contract schema; errors never echo input; "
+        "zeo.ui-result/v1 validates the one-card subset only",
         "zeocore validate <name> < value.json",
         stdin="the value to validate, as JSON",
     ),
