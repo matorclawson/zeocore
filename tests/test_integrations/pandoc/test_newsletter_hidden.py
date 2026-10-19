@@ -480,3 +480,17 @@ def test_whitespace_inside_a_keyword_is_removed_a_documented_limit(style: str) -
     # pinned so the limit in the how-to stays true: a browser shows this text
     text, counts, _diagnostics = _clean(f'<p style="{style}">TEXT</p>')
     assert "TEXT" not in text and counts["hidden_display"] == 1
+
+
+def test_only_the_named_property_is_read_for_non_keyword_values() -> None:
+    # pins the filter in _values: another property's non-keyword value is not counted
+    _text, _counts, diagnostics = _clean(
+        '<p style="width:calc(1px + 2px);--display:var(--a);display:block">T</p>'
+    )
+    assert _nonzero(diagnostics) == {}
+
+
+def test_a_comment_inside_a_value_may_add_one_count_a_documented_over_count() -> None:
+    text, counts, diagnostics = _clean('<p style="display:block/*x*/">TEXT</p>')
+    assert "TEXT" in text and counts["hidden"] == 0
+    assert _nonzero(diagnostics) == {"inline_style_unparsed": 1, "inline_display": 1}

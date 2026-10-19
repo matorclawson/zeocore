@@ -146,11 +146,16 @@ says what was present. Fidelity limits, stated plainly:
   offsets, `clip-path`, `content-visibility`, a closed `<details>`, a `<dialog>` and
   colour on colour are **not** evaluated (the first six are named in a kept element's own style
   and counted; the rest are not detected).
-- A `display` or `visibility` declaration whose value is not a plain keyword (`var()`,
+- A `display` or `visibility` declaration whose value is not a plain keyword (a plain keyword is lower-case letters and hyphens only, read after whitespace is removed and `!important` is set aside; `var()`,
   `env()`, anything with a bracket) is not evaluated, wherever it stands among the
   declarations: a later invalid keyword does not clear it (`display:var(--h);display:bogus`
   is hidden in a browser). The text is kept and counted under `inline_display` or
   `inline_visibility`.
+- The non-keyword check reads the style as written, comments included, while the
+  technique names are read after comments are removed. A style that holds a comment is
+  already counted as unparsed, and a comment inside a value (`display:block/*x*/`) can
+  also add one `inline_display`: the count may be one higher than the commented-out
+  text alone would give, never lower.
 - Whitespace INSIDE a keyword is removed before reading, so `display:no ne` and
   `dis play:none` are read as `display:none` and dropped here where a browser shows
   the text.
