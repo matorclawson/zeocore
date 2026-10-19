@@ -225,7 +225,16 @@ A change to these rules is a new `cli_protocol`, announced like a contract chang
 | `hosted.operation-response` | `HostedOperationResponse` |
 | `revolut.account` | Revolut `Account` |
 | `revolut.transaction-page` | Revolut `TransactionPage` |
+| `ui.result-card` | `UiCardResult`: `zeo.ui-result/v1` with one read-only card (zeocore-SOW-42); `zeo.ui-result/v1` names it too |
 
+- **`ui.result-card` is the one-card subset of `zeo.ui-result/v1`.** The wire tag
+  `zeo.ui-result/v1` selects it in `zeocore validate` and `zeocore schema`. The document
+  must have exactly one component of kind `card` with an empty `action_refs`; a table,
+  chart, form, button or second component is refused as unsupported, never coerced.
+  Limits are measured on the JSON text as received (response 262,144 bytes, component
+  65,536 bytes, depth 9); text classes S, D and L are bounded in UTF-8 bytes under the
+  pinned Unicode 16.0.0 tables. The JSON Schema's `maxLength` counts characters, which
+  is a looser bound than bytes: only `zeocore validate` applies the byte bounds.
 - **A name is a promise.** It keeps naming the same contract until a major
   version. New names are additive.
 - **The files are committed** in the repository under `contracts/zeocore-v1/`
