@@ -147,6 +147,14 @@ says what was present. Fidelity limits, stated plainly:
   offsets, `clip-path`, `content-visibility`, a closed `<details>` and colour on
   colour are **not** evaluated (the first six are named in a kept element's own style
   and counted; the rest are not detected).
+- A `display` or `visibility` value that is not a plain keyword (`var()`, `env()`,
+  anything with a bracket) is not evaluated: the text is kept and counted under
+  `inline_display` or `inline_visibility`.
+- Whitespace in a `style` is read as Python reads it, so a no-break space or a vertical
+  tab between a name and a value is ignored where a browser would treat the declaration
+  as invalid (a `display:` NBSP `none` is dropped here).
+- A comment inside a `style` makes it undecided (kept and counted), even where the
+  commented text is `display:none;`.
 - Strings are not tokenised: a `;` inside a quoted value splits a `style` attribute, so
   a declaration a browser reads as part of a string can be read as a declaration (an
   invalid value is ignored; a technique it names is still counted).

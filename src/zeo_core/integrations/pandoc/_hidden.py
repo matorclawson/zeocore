@@ -85,6 +85,7 @@ def squash(style: str) -> str:
 
 
 _COMMENT: Final = re.compile(r"/\*.*?(\*/|$)", re.DOTALL)
+_KEYWORD: Final = re.compile(r"[a-z-]+")
 
 
 def declarations(style: str) -> dict[str, str]:
@@ -165,9 +166,19 @@ def note_inline(tag: Any, noise: Noise, diagnostics: dict[str, int]) -> None:  #
         if len(style) > STYLE_MAX_CHARS:
             return
     squashed = squash(_COMMENT.sub("", style))
-    for kind, pattern in noise.hidden_patterns:
-        if kind in _TECHNIQUES_INLINE and pattern.search(squashed):
-            diagnostics[f"inline_{kind}"] += 1
+    named = {
+        kind
+        for kind, pattern in noise.hidden_patterns
+        if kind in _TECHNIQUES_INLINE and pattern.search(squashed)
+    }
+    for prop in ("display", "visibility"):
+        # a final value that is not a plain keyword (``var()``, ``env()``, anything
+        # with a bracket) may be ``none`` or ``hidden`` in a browser: count it
+        value = _final(style, prop)
+        if value is not None and not _KEYWORD.fullmatch(value):
+            named.add(prop)
+    for kind in named:
+        diagnostics[f"inline_{kind}"] += 1
 
 
 def note_dropped_visible(tag: Any, diagnostics: dict[str, int]) -> None:  # noqa: ANN401

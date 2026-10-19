@@ -358,6 +358,45 @@ def test_a_comment_after_a_real_declaration_leaves_it_undecided_and_counted() ->
     assert diagnostics["inline_display"] == 1
 
 
+@pytest.mark.parametrize(
+    ("style", "key"),
+    [
+        ("--h:none;display:var(--h)", "inline_display"),
+        ("display:var(--x,none)", "inline_display"),
+        ("display:env(x,none)", "inline_display"),
+        ("display:attr(x)", "inline_display"),
+        ("--v:hidden;visibility:var(--v)", "inline_visibility"),
+        ("visibility:var(--x,hidden)", "inline_visibility"),
+        ("visibility:env(x,collapse)", "inline_visibility"),
+    ],
+)
+def test_a_non_literal_value_is_kept_and_counted_once(style: str, key: str) -> None:
+    text, counts, diagnostics = _clean(f'<p style="{style}">TEXT</p>')
+    assert "TEXT" in text and counts["hidden"] == 0
+    assert diagnostics[key] == 1
+
+
+def test_a_plain_keyword_value_is_not_counted_as_non_literal() -> None:
+    _text, _counts, diagnostics = _clean(
+        '<p style="display:inline-block;visibility:visible">T</p>'
+    )
+    assert _nonzero(diagnostics) == {}
+
+
+def test_text_in_a_comment_is_not_read_as_a_declaration() -> None:
+    text, counts, diagnostics = _clean(
+        '<p style="color:red/*;display:none;*/">TEXT</p>'
+    )
+    assert "TEXT" in text and counts["hidden"] == 0
+    assert _nonzero(diagnostics) == {"inline_style_unparsed": 1}
+
+
+@pytest.mark.parametrize("space", ["\u00a0", "\x0b"])
+def test_python_whitespace_is_ignored_in_a_style_a_documented_limit(space: str) -> None:
+    text, counts, _diagnostics = _clean(f'<p style="display:{space}none">TEXT</p>')
+    assert counts["hidden_display"] == 1 and "TEXT" not in text
+
+
 def test_a_visible_child_with_a_commented_style_is_counted_not_skipped() -> None:
     markup = (
         '<div style="visibility:hidden">'
