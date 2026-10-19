@@ -27,6 +27,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from zeo_core.contracts.ui._unicode16 import (
     is_control,
@@ -66,19 +67,21 @@ _URL: Final = re.compile(
 
 def _bounded(value: str, limit: int, *, lf: bool, ignorable: bool) -> str:
     if len(value.encode("utf-8", errors="surrogatepass")) > limit:
-        msg = f"text over {limit} bytes"
-        raise ValueError(msg)
+        raise PydanticCustomError("ui_text_bytes", f"text over {limit} bytes")
     for char in value:
         cp = ord(char)
         if is_surrogate(cp) or is_unassigned(cp):
-            msg = "text holds a refused code point"
-            raise ValueError(msg)
+            raise PydanticCustomError(
+                "ui_text_code_point", "text holds a refused code point"
+            )
         if is_control(cp) and not (lf and cp == 0x0A):
-            msg = "text holds a control character"
-            raise ValueError(msg)
+            raise PydanticCustomError(
+                "ui_text_control", "text holds a control character"
+            )
         if not ignorable and is_default_ignorable(cp):
-            msg = "text holds a default-ignorable code point"
-            raise ValueError(msg)
+            raise PydanticCustomError(
+                "ui_text_ignorable", "text holds a default-ignorable code point"
+            )
     return value
 
 
@@ -97,26 +100,44 @@ def _class_l(value: str) -> str:
 def _timestamp(value: str) -> str:
     match = _TIMESTAMP.fullmatch(value)
     if match is None:
-        msg = "not a YYYY-MM-DDTHH:MM:SSZ timestamp"
-        raise ValueError(msg)
+        raise PydanticCustomError(
+            "ui_timestamp_shape", "not a YYYY-MM-DDTHH:MM:SSZ timestamp"
+        )
     year, month, day, hour, minute, second = (int(part) for part in match.groups())
     leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
     days = (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
     if not 1 <= month <= 12 or not 1 <= day <= days[month - 1]:
-        msg = "not a real calendar date"
-        raise ValueError(msg)
+        raise PydanticCustomError("ui_timestamp_calendar", "not a real calendar date")
     if hour > 23 or minute > 59 or second > 59:
-        msg = "not a real time of day"
-        raise ValueError(msg)
+        raise PydanticCustomError("ui_timestamp_time", "not a real time of day")
     return value
 
 
+#: What JSON Schema can say about the text classes (the BMP part: C0/C1 controls, LF
+#: in S and D, and the BMP Default_Ignorable set in S). Unassigned, surrogate and
+#: astral code points are checked by the validator only.
+_PATTERN_S: Final = (
+    r"^[^\u0000-\u001F\u007F-\u009F"
+    r"\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F"
+    r"\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFF8]*$"
+)
+_PATTERN_D: Final = r"^[^\u0000-\u001F\u007F-\u009F]*$"
+_PATTERN_L: Final = r"^[^\u0000-\u0009\u000B-\u001F\u007F-\u009F]*$"
+
 #: Text of class S (short label), D (data text) and L (long text).
-ShortText = Annotated[str, Field(max_length=CLASS_S), AfterValidator(_class_s)]
-DataText = Annotated[str, Field(max_length=CLASS_D), AfterValidator(_class_d)]
-LongText = Annotated[str, Field(max_length=CLASS_L), AfterValidator(_class_l)]
+ShortText = Annotated[
+    str, Field(max_length=CLASS_S, pattern=_PATTERN_S), AfterValidator(_class_s)
+]
+DataText = Annotated[
+    str, Field(max_length=CLASS_D, pattern=_PATTERN_D), AfterValidator(_class_d)
+]
+LongText = Annotated[
+    str, Field(max_length=CLASS_L, pattern=_PATTERN_L), AfterValidator(_class_l)
+]
 FallbackText = Annotated[
-    str, Field(min_length=1, max_length=CLASS_L), AfterValidator(_class_l)
+    str,
+    Field(min_length=1, max_length=CLASS_L, pattern=_PATTERN_L),
+    AfterValidator(_class_l),
 ]
 ComponentId = Annotated[str, Field(pattern=_COMPONENT_ID)]
 OperationName = Annotated[str, Field(pattern=_OPERATION)]
@@ -165,8 +186,9 @@ class _Closed(BaseModel):
 
 def _refuse_null(value: object) -> object:
     if value is None:
-        msg = "an optional key is absent, never null"
-        raise ValueError(msg)
+        raise PydanticCustomError(
+            "ui_optional_null", "an optional key is absent, never null"
+        )
     return value
 
 
@@ -185,8 +207,9 @@ class Snapshot(_Closed):
     @model_validator(mode="after")
     def _expiry_follows_observation(self) -> Self:
         if self.expires_at is not None and self.expires_at <= self.observed_at:
-            msg = "expires_at is not later than observed_at"
-            raise ValueError(msg)
+            raise PydanticCustomError(
+                "ui_expiry_order", "expires_at is not later than observed_at"
+            )
         return self
 
 
@@ -215,8 +238,9 @@ class Progress(_Closed):
     @classmethod
     def _number(cls, value: object) -> object:
         if not _finite(value):
-            msg = "not a finite JSON number within 2^53 - 1"
-            raise ValueError(msg)
+            raise PydanticCustomError(
+                "ui_number_range", "not a finite JSON number within 2^53 - 1"
+            )
         return value
 
 
@@ -276,29 +300,30 @@ class Fact(_Closed):
         if kind != "decimal_string" and (
             self.currency is not None or self.scale is not None
         ):
-            msg = "currency and scale are for decimal_string only"
-            raise ValueError(msg)
+            raise PydanticCustomError(
+                "ui_currency_scale_kind",
+                "currency and scale are for decimal_string only",
+            )
         if kind == "null":
             if value is not None:
-                msg = "a null fact carries null"
-                raise ValueError(msg)
+                raise PydanticCustomError("ui_fact_null", "a null fact carries null")
             return self
         if kind == "boolean":
             if not isinstance(value, bool):
-                msg = "not a boolean"
-                raise ValueError(msg)
+                raise PydanticCustomError("ui_fact_boolean", "not a boolean")
             return self
         if kind == "integer":
             if isinstance(value, bool) or not isinstance(value, int):
-                msg = "not a JSON integer"
-                raise ValueError(msg)
+                raise PydanticCustomError("ui_fact_integer", "not a JSON integer")
             if abs(value) > MAX_SAFE:
-                msg = "integer beyond 2^53 - 1"
-                raise ValueError(msg)
+                raise PydanticCustomError(
+                    "ui_fact_integer_range", "integer beyond 2^53 - 1"
+                )
             return self
         if not isinstance(value, str):
-            msg = f"a {kind} fact carries a string"
-            raise ValueError(msg)  # noqa: TRY004 -- a ValueError is the validation result
+            raise PydanticCustomError(
+                "ui_fact_string", f"a {kind} fact carries a string"
+            )
         if kind == "text":
             _class_d(value)
         elif kind == "timestamp":
@@ -313,35 +338,35 @@ class Fact(_Closed):
     def _check_url(value: str) -> None:
         match = _URL.fullmatch(value)
         if match is None or len(value) > CLASS_D:
-            msg = "not an https URL of the profile"
-            raise ValueError(msg)
+            raise PydanticCustomError(
+                "ui_url_profile", "not an https URL of the profile"
+            )
         port = match.group("port")
         if port is not None and not 0 < int(port) <= 65535:
-            msg = "port out of range"
-            raise ValueError(msg)
+            raise PydanticCustomError("ui_url_port", "port out of range")
         if "#" in value:
-            msg = "no fragment in v1"
-            raise ValueError(msg)
+            raise PydanticCustomError("ui_url_fragment", "no fragment in v1")
 
     def _check_decimal(self, value: str) -> None:
         if _DECIMAL.fullmatch(value) is None:
-            msg = "not a decimal_string"
-            raise ValueError(msg)
+            raise PydanticCustomError("ui_decimal_shape", "not a decimal_string")
         if value.startswith("-") and set(value) <= set("-0."):
-            msg = "negative zero"
-            raise ValueError(msg)
+            raise PydanticCustomError("ui_decimal_negative_zero", "negative zero")
         if self.currency is not None:
             if _CURRENCY.fullmatch(self.currency) is None:
-                msg = "currency is three upper-case ASCII letters"
-                raise ValueError(msg)
+                raise PydanticCustomError(
+                    "ui_currency_shape", "currency is three upper-case ASCII letters"
+                )
             if self.scale is None:
-                msg = "currency needs scale"
-                raise ValueError(msg)
+                raise PydanticCustomError(
+                    "ui_currency_needs_scale", "currency needs scale"
+                )
         if self.scale is not None:
             fraction = value.partition(".")[2]
             if len(fraction) != self.scale:
-                msg = "fraction digits differ from scale"
-                raise ValueError(msg)
+                raise PydanticCustomError(
+                    "ui_scale_digits", "fraction digits differ from scale"
+                )
 
 
 class CardProps(_Closed):
@@ -373,7 +398,16 @@ class InReplyTo(_Closed):
 
 
 class UiCardResult(_Closed):
-    """``zeo.ui-result/v1`` with one read-only card (the zeocore-SOW-42 subset)."""
+    """
+    ``zeo.ui-result/v1`` with one read-only card (the zeocore-SOW-42 subset).
+
+    This JSON Schema is NECESSARY BUT NOT SUFFICIENT: it refuses the structural errors
+    and never refuses a document the validator accepts, but UTF-8 byte lengths, the
+    Unicode 16.0.0 text classes beyond the BMP, calendar validity, snapshot ordering,
+    decimal scale digits, duplicate keys and the byte limits are checked only by
+    ``zeocore validate``. Conformance means ``zeocore validate`` plus the shared
+    vectors.
+    """
 
     model_config = ConfigDict(
         extra="forbid", strict=True, frozen=True, populate_by_name=False
@@ -391,6 +425,7 @@ class UiCardResult(_Closed):
     def _observation_not_after_production(self) -> Self:
         snapshot = self.components[0].snapshot
         if snapshot is not None and snapshot.observed_at > self.produced_at:
-            msg = "observed_at is later than produced_at"
-            raise ValueError(msg)
+            raise PydanticCustomError(
+                "ui_observed_after_produced", "observed_at is later than produced_at"
+            )
         return self

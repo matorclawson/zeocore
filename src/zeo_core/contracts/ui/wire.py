@@ -86,6 +86,13 @@ def _refuse_constant(_name: str) -> Any:  # noqa: ANN401
     raise UiRefused("not_a_finite_number")
 
 
+def _int(token: str) -> int:
+    """An integer token; beyond 16 digits it is over 2^53 - 1 and is refused unread."""
+    if len(token.lstrip("-")) > 16:
+        raise UiRefused("integer_too_large")
+    return int(token)
+
+
 def _float(token: str) -> float:
     value = float(token)
     if value != value or abs(value) == float("inf"):  # noqa: PLR0124
@@ -120,6 +127,7 @@ def parse(raw: bytes) -> dict[str, Any]:
             object_pairs_hook=_no_duplicates,
             parse_constant=_refuse_constant,
             parse_float=_float,
+            parse_int=_int,
         )
     except UiRefused:
         raise

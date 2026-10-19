@@ -6,6 +6,7 @@ The vectors follow SOW-38 rev 8 section 9 for the parts a single read-only card 
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import unicodedata
 from pathlib import Path
@@ -148,14 +149,43 @@ def test_fallback_text_and_accessibility_label_are_required_and_nonempty() -> No
     assert refusal(doc).code == "missing"
 
 
-def test_an_optional_key_is_absent_never_null() -> None:
-    for key in ("snapshot",):
-        doc = valid()
-        card(doc)[key] = None
-        assert refusal(doc).code == "value_error"
+@pytest.mark.parametrize(
+    ("where", "key"),
+    [
+        ((), "snapshot"),
+        (("props",), "status"),
+        (("props",), "progress"),
+    ],
+)
+def test_an_optional_key_is_absent_never_null(where: tuple[str, ...], key: str) -> None:
     doc = valid()
-    card(doc)["props"]["status"] = None
-    assert refusal(doc).code == "value_error"
+    node = card(doc)
+    for step in where:
+        node = node[step]
+    node[key] = None
+    error = refusal(doc)
+    assert (error.code, error.loc) == (
+        "ui_optional_null",
+        ("components", 0, *where, key),
+    )
+
+
+def test_null_is_refused_for_expires_at_currency_and_scale() -> None:
+    doc = valid()
+    card(doc)["snapshot"]["expires_at"] = None
+    error = refusal(doc)
+    assert (error.code, error.loc) == (
+        "ui_optional_null",
+        ("components", 0, "snapshot", "expires_at"),
+    )
+    for key in ("currency", "scale"):
+        doc = with_fact(value_type="text", value="x")
+        card(doc)["props"]["facts"][0][key] = None
+        error = refusal(doc)
+        assert (error.code, error.loc) == (
+            "ui_optional_null",
+            ("components", 0, "props", "facts", 0, key),
+        )
 
 
 def test_complete_must_be_a_boolean() -> None:
@@ -175,9 +205,11 @@ def test_complete_must_be_a_boolean() -> None:
 def test_component_ids_follow_their_grammar(bad: str) -> None:
     doc = valid()
     card(doc)["id"] = bad
-    assert refusal(doc).code == "string_pattern_mismatch" or refusal(
-        doc
-    ).code.startswith("string_")
+    error = refusal(doc)
+    assert (error.code, error.loc) == (
+        "string_pattern_mismatch",
+        ("components", 0, "id"),
+    )
 
 
 def test_component_id_boundary_is_128_bytes() -> None:
@@ -185,7 +217,7 @@ def test_component_id_boundary_is_128_bytes() -> None:
     card(doc)["id"] = "a" * 128
     validate_bytes(dump(doc))
     card(doc)["id"] = "a" * 129
-    assert refusal(doc).code.startswith("string_")
+    assert refusal(doc).code == "string_pattern_mismatch"
 
 
 @pytest.mark.parametrize(
@@ -194,7 +226,8 @@ def test_component_id_boundary_is_128_bytes() -> None:
 def test_owner_refs_refuse_what_does_not_fit(ref: str) -> None:
     doc = valid()
     doc["result_id"] = ref
-    assert refusal(doc).code.startswith("string_")
+    error = refusal(doc)
+    assert (error.code, error.loc) == ("string_pattern_mismatch", ("result_id",))
 
 
 def test_operation_names_are_lower_case() -> None:
@@ -215,33 +248,38 @@ def test_real_calendar_dates_are_accepted(ok: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "bad",
+    ("bad", "code"),
     [
-        "1900-02-29T00:00:00Z",
-        "2026-10-17T14:00:60Z",
-        "2026-10-17T14:00:00+01:00",
-        "2026-10-17T14:00:00.5Z",
-        "2026-10-17t14:00:00z",
-        "２０２６-10-17T14:00:00Z",
-        "2026-13-01T00:00:00Z",
-        "2026-10-17T24:00:00Z",
-        "2026-10-17T14:00:00Z\n",
+        ("1900-02-29T00:00:00Z", "ui_timestamp_calendar"),
+        ("2026-13-01T00:00:00Z", "ui_timestamp_calendar"),
+        ("2026-10-17T14:00:60Z", "ui_timestamp_time"),
+        ("2026-10-17T24:00:00Z", "ui_timestamp_time"),
+        ("2026-10-17T14:00:00+01:00", "string_too_long"),
+        ("2026-10-17T14:00:00.5Z", "string_too_long"),
+        ("2026-10-17T14:00:00Z\n", "string_too_long"),
+        ("2026-10-17t14:00:00z", "string_pattern_mismatch"),
+        ("２０２６-10-17T14:00:00Z", "string_pattern_mismatch"),
     ],
 )
-def test_other_timestamps_are_refused(bad: str) -> None:
+def test_other_timestamps_are_refused(bad: str, code: str) -> None:
     doc = valid()
     doc["produced_at"] = bad
-    assert refusal(doc).code.startswith(("string_", "value_error"))
+    error = refusal(doc)
+    assert (error.code, error.loc) == (code, ("produced_at",))
 
 
 def test_snapshot_times_are_ordered() -> None:
     doc = valid()
     card(doc)["snapshot"]["expires_at"] = card(doc)["snapshot"]["observed_at"]
-    assert refusal(doc).code == "value_error"
+    error = refusal(doc)
+    assert (error.code, error.loc) == (
+        "ui_expiry_order",
+        ("components", 0, "snapshot"),
+    )
     card(doc)["snapshot"]["expires_at"] = "2026-10-19T04:30:00Z"
     validate_bytes(dump(doc))
     doc["produced_at"] = "2026-10-19T03:00:00Z"  # observed_at is later than produced_at
-    assert refusal(doc).code == "value_error"
+    assert refusal(doc).code == "ui_observed_after_produced"
 
 
 # --- facts: values -------------------------------------------------------------
@@ -471,9 +509,13 @@ def test_lf_is_allowed_only_in_class_l_and_a_literal_escape_is_text() -> None:
 # --- Unicode tables -------------------------------------------------------------
 
 
-def test_the_pinned_unassigned_table_matches_unicodedata_when_it_is_16() -> None:
+def test_the_pinned_tables_are_unchanged_and_match_unicodedata_when_it_is_16() -> None:
+    pinned = hashlib.sha256(
+        repr((unicode16.UNASSIGNED, unicode16.DEFAULT_IGNORABLE)).encode()
+    ).hexdigest()
+    assert pinned == "37371e8064ae742b3b0c7df49003d9f79388b6bf70c3523705facd3d1be404cc"
     if unicodedata.unidata_version != unicode16.UNICODE_VERSION:
-        pytest.skip("the installed unicodedata is not Unicode 16.0.0")
+        return  # the pinned tables are the contract; the interpreter is not
     for cp in range(0x110000):
         expected = unicodedata.category(chr(cp)) == "Cn"
         assert unicode16.is_unassigned(cp) is expected, hex(cp)
@@ -644,3 +686,66 @@ def test_structural_refusals_agree(mutate: Any) -> None:  # noqa: ANN401
 def test_the_valid_card_is_accepted_by_both() -> None:
     assert _schema_accepts(valid())
     assert _runtime_accepts(valid())
+
+
+# --- council round on #148: more vectors ------------------------------------------
+
+
+def test_a_nested_duplicate_key_is_refused() -> None:
+    raw = dump(valid()).replace(
+        b'"kind":"operation"', b'"kind":"operation","kind":"receipt"', 1
+    )
+    assert refusal(raw).code == "duplicate_key"
+
+
+def test_minus_infinity_and_huge_integers_are_refused_unread() -> None:
+    assert refusal(b'{"a": -Infinity}').code == "not_a_finite_number"
+    assert refusal(b'{"a": ' + b"9" * 5000 + b"}").code == "integer_too_large"
+    assert refusal(b'{"a": 12345678901234567}').code == "integer_too_large"
+    assert refusal(b'{"a": -12345678901234567}').code == "integer_too_large"
+
+
+@pytest.mark.parametrize("char", ["\t", "\r", "\x1b", "\x00"])
+def test_tab_cr_and_escape_are_refused_in_class_l_d_and_s(char: str) -> None:
+    doc = valid()
+    card(doc)["props"]["summary"] = f"a{char}b"
+    assert errors_of(dump(doc))
+    doc = valid()
+    card(doc)["props"]["facts"] = [
+        {"label": "L", "value_type": "text", "value": f"a{char}b"}
+    ]
+    assert errors_of(dump(doc))
+    doc = valid()
+    card(doc)["title"] = f"a{char}b"
+    assert errors_of(dump(doc))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "data:text/html,x",
+        "//example.com/",
+        "HTTPS://example.com/",
+        "ftp://example.com/",
+    ],
+)
+def test_only_https_urls_are_accepted(url: str) -> None:
+    error = refusal(with_fact(value_type="url", value=url))
+    assert error.code == "ui_url_profile"
+
+
+def test_the_astral_default_ignorable_is_refused_by_the_validator_not_the_pattern() -> (
+    None
+):
+    doc = valid()
+    card(doc)["title"] = "a\U000e0001b"
+    assert refusal(doc).code == "ui_text_ignorable"
+    card(doc)["title"] = "a\u202eb"
+    assert refusal(doc).code == "string_pattern_mismatch"
+
+
+def test_the_exported_schema_says_it_is_necessary_but_not_sufficient() -> None:
+    assert (
+        "NECESSARY BUT NOT SUFFICIENT" in render_schema("ui.result-card")["description"]
+    )

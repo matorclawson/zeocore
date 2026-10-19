@@ -5,12 +5,14 @@
       "properties": {
         "accessibility_label": {
           "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
           "title": "Accessibility Label",
           "type": "string"
         },
         "fallback_text": {
           "maxLength": 4096,
           "minLength": 1,
+          "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
           "title": "Fallback Text",
           "type": "string"
         },
@@ -32,6 +34,7 @@
         },
         "title": {
           "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
           "title": "Title",
           "type": "string"
         }
@@ -83,6 +86,7 @@
         },
         "summary": {
           "maxLength": 4096,
+          "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
           "title": "Summary",
           "type": "string"
         }
@@ -363,6 +367,7 @@
         },
         "label": {
           "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
           "title": "Label",
           "type": "string"
         },
@@ -445,6 +450,7 @@
         },
         "unit": {
           "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
           "title": "Unit",
           "type": "string"
         }
@@ -528,6 +534,7 @@
         },
         "text": {
           "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFF8]*$",
           "title": "Text",
           "type": "string"
         }
@@ -543,7 +550,7 @@
   "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/ui.result-card.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "``zeo.ui-result/v1`` with one read-only card (the zeocore-SOW-42 subset).",
+  "description": "``zeo.ui-result/v1`` with one read-only card (the zeocore-SOW-42 subset).\n\nThis JSON Schema is NECESSARY BUT NOT SUFFICIENT: it refuses the structural errors\nand never refuses a document the validator accepts, but UTF-8 byte lengths, the\nUnicode 16.0.0 text classes beyond the BMP, calendar validity, snapshot ordering,\ndecimal scale digits, duplicate keys and the byte limits are checked only by\n``zeocore validate``. Conformance means ``zeocore validate`` plus the shared\nvectors.",
   "properties": {
     "complete": {
       "title": "Complete",
@@ -563,6 +570,7 @@
     },
     "plain_text": {
       "maxLength": 4096,
+      "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
       "title": "Plain Text",
       "type": "string"
     },
