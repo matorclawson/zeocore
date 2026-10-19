@@ -114,11 +114,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Install Pandoc for real authoring receipt tests
-        # The same pinned, checksummed installer ci.yml uses: `make verify` runs
-        # tests that call a real pandoc, and they fail without one.
-        run: tools/install-pandoc.sh
-
       - name: Full gate — make verify (post-merge certification)
         run: |
           set -euo pipefail
