@@ -311,12 +311,10 @@ def test_the_grammar_refuses_what_it_does_not_read(selector: str) -> None:
 class _Element:
     """The little a selector reads of an element: a name, attributes and ancestors."""
 
-    def __init__(
-        self, name: str, parents: tuple[_Element, ...] = (), **attrs: str
-    ) -> None:
+    def __init__(self, name: str, attrs: dict[str, str] | None = None) -> None:
         self.name = name
-        self.parents = list(parents)
-        self._attrs = attrs
+        self.parents: list[_Element] = []
+        self._attrs = attrs or {}
 
     def get(self, key: str, default: object = None) -> object:
         return self._attrs.get(key, default)
@@ -330,8 +328,8 @@ def test_an_unreadable_pending_selector_cannot_be_proven_not_to_match() -> None:
 
 def test_a_selector_is_compared_with_the_names_of_the_element_in_any_case() -> None:
     ids = {_selectors.PENDING: "SPAN.Kk#Ii"}
-    assert _selectors.may_match(_Element("SPAN", **{"class": "kK", "id": "iI"}), ids)
-    assert not _selectors.may_match(_Element("span", **{"class": "k", "id": "i"}), ids)
+    assert _selectors.may_match(_Element("SPAN", {"class": "kK", "id": "iI"}), ids)
+    assert not _selectors.may_match(_Element("span", {"class": "k", "id": "i"}), ids)
 
 
 def test_a_class_or_id_of_another_case_matches_in_a_parsed_document() -> None:
@@ -346,7 +344,8 @@ def test_a_class_or_id_of_another_case_matches_in_a_parsed_document() -> None:
 def test_an_element_id_equal_to_the_internal_key_reads_no_rule() -> None:
     import bs4
 
-    tag = bs4.BeautifulSoup("<span>", "html.parser").span
+    tag = bs4.BeautifulSoup("<span>", "html.parser").find("span")
+    assert tag is not None
     tag["id"] = _selectors.PENDING
     bodies, _provable, _oversize = _hidden._rule_texts(
         tag, {}, {_selectors.PENDING: "td"}
