@@ -545,3 +545,102 @@ def test_schema_describes_the_same_subset() -> None:
         "plain_text",
         "components",
     }
+
+
+# --- the exported JSON Schema agrees with the validator (Rasa, source inspection) ---
+
+
+def _schema_accepts(doc: object) -> bool:
+    import jsonschema
+
+    schema = render_schema("ui.result-card")
+    return jsonschema.Draft202012Validator(schema).is_valid(doc)
+
+
+def _runtime_accepts(doc: object) -> bool:
+    return not errors_of(dump(doc))
+
+
+_AGREEMENT_FACTS: list[dict[str, Any]] = [
+    {"value_type": "text", "value": "x"},
+    {"value_type": "integer", "value": 3},
+    {"value_type": "decimal_string", "value": "1.50", "currency": "EUR", "scale": 2},
+    {"value_type": "decimal_string", "value": "7"},
+    {"value_type": "boolean", "value": True},
+    {"value_type": "null", "value": None},
+    {"value_type": "timestamp", "value": "2026-10-19T03:00:00Z"},
+    {"value_type": "url", "value": "https://example.com/a"},
+    # refused by the validator and expressible in JSON Schema
+    {"value_type": "integer", "value": "not-an-integer"},
+    {"value_type": "integer", "value": 2**53},
+    {"value_type": "text", "value": 5},
+    {"value_type": "text", "value": None},
+    {"value_type": "boolean", "value": 0},
+    {"value_type": "null", "value": 0},
+    {"value_type": "decimal_string", "value": "1e3"},
+    {"value_type": "decimal_string", "value": 1.5},
+    {"value_type": "decimal_string", "value": "1.5", "currency": "EUR"},
+    {"value_type": "decimal_string", "value": "1.5", "currency": "eur", "scale": 1},
+    {"value_type": "text", "value": "x", "currency": "EUR", "scale": 2},
+    {"value_type": "timestamp", "value": "2026-10-19"},
+    {"value_type": "url", "value": "http://example.com/"},
+    {"value_type": "bogus", "value": 1},
+]
+
+
+@pytest.mark.parametrize("fact", _AGREEMENT_FACTS)
+def test_schema_and_validator_agree_on_typed_facts(fact: dict[str, Any]) -> None:
+    doc = with_fact(**fact)
+    assert _schema_accepts(doc) == _runtime_accepts(doc)
+
+
+def test_the_schema_never_refuses_what_the_validator_accepts() -> None:
+    for doc in (valid(), *(with_fact(**f) for f in _AGREEMENT_FACTS)):
+        if _runtime_accepts(doc):
+            assert _schema_accepts(doc)
+
+
+def test_the_schema_refuses_explicit_nulls_of_optional_keys() -> None:
+    for where, key in (
+        ("snapshot", "snapshot"),
+        ("props", "status"),
+        ("props", "progress"),
+    ):
+        doc = valid()
+        target = card(doc) if where == "snapshot" else card(doc)["props"]
+        target[key] = None
+        assert not _schema_accepts(doc)
+        assert not _runtime_accepts(doc)
+    doc = with_fact(value_type="text", value="x")
+    card(doc)["props"]["facts"][0]["currency"] = None
+    assert not _schema_accepts(doc)
+    assert not _runtime_accepts(doc)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.update(extra=1),
+        lambda d: d.pop("complete"),
+        lambda d: d.update(complete="true"),
+        lambda d: d.update(schema="zeo.ui-result/v2"),
+        lambda d: d["components"].append(copy.deepcopy(d["components"][0])),
+        lambda d: card(d).update(kind="table"),
+        lambda d: card(d)["props"].update(action_refs=["a1"]),
+        lambda d: card(d)["props"]["facts"].extend([{}] * 13),
+        lambda d: card(d)["props"].update(summary="a" * 4097),
+        lambda d: card(d).update(id="Upper"),
+        lambda d: d["in_reply_to"].update(operation="Upper"),
+        lambda d: d.update(result_id="has space"),
+    ],
+)
+def test_structural_refusals_agree(mutate: Any) -> None:  # noqa: ANN401
+    doc = valid()
+    mutate(doc)
+    assert not _schema_accepts(doc)
+    assert not _runtime_accepts(doc)
+
+
+def test_the_valid_card_is_accepted_by_both() -> None:
+    assert _schema_accepts(valid())
+    assert _runtime_accepts(valid())

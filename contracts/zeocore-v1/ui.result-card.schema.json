@@ -28,15 +28,7 @@
           "$ref": "#/$defs/CardProps"
         },
         "snapshot": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Snapshot"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+          "$ref": "#/$defs/Snapshot"
         },
         "title": {
           "maxLength": 256,
@@ -84,26 +76,10 @@
           "type": "array"
         },
         "progress": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Progress"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+          "$ref": "#/$defs/Progress"
         },
         "status": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Status"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+          "$ref": "#/$defs/Status"
         },
         "summary": {
           "maxLength": 4096,
@@ -148,18 +124,242 @@
     },
     "Fact": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "text"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "maxLength": 1024,
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "integer"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "boolean"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "null"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "timestamp"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "url"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "scale"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "value": {
+                "maxLength": 1024,
+                "pattern": "^https://[A-Za-z0-9]",
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "value_type": {
+                "const": "decimal_string"
+              }
+            },
+            "required": [
+              "value_type"
+            ]
+          },
+          "then": {
+            "dependentRequired": {
+              "currency": [
+                "scale"
+              ]
+            },
+            "properties": {
+              "value": {
+                "pattern": "^-?(0|[1-9][0-9]{0,30})(\\.[0-9]{1,18})?$",
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "currency": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Currency"
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
         },
         "label": {
           "maxLength": 256,
@@ -167,18 +367,10 @@
           "type": "string"
         },
         "scale": {
-          "anyOf": [
-            {
-              "maximum": 18,
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Scale"
+          "maximum": 18,
+          "minimum": 0,
+          "title": "Scale",
+          "type": "integer"
         },
         "value": {
           "title": "Value"
@@ -269,19 +461,11 @@
       "additionalProperties": false,
       "properties": {
         "expires_at": {
-          "anyOf": [
-            {
-              "maxLength": 20,
-              "minLength": 20,
-              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Expires At"
+          "maxLength": 20,
+          "minLength": 20,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+          "title": "Expires At",
+          "type": "string"
         },
         "observed_at": {
           "maxLength": 20,

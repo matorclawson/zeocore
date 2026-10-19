@@ -51,6 +51,11 @@ _OWNER_REF: Final = r"^[A-Za-z0-9._:/-]{1,128}$"
 _TIMESTAMP: Final = re.compile(
     r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z"
 )
+_DECIMAL_SCHEMA_PATTERN: Final = r"^-?(0|[1-9][0-9]{0,30})(\.[0-9]{1,18})?$"
+_TIMESTAMP_SCHEMA_PATTERN: Final = (
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+)
+_URL_SCHEMA_PATTERN: Final = r"^https://[A-Za-z0-9]"
 _DECIMAL: Final = re.compile(r"-?(0|[1-9][0-9]{0,30})(\.[0-9]{1,18})?")
 _CURRENCY: Final = re.compile(r"[A-Z]{3}")
 _URL: Final = re.compile(
@@ -121,7 +126,7 @@ Timestamp = Annotated[
     Field(
         min_length=20,
         max_length=20,
-        pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+        pattern=_TIMESTAMP_SCHEMA_PATTERN,
     ),
     AfterValidator(_timestamp),
 ]
@@ -133,10 +138,29 @@ ValueType = Literal[
 StatusState = Literal["healthy", "degraded", "error", "unknown", "stale", "unavailable"]
 
 
+def _optional_means_absent(schema: dict[str, Any]) -> None:
+    """Export an optional key as absent-or-typed: an explicit null is refused."""
+    for prop in schema.get("properties", {}).values():
+        options = prop.get("anyOf")
+        if options is not None:
+            kept = [option for option in options if option != {"type": "null"}]
+            if len(kept) == 1:
+                del prop["anyOf"]
+                prop.update(kept[0])
+            else:
+                prop["anyOf"] = kept
+        prop.pop("default", None)
+
+
 class _Closed(BaseModel):
     """Closed, strict, immutable: an unknown key is an error, nothing is coerced."""
 
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        frozen=True,
+        json_schema_extra=_optional_means_absent,
+    )
 
 
 def _refuse_null(value: object) -> object:
@@ -196,11 +220,52 @@ class Progress(_Closed):
         return value
 
 
+def _fact_schema(schema: dict[str, Any]) -> None:
+    """Export ``value`` as typed by ``value_type``, as the validator does."""
+    _optional_means_absent(schema)
+    plain = {"not": {"anyOf": [{"required": ["currency"]}, {"required": ["scale"]}]}}
+    typed: dict[str, dict[str, Any]] = {
+        "text": {"type": "string", "maxLength": CLASS_D},
+        "integer": {"type": "integer", "minimum": -MAX_SAFE, "maximum": MAX_SAFE},
+        "boolean": {"type": "boolean"},
+        "null": {"type": "null"},
+        "timestamp": {"type": "string", "pattern": _TIMESTAMP_SCHEMA_PATTERN},
+        "url": {"type": "string", "maxLength": CLASS_D, "pattern": _URL_SCHEMA_PATTERN},
+    }
+    branches: list[dict[str, Any]] = [
+        {
+            "if": {
+                "properties": {"value_type": {"const": kind}},
+                "required": ["value_type"],
+            },
+            "then": {"properties": {"value": shape}, **plain},
+        }
+        for kind, shape in typed.items()
+    ]
+    branches.append(
+        {
+            "if": {
+                "properties": {"value_type": {"const": "decimal_string"}},
+                "required": ["value_type"],
+            },
+            "then": {
+                "properties": {
+                    "value": {"type": "string", "pattern": _DECIMAL_SCHEMA_PATTERN}
+                },
+                "dependentRequired": {"currency": ["scale"]},
+            },
+        }
+    )
+    schema["allOf"] = branches
+
+
 class Fact(_Closed):
+    model_config = ConfigDict(json_schema_extra=_fact_schema)
+
     label: ShortText
     value_type: ValueType
     value: Any  # noqa: ANN401 -- typed by value_type in the validator below
-    currency: str | None = None
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     scale: int | None = Field(default=None, ge=0, le=18)
 
     _no_null = field_validator("currency", "scale", mode="before")(_refuse_null)
