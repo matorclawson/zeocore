@@ -1079,6 +1079,14 @@ _COUNCIL_146_ROWS = [
         '<style>@layer a;.pre{display:none}</style><p class="pre">SENTINEL</p>',
         False,
     ),
+    # zeofetch receipt 0118f101: a preheader is hidden by display; an inline-block with
+    # max-width:0 and no clipping is painted
+    (
+        '<div style="display:none;max-height:0px;max-width:0px;opacity:0;'
+        'overflow:hidden">SENTINEL</div>',
+        False,
+    ),
+    ('<div style="display:inline-block;max-width:0">SENTINEL</div>', True),
     # B3 keywords, B4 auto, B7, B8, B10
     ('<p style="max-height:0;overflow:initial">SENTINEL</p>', False),
     ('<p style="max-height:0;overflow:unset">SENTINEL</p>', False),
