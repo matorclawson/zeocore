@@ -77,13 +77,17 @@ class Audience(RequestModel):
 class EmailContent(RequestModel):
     """Template-specific module values retain HubSpot's JSON shape."""
 
-    template_path: Text
+    # Optional for a draft: HubSpot's v3 create requires only a name. Publishing
+    # still checks the stored email (publish_email), so an unset path cannot be sent.
+    template_path: Text | None = None
     plain_text: Text | None = None
     widgets: dict[str, Any] = Field(default_factory=dict)
     flex_areas: dict[str, Any] = Field(default_factory=dict)
 
     def to_api(self) -> dict[str, Any]:
-        data: dict[str, Any] = {"templatePath": self.template_path}
+        data: dict[str, Any] = {}
+        if self.template_path is not None:
+            data["templatePath"] = self.template_path
         if self.plain_text is not None:
             data["plainTextVersion"] = self.plain_text
         if self.widgets:
@@ -99,8 +103,10 @@ class EmailDraft(RequestModel):
     content: EmailContent
     from_name: Text
     from_email: EmailAddress
-    subscription_id: Identifier
-    office_location_id: Identifier
+    # Optional for a draft; publish_email requires the stored email to carry the
+    # reviewed subscription, so a draft without one cannot be sent.
+    subscription_id: Identifier | None = None
+    office_location_id: Identifier | None = None
     audience: Audience = Field(default_factory=Audience)
     kind: Literal["newsletter", "automated"] = "newsletter"
     campaign_id: Identifier | None = None
@@ -123,15 +129,18 @@ class EmailDraft(RequestModel):
             "subject": self.subject,
             "content": self.content.to_api(),
             "from": sender,
-            "subscriptionDetails": {
-                "subscriptionId": self.subscription_id,
-                "officeLocationId": self.office_location_id,
-            },
             "to": self.audience.to_api(),
             "sendOnPublish": False,
             "state": "DRAFT" if self.kind == "newsletter" else "AUTOMATED_DRAFT",
             "subcategory": "batch" if self.kind == "newsletter" else "automated",
         }
+        details: dict[str, Any] = {}
+        if self.subscription_id is not None:
+            details["subscriptionId"] = self.subscription_id
+        if self.office_location_id is not None:
+            details["officeLocationId"] = self.office_location_id
+        if details:
+            data["subscriptionDetails"] = details
         if self.campaign_id is not None:
             data["campaign"] = self.campaign_id
         if self.business_unit_id is not None:
