@@ -532,3 +532,104 @@ def test_a_failure_stays_the_strongest_terminal_state() -> None:
 def test_the_last_final_text_of_the_terminal_round_is_the_output() -> None:
     result = go(ScriptedTransport([text("first"), text("second"), DONE]))
     assert result.output_text == "second"
+
+
+# --- council round 2 on #160 -------------------------------------------------------
+
+
+def blowing_up(
+    after: list[Event], message: str = "SECRET provider text"
+) -> Iterable[Event]:
+    yield from after
+    raise RuntimeError(message)
+
+
+def test_an_error_while_reading_the_stream_is_a_code_without_provider_text() -> None:
+    class Failing(ScriptedTransport):
+        def start(self, **kwargs: Any) -> tuple[str, Iterable[Any]]:  # noqa: ANN401
+            return "ses_test", blowing_up([text("partial")])
+
+    with pytest.raises(AgentsRefused) as refused:
+        go(Failing())
+    assert refused.value.code == "provider_error"
+    assert "SECRET" not in repr(refused.value)
+    # `from None`: the provider exception is neither the cause nor the context
+    assert refused.value.__cause__ is None and refused.value.__suppress_context__
+
+
+def test_a_refusal_raised_inside_the_stream_keeps_its_own_code() -> None:
+    bad = requires(action(arguments="{bad"))
+    with pytest.raises(AgentsRefused) as refused:
+        go(ScriptedTransport([bad]))
+    assert refused.value.code == "tool_arguments_not_json"
+
+
+def test_a_stream_that_raises_on_the_follow_up_send_is_also_coded() -> None:
+    class Failing(ScriptedTransport):
+        def send(
+            self, session_id: str, events: Sequence[Mapping[str, Any]]
+        ) -> Iterable[Any]:
+            return blowing_up([])
+
+    with pytest.raises(AgentsRefused) as refused:
+        go(Failing([call()]), handlers={"get_flight": lambda a: "1"})
+    assert refused.value.code == "provider_error"
+
+
+def test_a_huge_float_is_not_finite_and_is_refused() -> None:
+    with pytest.raises(AgentsRefused) as refused:
+        go(ScriptedTransport([requires(action(arguments='{"a": 1e999}'))]))
+    assert refused.value.code == "tool_arguments_not_json"
+
+
+def test_arguments_given_as_a_mapping_obey_the_size_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agents, "MAX_ARGUMENT_BYTES", 8)
+    with pytest.raises(AgentsRefused) as refused:
+        go(ScriptedTransport([requires(action(arguments={"a": "0123456789"}))]))
+    assert refused.value.code == "tool_arguments_too_large"
+
+
+def test_a_replayed_call_does_not_count_again_towards_the_cap() -> None:
+    runs: list[int] = []
+    transport = ScriptedTransport(
+        [call("c1")], [call("c1")], [call("c1")], [text("ok"), DONE]
+    )
+    result = go(
+        transport, handlers={"get_flight": counting(runs)}, max_calls_per_turn=1
+    )
+    assert result.ok and len(runs) == 1
+
+
+def test_a_handler_result_with_nan_or_a_lone_surrogate_is_a_coded_failure() -> None:
+    for value in ({"x": float("nan")}, "bad\ud800text"):
+        transport = ScriptedTransport([call()], [text("ok"), DONE])
+        go(transport, handlers={"get_flight": lambda a, v=value: v})
+        assert transport.sent[0]["success"] is False
+        assert transport.sent[0]["error"] == "tool_failed"
+
+
+def test_allowed_tools_must_be_a_list_of_names() -> None:
+    with pytest.raises(AgentsRefused) as refused:
+        mcp_server("l", "https://svc.example/mcp", allowed_tools="abc")
+    assert refused.value.code == "allowed_tools_must_be_a_list"
+
+
+def test_the_deadline_is_documented_as_checked_only_when_an_event_arrives() -> None:
+    doc = agents.__doc__ or ""
+    assert "WHOLE run" in doc and "ARRIVES" in doc and "client timeout" in doc
+
+
+def test_a_refusal_raised_by_the_stream_itself_keeps_its_code() -> None:
+    def refusing() -> Iterable[Event]:
+        yield text("x")
+        raise AgentsRefused("script_exhausted")
+
+    class Refusing(ScriptedTransport):
+        def start(self, **kwargs: Any) -> tuple[str, Iterable[Any]]:  # noqa: ANN401
+            return "ses_test", refusing()
+
+    with pytest.raises(AgentsRefused) as refused:
+        go(Refusing())
+    assert refused.value.code == "script_exhausted"

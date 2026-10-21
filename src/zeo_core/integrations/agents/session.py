@@ -14,9 +14,15 @@ can be declared too (:func:`mcp_server`); that route needs an endpoint OpenAI ca
 
 A briefing succeeds only when the turn completed AND its output was inspected: an idle
 session or a closed stream is not success, and a failure or cancellation is sticky.
-Everything is bounded (calls per turn, events per stream, a deadline between events,
-argument size). A stream that blocks inside the client is bounded by the client's own
-timeout: build the client with ``timeout=``. Refusals carry a code, never provider text.
+Everything is bounded (calls per turn, events per stream, argument size) with one
+limit to read exactly: ``deadline_seconds`` covers the WHOLE run but is checked only
+when an event ARRIVES at this loop. A read that blocks is bounded by the client's own
+per-read timeout alone (build the client with ``timeout=``), and keep-alive frames the
+client swallows never reach this loop, so they do not advance the deadline. A stream
+that trickles real events is cut at the deadline; a stream that never yields an event
+is cut only by the client timeout. Errors raised by the provider while a stream is
+being read become ``provider_error``, like those of ``create`` and ``send``. Refusals
+carry a code, never provider text.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ import ipaddress
 import json
 import re
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal, Protocol
 from urllib.parse import urlsplit
@@ -234,6 +240,8 @@ def mcp_server(
     be an ``https`` URL of a public host with no credential inside it. A credential is
     named by its environment variable, never passed as a value.
     """
+    if isinstance(allowed_tools, str | bytes):
+        raise AgentsRefused("allowed_tools_must_be_a_list")
     try:
         parts = urlsplit(url)
         host = parts.hostname or ""
@@ -271,6 +279,13 @@ def _refuse_constant(_: str) -> None:
     raise AgentsRefused("tool_arguments_not_json")
 
 
+def _finite_float(token: str) -> float:
+    value = float(token)
+    if value in (float("inf"), float("-inf")):
+        raise AgentsRefused("tool_arguments_not_json")
+    return value
+
+
 def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     keys = [key for key, _ in pairs]
     if len(keys) != len(set(keys)):
@@ -287,11 +302,18 @@ def _arguments(raw: object) -> Mapping[str, Any]:
                 raw,
                 object_pairs_hook=_no_duplicates,
                 parse_constant=_refuse_constant,
+                parse_float=_finite_float,
             )
         except (ValueError, RecursionError):
             raise AgentsRefused("tool_arguments_not_json") from None
     if not isinstance(raw, Mapping):
         raise AgentsRefused("malformed_function_call")
+    try:
+        size = len(json.dumps(raw, allow_nan=False).encode())
+    except (TypeError, ValueError, RecursionError):
+        raise AgentsRefused("malformed_function_call") from None
+    if size > MAX_ARGUMENT_BYTES:
+        raise AgentsRefused("tool_arguments_too_large")
     return raw
 
 
@@ -318,13 +340,29 @@ def _calls(event: object) -> list[ToolCall]:
     return found
 
 
+def _coded(stream: Iterable[Any]) -> Iterator[Any]:
+    """Iterate a provider stream; whatever it raises becomes ``provider_error``."""
+    try:
+        iterator = iter(stream)
+        while True:
+            try:
+                yield next(iterator)
+            except StopIteration:
+                return
+    except AgentsRefused:
+        raise
+    except Exception:  # noqa: BLE001 -- coded, no provider text
+        raise AgentsRefused("provider_error") from None
+
+
 def _drain(
     stream: Iterable[Any], deadline: float, max_events: int
 ) -> tuple[Status | None, str, list[ToolCall], str | None]:
     """Read one stream to its end: strongest terminal status, text, calls, a limit."""
     status: Status | None = None
     text, calls, limit = "", [], None
-    for count, event in enumerate(stream, start=1):
+    events = _coded(stream)
+    for count, event in enumerate(events, start=1):
         if count > max_events:
             limit = "too_many_events"
             break
@@ -356,11 +394,14 @@ def _result(call: ToolCall, handlers: Mapping[str, Handler]) -> dict[str, Any]:
     try:
         output = handler(call.arguments)
         encoded = (
-            output if isinstance(output, str) else json.dumps(output, sort_keys=True)
+            output
+            if isinstance(output, str)
+            else json.dumps(output, sort_keys=True, allow_nan=False)
         )
+        size = len(encoded.encode())  # a lone surrogate cannot be encoded: a failure
     except Exception:  # noqa: BLE001 -- a handler fault becomes a coded failure result
         return _failed(call, "tool_failed")
-    if len(encoded.encode()) > MAX_RESULT_BYTES:
+    if size > MAX_RESULT_BYTES:
         return _failed(call, "tool_result_too_large")
     return {
         "type": "agent.session.input.tool_result",
@@ -422,7 +463,8 @@ def run(  # noqa: PLR0913 -- the bounds are separate, named, keyword-only knobs
         if limit is not None:
             return TurnResult(session_id, "incomplete", "", tuple(seen), limit)
         if calls and status is None:
-            if len(answered) + len(calls) > max_calls_per_turn:
+            fresh = {(c.turn_id, c.call_id) for c in calls} - answered.keys()
+            if len(answered) + len(fresh) > max_calls_per_turn:
                 return TurnResult(
                     session_id, "incomplete", "", tuple(seen), "too_many_calls"
                 )
