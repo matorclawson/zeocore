@@ -1,0 +1,35 @@
+{
+  "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/ui.widget-data.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What a data reference resolves to: the component, its data, validated.",
+  "properties": {
+    "component": {
+      "enum": [
+        "flight_status",
+        "weather_hourly",
+        "arrival_timeline",
+        "market_watchlist"
+      ],
+      "title": "Component",
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "data_ref": {
+      "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+      "title": "Data Ref",
+      "type": "string"
+    }
+  },
+  "required": [
+    "data_ref",
+    "component",
+    "data"
+  ],
+  "title": "WidgetData",
+  "type": "object"
+}
