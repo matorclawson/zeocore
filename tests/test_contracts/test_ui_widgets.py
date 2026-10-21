@@ -26,54 +26,51 @@ PROV: dict[str, Any] = {
 
 
 def sample(component: str) -> dict[str, Any]:
-    return copy.deepcopy(
-        {
-            "flight_status": {
-                "flight": "BA117",
-                "origin": "LHR",
-                "destination": "JFK",
-                "scheduled_at": "2026-10-22T14:25:00Z",
-                "estimated_at": "2026-10-22T14:50:00Z",
-                "status": "Delayed",
-                "provenance": PROV,
-            },
-            "weather_hourly": {
-                "location": "New York",
-                "hours": [
-                    {
-                        "at": "2026-10-22T21:00:00Z",
-                        "temperature_c": "14.5",
-                        "precipitation_percent": 30,
-                    }
-                ],
-                "provenance": {**PROV, "timezone": "America/New_York"},
-            },
-            "arrival_timeline": {
-                "steps": [
-                    {
-                        "kind": "flight",
-                        "label": "Land",
-                        "at": "2026-10-22T21:10:00Z",
-                        "basis": "live",
-                    },
-                    {
-                        "kind": "transfer",
-                        "label": "Transfer to Manhattan",
-                        "at": "2026-10-22T22:30:00Z",
-                        "basis": "assumption",
-                    },
-                ],
-                "provenance": {**PROV, "basis": "assumption"},
-            },
-            "market_watchlist": {
-                "rows": [
-                    {"symbol": "AAPL", "price": "231.40", "change_percent": "-0.8"}
-                ],
-                "market_status": "open",
-                "provenance": {**PROV, "basis": "delayed", "delay_minutes": 15},
-            },
-        }[component]
-    )
+    built: dict[str, dict[str, Any]] = {
+        "flight_status": {
+            "flight": "BA117",
+            "origin": "LHR",
+            "destination": "JFK",
+            "scheduled_at": "2026-10-22T14:25:00Z",
+            "estimated_at": "2026-10-22T14:50:00Z",
+            "status": "Delayed",
+            "provenance": PROV,
+        },
+        "weather_hourly": {
+            "location": "New York",
+            "hours": [
+                {
+                    "at": "2026-10-22T21:00:00Z",
+                    "temperature_c": "14.5",
+                    "precipitation_percent": 30,
+                }
+            ],
+            "provenance": {**PROV, "timezone": "America/New_York"},
+        },
+        "arrival_timeline": {
+            "steps": [
+                {
+                    "kind": "flight",
+                    "label": "Land",
+                    "at": "2026-10-22T21:10:00Z",
+                    "basis": "live",
+                },
+                {
+                    "kind": "transfer",
+                    "label": "Transfer to Manhattan",
+                    "at": "2026-10-22T22:30:00Z",
+                    "basis": "assumption",
+                },
+            ],
+            "provenance": {**PROV, "basis": "assumption"},
+        },
+        "market_watchlist": {
+            "rows": [{"symbol": "AAPL", "price": "231.40", "change_percent": "-0.8"}],
+            "market_status": "open",
+            "provenance": {**PROV, "basis": "delayed", "delay_minutes": 15},
+        },
+    }
+    return copy.deepcopy(built[component])
 
 
 def envelope(component: str, ref: str = "r1") -> WidgetData:
