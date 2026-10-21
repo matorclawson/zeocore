@@ -8,7 +8,7 @@ The [self-contained consumer](../../examples/authoring_reference/run.py) uses
 only public ZeoCore conversion, comparison, execution and environment APIs.
 It contains a small generic fixture, not a book chapter or an exercise grader.
 
-From this checkout, with Python 3.14, Git, uv and Pandoc installed:
+From this checkout, with Python 3.12, Git, uv and Pandoc installed:
 
 ```sh
 uv sync --frozen --extra jupytext --extra pandoc --extra notebook

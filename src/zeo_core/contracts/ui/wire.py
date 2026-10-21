@@ -131,7 +131,7 @@ def parse(raw: bytes) -> dict[str, Any]:
         )
     except UiRefused:
         raise
-    except ValueError, RecursionError:
+    except (ValueError, RecursionError):
         raise UiRefused("invalid_json") from None
     if not isinstance(value, dict):
         raise UiRefused("not_an_object")

@@ -274,7 +274,7 @@ def _kill_group(process: subprocess.Popen[bytes]) -> None:
     """Kill the child and everything it started, then reap it."""
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError, PermissionError:
+    except (ProcessLookupError, PermissionError):
         process.kill()
     process.wait()
 

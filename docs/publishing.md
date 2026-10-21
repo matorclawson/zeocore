@@ -7,7 +7,7 @@ contract guides without maintaining duplicate copies.
 
 ## Preview locally
 
-From a checkout, with uv and Python 3.14 available:
+From a checkout, with uv and Python 3.12 available:
 
 ```bash
 uv sync --frozen --only-group documentation

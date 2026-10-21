@@ -273,7 +273,7 @@ class Whois:
             name = (
                 json.loads(done.stdout)["Node"]["Name"] if done.returncode == 0 else ""
             )
-        except OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError:
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
             return None
         if not isinstance(name, str) or not name:
             return None
