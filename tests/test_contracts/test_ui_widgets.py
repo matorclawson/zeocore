@@ -12,9 +12,11 @@ import pytest
 from pydantic import ValidationError
 
 from zeo_core.cli.schemas import render_schema
+from zeo_core.contracts.ui import widgets
 from zeo_core.contracts.ui.widgets import (
     COMPONENTS,
     REGISTRY,
+    Assumption,
     DataRef,
     WidgetBoard,
     WidgetRefused,
@@ -82,7 +84,7 @@ def ref(
         "assumptions": (
             [
                 {
-                    "label": "transfer to Manhattan (minutes)",
+                    "label": "transfer_minutes",
                     "value": 75,
                     "kind": "assumption",
                 }
@@ -314,3 +316,98 @@ def test_what_the_rasa_ops_schema_rejects_we_reject(bad: dict[str, Any]) -> None
 def test_the_schemas_are_exported() -> None:
     for name in ("ui.widget-upsert", "ui.widget-data-ref"):
         assert render_schema(name)["additionalProperties"] is False
+
+
+# --- council round on #159 ---------------------------------------------------------
+
+
+def test_the_assumption_must_be_the_transfer_time() -> None:
+    wrong_value = [{"label": "transfer_minutes", "value": 10, "kind": "assumption"}]
+    wrong_label = [{"label": "something else", "value": 75, "kind": "assumption"}]
+    for assumptions in (wrong_value, wrong_label):
+        with pytest.raises(WidgetRefused) as refused:
+            ref("arrival_timeline", assumptions=assumptions).check("arrival_timeline")
+        assert refused.value.code == "transfer_time_not_labelled_as_assumption"
+
+
+def test_the_route_accepts_only_the_wire_names() -> None:
+    payload = copy.deepcopy(PAYLOADS["flight_status"])
+    payload["route"] = {"origin": "LHR", "destination": "JFK"}
+    with pytest.raises(WidgetRefused):
+        ref("flight_status", payload=payload).check("flight_status")
+
+
+def test_a_stored_card_cannot_be_mutated_past_the_checks() -> None:
+    board = WidgetBoard()
+    board.begin_request("req-1")
+    mine = ref("market_watchlist")
+    board.apply(upsert("market_watchlist"), mine)
+    mine.payload["delayed"] = False  # the caller changes its own object afterwards
+    mine.assumptions.append(Assumption(label="x", value=1, kind="assumption"))
+    stored = board.cards()["arrival-weather"]
+    assert stored.payload["delayed"] is True and stored.assumptions == []
+    stored.payload["delayed"] = False  # and a copy handed out is only a copy
+    assert board.cards()["arrival-weather"].payload["delayed"] is True
+
+
+def test_series_keys_are_symbols_that_are_in_the_watchlist() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["series"]["MSFT"] = payload["series"]["AAPL"]  # not in symbols
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["series"] = {"<script>": payload["series"]["AAPL"]}
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["series"] = {f"S{i}": [] for i in range(21)}
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["2026-13-45T99:99:99Z", "2026-02-30T10:00:00Z", "2026-10-22T24:00:00Z"],
+)
+def test_a_date_time_must_be_a_real_one(bad: str) -> None:
+    with pytest.raises(ValidationError):
+        DataRef(**(ref().model_dump() | {"fetched_at": bad}))
+
+
+@pytest.mark.parametrize("char", ["\u202e", "\u200b", "\u2028", "\x00"])
+def test_format_and_separator_characters_are_refused_in_text(char: str) -> None:
+    payload = copy.deepcopy(PAYLOADS["flight_status"])
+    payload["reported_status"] = f"On{char}time"
+    with pytest.raises(WidgetRefused):
+        ref("flight_status", payload=payload).check("flight_status")
+
+
+def test_assumptions_are_capped_and_finite() -> None:
+    many = [{"label": "transfer_minutes", "value": 75, "kind": "assumption"}] * 11
+    with pytest.raises(ValidationError):
+        ref("arrival_timeline", assumptions=many)
+    with pytest.raises(ValidationError):
+        Assumption(label="x", value=float("nan"), kind="assumption")
+
+
+def test_the_registry_cannot_be_changed() -> None:
+    with pytest.raises(TypeError):
+        REGISTRY["iframe"] = REGISTRY["flight_status"]  # type: ignore[index]
+
+
+def test_the_set_of_retired_requests_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(widgets, "MAX_RETIRED", 3)
+    board = WidgetBoard()
+    with pytest.raises(WidgetRefused) as refused:
+        for number in range(10):
+            board.begin_request(f"req-{number}")
+    assert refused.value.code == "too_many_requests"
+
+
+def test_the_exported_data_ref_schema_says_it_is_not_sufficient() -> None:
+    assert (
+        "NECESSARY BUT NOT SUFFICIENT"
+        in render_schema("ui.widget-data-ref")["description"]
+    )

@@ -17,9 +17,18 @@ request is refused, so it cannot overwrite the card of the changed destination.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator, Mapping
+from datetime import datetime
 from typing import Annotated, Any, Final, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictBool
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    model_validator,
+)
 
 COMPONENTS: Final = (
     "flight_status",
@@ -32,22 +41,37 @@ Component = Literal[
 ]
 
 _DATE_TIME: Final = re.compile(
-    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?"
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,6})?"
     r"(Z|[+-][0-9]{2}:[0-9]{2})"
 )
-_NO_CONTROL: Final = re.compile(r"[^\x00-\x1f\x7f-\x9f<>]*")
+_NO_MARKUP: Final = re.compile(r"[^<>]*")
+#: Control (Cc), format (Cf: bidi, zero-width, tags) and the line and paragraph
+#: separators (Zl, Zp), as ranges so that no table lookup is needed.
+_REFUSED: Final = re.compile(
+    "[\u0000-\u001f\u007f-\u009f\u00ad\u0600-\u0605\u061c\u06dd\u070f"
+    "\u0890\u0891\u08e2\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064"
+    "\u2066-\u206f\ufeff\ufff9-\ufffb\U000110bd\U000110cd\U00013430-\U0001343f"
+    "\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0001\U000e0020-\U000e007f]"
+)
+TRANSFER_LABEL: Final = "transfer_minutes"
+MAX_RETIRED: Final = 4096
 
 
 def _date_time(value: str) -> str:
     if not _DATE_TIME.fullmatch(value):
         msg = "not an RFC 3339 date-time"
         raise ValueError(msg)
+    try:
+        datetime.fromisoformat(value)  # the range: month 13 or hour 99 is refused
+    except ValueError:
+        msg = "not a real date-time"
+        raise ValueError(msg) from None
     return value
 
 
 def _plain(value: str) -> str:
-    if not _NO_CONTROL.fullmatch(value):
-        msg = "text holds a control character or markup"
+    if not _NO_MARKUP.fullmatch(value) or _REFUSED.search(value):
+        msg = "text holds a control or format character, or markup"
         raise ValueError(msg)
     return value
 
@@ -62,9 +86,8 @@ class _Closed(BaseModel):
 
 
 class Route(_Closed):
-    model_config = ConfigDict(
-        extra="forbid", strict=True, frozen=True, populate_by_name=True
-    )
+    """The wire names are ``from`` and ``to``; the Python names are not accepted."""
+
     origin: Text = Field(alias="from")
     destination: Text = Field(alias="to")
 
@@ -118,8 +141,11 @@ class ArrivalTimelinePayload(_Closed):
     margin_minutes: Number
 
 
+Symbol = Annotated[str, Field(pattern=r"^[A-Z0-9.\-]{1,12}$")]
+
+
 class Quote(_Closed):
-    symbol: Annotated[str, Field(pattern=r"^[A-Z0-9.\-]{1,12}$")]
+    symbol: Symbol
     price: Number
     change: Number
     change_pct: Number
@@ -136,21 +162,49 @@ class MarketWatchlistPayload(_Closed):
     quote_time: DateTime | None
     #: True when the provider says the quotes are delayed.
     delayed: StrictBool
-    series: dict[str, Annotated[list[SeriesPoint], Field(max_length=500)]]
+    series: Annotated[
+        dict[Symbol, Annotated[list[SeriesPoint], Field(max_length=500)]],
+        Field(max_length=20),
+    ]
+
+    @model_validator(mode="after")
+    def _series_belong_to_symbols(self) -> MarketWatchlistPayload:
+        if not set(self.series) <= {quote.symbol for quote in self.symbols}:
+            msg = "a series key is not one of the symbols"
+            raise ValueError(msg)
+        return self
 
 
-#: The component registry: the payload model each component accepts.
-REGISTRY: Final[dict[str, type[_Closed]]] = {
-    "flight_status": FlightStatusPayload,
-    "weather_hourly": WeatherHourlyPayload,
-    "arrival_timeline": ArrivalTimelinePayload,
-    "market_watchlist": MarketWatchlistPayload,
-}
+class _Registry(Mapping[str, type[_Closed]]):
+    """The component registry: read-only, so no fifth component can be added."""
+
+    def __init__(self, items: dict[str, type[_Closed]]) -> None:
+        self._items = dict(items)
+
+    def __getitem__(self, key: str) -> type[_Closed]:
+        return self._items[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._items)
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+
+#: The payload model each component accepts.
+REGISTRY: Final = _Registry(
+    {
+        "flight_status": FlightStatusPayload,
+        "weather_hourly": WeatherHourlyPayload,
+        "arrival_timeline": ArrivalTimelinePayload,
+        "market_watchlist": MarketWatchlistPayload,
+    }
+)
 
 
 class Assumption(_Closed):
     label: Text
-    value: str | float | int
+    value: Annotated[str, Field(max_length=200)] | Number
     kind: Literal["assumption"]
 
 
@@ -167,7 +221,13 @@ class WidgetRefused(ValueError):  # noqa: N818 -- like UiRefused: a refusal, not
 
 
 class DataRef(_Closed):
-    """What a ``data_ref`` resolves to: provenance plus the component's payload."""
+    """
+    What a ``data_ref`` resolves to: provenance plus the component's payload.
+
+    This JSON Schema is NECESSARY BUT NOT SUFFICIENT: it cannot say that an error needs
+    an empty payload, that ``delayed`` must match the market payload, or that a transfer
+    time needs its assumption. :meth:`check` and :class:`WidgetBoard` enforce those.
+    """
 
     id: Annotated[str, Field(min_length=1, max_length=80)]
     source: Annotated[str, Field(min_length=1, max_length=120)]
@@ -176,7 +236,7 @@ class DataRef(_Closed):
     as_of: DateTime | None
     replay: StrictBool
     delayed: StrictBool | None = None
-    assumptions: list[Assumption] = Field(default_factory=list)
+    assumptions: list[Assumption] = Field(default_factory=list, max_length=10)
     payload: dict[str, Any]
     error: DataError | None = None
 
@@ -198,7 +258,13 @@ class DataRef(_Closed):
             self.delayed is None or self.delayed != getattr(model, "delayed", None)
         ):
             raise WidgetRefused("delayed_flag_missing_or_inconsistent")
-        if component == "arrival_timeline" and not self.assumptions:
+        if component == "arrival_timeline" and not any(
+            # The transfer time is the stated assumption: same value, fixed label.
+            item.label == TRANSFER_LABEL
+            and item.value
+            == getattr(getattr(model, "transfer_minutes", None), "value", None)
+            for item in self.assumptions
+        ):
             raise WidgetRefused("transfer_time_not_labelled_as_assumption")
         return self
 
@@ -233,6 +299,8 @@ class WidgetBoard:
     def begin_request(self, request_id: str) -> None:
         if request_id in self._retired:
             raise WidgetRefused("request_already_superseded")
+        if len(self._retired) >= MAX_RETIRED:
+            raise WidgetRefused("too_many_requests")
         if self._request_id is not None and self._request_id != request_id:
             self._retired.add(self._request_id)
             self._cards.clear()
@@ -258,8 +326,13 @@ class WidgetBoard:
                 raise WidgetRefused("component_changed")
             if event.revision <= current[0]:
                 return False
-        self._cards[event.widget_id] = (event.revision, event.component, data)
+        # A copy, so a caller cannot mutate the stored payload past the checks.
+        self._cards[event.widget_id] = (event.revision, event.component, _copy(data))
         return True
 
     def cards(self) -> dict[str, DataRef]:
-        return {key: value[2] for key, value in self._cards.items()}
+        return {key: _copy(value[2]) for key, value in self._cards.items()}
+
+
+def _copy(data: DataRef) -> DataRef:
+    return DataRef.model_validate(data.model_dump(by_alias=True))
