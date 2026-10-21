@@ -2,6 +2,7 @@
 
 from zeo_core.integrations.agents.session import (
     AgentsRefused,
+    NativeTurn,
     ScriptedTransport,
     SdkTransport,
     ToolCall,
@@ -9,10 +10,12 @@ from zeo_core.integrations.agents.session import (
     function_tool,
     mcp_server,
     run,
+    run_native,
 )
 
 __all__ = [
     "AgentsRefused",
+    "NativeTurn",
     "ScriptedTransport",
     "SdkTransport",
     "ToolCall",
@@ -20,4 +23,5 @@ __all__ = [
     "function_tool",
     "mcp_server",
     "run",
+    "run_native",
 ]

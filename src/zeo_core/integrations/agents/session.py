@@ -81,7 +81,12 @@ class Transport(Protocol):
 
 class SdkTransport:
     """
-    The documented ``client.beta.agents.sessions`` calls.
+    The calls as the Agents API guides summarise them (see :func:`run_native` instead).
+
+    NOT the real SDK's contract: in ``openai`` 3.36.0 ``Events.create`` returns ``None``
+    and takes no ``stream``, and the SDK dispatches function actions itself. Use
+    :func:`run_native` against the real SDK; this adapter remains for transports that
+    really do hand back a stream per post.
 
     Needs an ``openai`` release that has ``beta.agents``; without one it refuses with
     ``agents_api_unavailable`` rather than guess. A provider exception becomes
@@ -489,4 +494,115 @@ def _why(status: Status, output: str) -> str | None:
         return None if output else "completed_without_output"
     return {"failed": "turn_failed", "cancelled": "turn_cancelled"}.get(
         status, "no_terminal_event"
+    )
+
+
+@dataclass(frozen=True)
+class NativeTurn:
+    """The outcome of :func:`run_native`; ``ok`` needs an established answer."""
+
+    session_id: str | None
+    status: Status
+    output_text: str
+    tools_called: tuple[str, ...] = field(default_factory=tuple)
+    error_code: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "completed" and bool(self.output_text.strip())
+
+
+def _guard(
+    name: str, handler: Handler, calls: list[str], max_calls: int
+) -> Callable[[dict[str, Any]], str]:
+    """A handler the SDK may call: bounded, size-capped, finite, and never echoing."""
+
+    def guarded(arguments: dict[str, Any]) -> str:
+        # Anything raised here is reported by the SDK as a generic failed result
+        # with no exception text: that is the refusal channel.
+        if len(calls) >= max_calls:
+            raise AgentsRefused("too_many_calls")
+        calls.append(name)
+        encoded_arguments = json.dumps(arguments, allow_nan=False)
+        if len(encoded_arguments.encode()) > MAX_ARGUMENT_BYTES:
+            raise AgentsRefused("tool_arguments_too_large")
+        output = handler(arguments)
+        encoded = (
+            output
+            if isinstance(output, str)
+            else json.dumps(output, sort_keys=True, allow_nan=False)
+        )
+        if len(encoded.encode()) > MAX_RESULT_BYTES:
+            raise AgentsRefused("tool_result_too_large")
+        return encoded
+
+    return guarded
+
+
+def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
+    client: object,
+    *,
+    agent: Mapping[str, Any],
+    environment: Mapping[str, Any],
+    text: str,
+    handlers: Mapping[str, Handler] | None = None,
+    max_calls: int = MAX_CALLS_PER_TURN,
+) -> NativeTurn:
+    """
+    Run one message on a NEW managed session through the SDK's own contract.
+
+    ``client.beta.agents.sessions.create(..., stream=True, tool_handlers=...)`` and then
+    ``get_final_result()`` (read from openai 3.29.0 and 3.36.0; the stream has no
+    ``session_id``, the result and the SDK's result error do): the SDK runs the
+    function actions with our guarded handlers
+    (the mapping is the allowlist) and raises ``AgentTurnResultError`` unless a complete
+    successful result can be established. The turn is ``completed`` only when that
+    result carries non-blank ``output_text``. Every SDK exception becomes a code with no
+    provider text. A follow-up is a NEW session whose input carries the prior brief:
+    ``tool_handlers`` on a saved session is not part of what was verified.
+    """
+    agents = getattr(getattr(client, "beta", None), "agents", None)
+    sessions = getattr(agents, "sessions", None)
+    if sessions is None or not hasattr(sessions, "create"):
+        raise AgentsRefused("agents_api_unavailable")
+    called: list[str] = []
+    guarded = {
+        name: _guard(name, handler, called, max_calls)
+        for name, handler in (handlers or {}).items()
+    }
+    stream: Any = None
+    try:
+        stream = sessions.create(
+            agent=dict(agent),
+            environment=dict(environment),
+            input=text,
+            stream=True,
+            tool_handlers=guarded,
+        )
+        result = stream.get_final_result()
+    except AgentsRefused:
+        raise
+    except Exception as error:  # noqa: BLE001 -- coded, no provider text
+        known = type(error).__name__ in {
+            "AgentTurnResultError",
+            "AgentOutputParseError",
+        }
+        # The stream has no session_id (openai 3.29.0, 3.36.0); the SDK's error does.
+        session_id = getattr(error, "session_id", None) if known else None
+        return NativeTurn(
+            session_id if isinstance(session_id, str) else None,
+            "incomplete" if known else "failed",
+            "",
+            tuple(called),
+            "result_not_established" if known else "provider_error",
+        )
+    output = getattr(result, "output_text", None)
+    session_id = getattr(result, "session_id", None)
+    output = output.strip() if isinstance(output, str) else ""
+    return NativeTurn(
+        session_id if isinstance(session_id, str) else None,
+        "completed",
+        output,
+        tuple(called),
+        None if output else "completed_without_output",
     )

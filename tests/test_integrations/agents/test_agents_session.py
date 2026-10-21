@@ -633,3 +633,293 @@ def test_a_refusal_raised_by_the_stream_itself_keeps_its_code() -> None:
     with pytest.raises(AgentsRefused) as refused:
         go(Refusing())
     assert refused.value.code == "script_exhausted"
+
+
+# --- run_native: the real openai 3.36.0 contract ------------------------------------
+# The fake below has the REAL signature of Sessions.create (read from the SDK source at
+# tag v3.36.0): a wrong keyword raises TypeError here as it would there.
+
+
+class AgentTurnResultError(Exception):
+    """Named like the SDK's; run_native recognises it by name."""
+
+
+class _RealShapedStream:
+    def __init__(
+        self,
+        handlers: Mapping[str, Callable[[dict[str, Any]], Any]],
+        script: Callable[[Mapping[str, Callable[[dict[str, Any]], Any]]], Any],
+    ) -> None:
+        # NO session_id attribute: openai 3.29.0 and 3.36.0 streams have none.
+        self._handlers, self._script = handlers, script
+
+    def get_final_result(self) -> Any:  # noqa: ANN401
+        return self._script(self._handlers)
+
+
+class _RealShapedSessions:
+    def __init__(self, script: Callable[[Any], Any]) -> None:
+        self._script = script
+        self.seen: dict[str, Any] = {}
+
+    def create(  # noqa: PLR0913
+        self,
+        *,
+        environment: Mapping[str, Any],
+        output_type: object = None,
+        tool_handlers: Mapping[str, Callable[[dict[str, Any]], Any]] | None = None,
+        stream: bool,
+        agent: Mapping[str, Any] | None = None,
+        agent_id: str | None = None,
+        input: object = None,  # noqa: A002
+        metadata: object = None,
+        vault_ids: object = None,
+        extra_headers: object = None,
+        extra_query: object = None,
+        extra_body: object = None,
+        timeout: object = None,
+    ) -> _RealShapedStream:
+        self.seen = {
+            "environment": environment,
+            "agent": agent,
+            "input": input,
+            "stream": stream,
+            "handlers": sorted(tool_handlers or {}),
+        }
+        return _RealShapedStream(tool_handlers or {}, self._script)
+
+
+def native_client(
+    script: Callable[[Any], Any],
+) -> tuple[SimpleNamespace, _RealShapedSessions]:
+    sessions = _RealShapedSessions(script)
+    return SimpleNamespace(
+        beta=SimpleNamespace(agents=SimpleNamespace(sessions=sessions))
+    ), sessions
+
+
+def answer(text_value: str = "the answer") -> SimpleNamespace:
+    return SimpleNamespace(output_text=text_value, session_id="ses_native")
+
+
+def native(client: object, **kwargs: Any) -> agents.NativeTurn:  # noqa: ANN401
+    return agents.run_native(client, agent=AGENT, environment=ENV, text="x", **kwargs)
+
+
+def test_run_native_uses_exactly_the_real_create_contract() -> None:
+    client, sessions = native_client(lambda handlers: answer())
+    result = native(client, handlers={"get_flight": lambda a: "1"})
+    assert (result.status, result.ok, result.output_text) == (
+        "completed",
+        True,
+        "the answer",
+    )
+    assert result.session_id == "ses_native"
+    assert sessions.seen == {
+        "environment": ENV,
+        "agent": AGENT,
+        "input": "x",
+        "stream": True,
+        "handlers": ["get_flight"],
+    }
+
+
+def test_the_sdk_calls_our_guarded_handlers_with_a_dict() -> None:
+    seen: list[Mapping[str, Any]] = []
+
+    def script(
+        handlers: Mapping[str, Callable[[dict[str, Any]], Any]],
+    ) -> SimpleNamespace:
+        assert handlers["get_flight"]({"flight": "BA117"}) == json.dumps(
+            {"s": "Delayed"}, sort_keys=True
+        )
+        return answer()
+
+    client, _ = native_client(script)
+
+    def flight(arguments: Mapping[str, Any]) -> dict[str, str]:
+        seen.append(arguments)
+        return {"s": "Delayed"}
+
+    result = native(client, handlers={"get_flight": flight})
+    assert (
+        result.ok
+        and seen == [{"flight": "BA117"}]
+        and result.tools_called == ("get_flight",)
+    )
+
+
+def test_only_declared_handlers_are_offered_to_the_sdk() -> None:
+    client, sessions = native_client(lambda handlers: answer())
+    native(client, handlers={"a": lambda x: "1"})
+    assert sessions.seen["handlers"] == ["a"]
+    client, sessions = native_client(lambda handlers: answer())
+    native(client)
+    assert sessions.seen["handlers"] == []
+
+
+def test_a_guarded_handler_refuses_too_many_calls_and_oversize_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def script(
+        handlers: Mapping[str, Callable[[dict[str, Any]], Any]],
+    ) -> SimpleNamespace:
+        handlers["n"]({})
+        with pytest.raises(AgentsRefused) as refused:
+            handlers["n"]({})
+        assert refused.value.code == "too_many_calls"
+        return answer()
+
+    client, _ = native_client(script)
+    assert native(client, handlers={"n": lambda a: "1"}, max_calls=1).ok
+    monkeypatch.setattr(agents, "MAX_ARGUMENT_BYTES", 8)
+
+    def big(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> SimpleNamespace:
+        with pytest.raises(AgentsRefused) as refused:
+            handlers["n"]({"a": "0123456789"})
+        assert refused.value.code == "tool_arguments_too_large"
+        return answer()
+
+    client, _ = native_client(big)
+    assert native(client, handlers={"n": lambda a: "1"}).ok
+
+
+@pytest.mark.parametrize("bad", [{"x": float("nan")}, "bad\ud800text"])
+def test_a_guarded_handler_refuses_a_non_finite_or_unencodable_result(
+    bad: object,
+) -> None:
+    def script(
+        handlers: Mapping[str, Callable[[dict[str, Any]], Any]],
+    ) -> SimpleNamespace:
+        with pytest.raises((ValueError, UnicodeEncodeError)):
+            handlers["n"]({})
+        return answer()
+
+    client, _ = native_client(script)
+    assert native(client, handlers={"n": lambda a, v=bad: v}).ok
+
+
+def test_a_result_the_sdk_cannot_establish_is_incomplete_not_ok() -> None:
+    def script(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> None:
+        msg = "SECRET provider detail"
+        raise AgentTurnResultError(msg)
+
+    client, _ = native_client(script)
+    result = native(client)
+    assert (result.status, result.ok, result.error_code) == (
+        "incomplete",
+        False,
+        "result_not_established",
+    )
+    assert "SECRET" not in repr(result)
+
+
+def test_any_other_sdk_exception_is_a_coded_failure_without_its_text() -> None:
+    def script(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> None:
+        msg = "SECRET provider detail"
+        raise RuntimeError(msg)
+
+    client, _ = native_client(script)
+    result = native(client)
+    assert (result.status, result.ok, result.error_code) == (
+        "failed",
+        False,
+        "provider_error",
+    )
+    assert "SECRET" not in repr(result)
+
+
+@pytest.mark.parametrize("value", ["", "  \n", None, 5])
+def test_a_blank_or_missing_answer_is_not_ok(value: object) -> None:
+    client, _ = native_client(
+        lambda handlers: SimpleNamespace(output_text=value, session_id="s")
+    )
+    result = native(client)
+    assert (result.ok, result.error_code) == (False, "completed_without_output")
+
+
+def test_a_create_call_the_sdk_would_reject_is_a_coded_failure() -> None:
+    class Old:
+        def create(self, **kwargs: object) -> None:
+            msg = "unexpected keyword 'tool_handlers'"
+            raise TypeError(msg)
+
+    client = SimpleNamespace(
+        beta=SimpleNamespace(agents=SimpleNamespace(sessions=Old()))
+    )
+    result = native(client)
+    assert (result.status, result.error_code) == ("failed", "provider_error")
+
+
+@pytest.mark.parametrize(
+    "client",
+    [
+        SimpleNamespace(),
+        SimpleNamespace(beta=SimpleNamespace()),
+        SimpleNamespace(beta=SimpleNamespace(agents=SimpleNamespace())),
+    ],
+)
+def test_run_native_refuses_an_sdk_without_the_agents_api(client: object) -> None:
+    with pytest.raises(AgentsRefused) as refused:
+        native(client)
+    assert refused.value.code == "agents_api_unavailable"
+
+
+def test_run_native_takes_no_key() -> None:
+    assert not [
+        p
+        for p in inspect.signature(agents.run_native).parameters
+        if "key" in p or "token" in p
+    ]
+
+
+class _ErrorWithSession(Exception):  # noqa: N818 -- renamed to the SDK's class name
+    session_id = "ses_from_error"
+
+
+_ErrorWithSession.__name__ = "AgentTurnResultError"
+
+
+def test_the_session_id_comes_from_the_result_never_from_the_stream() -> None:
+    client, _ = native_client(lambda handlers: answer())
+    stream = client.beta.agents.sessions.create(environment=ENV, stream=True)
+    assert not hasattr(stream, "session_id")  # as in openai 3.29.0 and 3.36.0
+    assert native(client).session_id == "ses_native"
+
+
+def test_the_sdk_error_supplies_the_session_id_when_the_result_is_not_established() -> (
+    None
+):
+    def script(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> None:
+        msg = "SECRET provider detail"
+        raise _ErrorWithSession(msg)
+
+    client, _ = native_client(script)
+    result = native(client)
+    assert (result.session_id, result.error_code) == (
+        "ses_from_error",
+        "result_not_established",
+    )
+    assert "SECRET" not in repr(result)
+
+
+def test_dev17s_start_cannot_start_on_a_stream_shaped_like_the_real_sdk() -> None:
+    """The defect run_native replaces: SdkTransport.start needs stream.session_id."""
+    client, _ = native_client(lambda handlers: answer())
+    with pytest.raises(AgentsRefused) as refused:
+        SdkTransport(client).start(agent=AGENT, environment=ENV, text="x")
+    # the real Sessions.create takes no positional/unknown keywords as dev17 sent them,
+    # or, when it accepts them, the stream has no session_id: either way no live start
+    assert refused.value.code in {"provider_error", "no_session_id"}
+
+
+def test_only_the_sdks_result_errors_may_supply_a_session_id() -> None:
+    class Other(Exception):  # noqa: N818 -- any other exception, carrying an id
+        session_id = "ses_must_not_be_trusted"
+
+    def script(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> None:
+        raise Other
+
+    client, _ = native_client(script)
+    result = native(client)
+    assert (result.session_id, result.error_code) == (None, "provider_error")
