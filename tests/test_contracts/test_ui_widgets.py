@@ -516,3 +516,47 @@ def test_marking_a_request_superseded_keeps_the_cards_it_wrote() -> None:
     board = two_cards()
     board.supersede("r1")
     assert set(board.cards()) == {"flight", "weather"}
+
+
+def test_the_snapshot_keeps_each_cards_own_request() -> None:
+    board = two_cards()
+    board.begin_request("r2", replaces=["weather"])
+    before = {c.widget_id: (c.request_id, c.replaced) for c in board.snapshot()}
+    assert before == {"flight": ("r1", False), "weather": ("r1", True)}
+    board.apply(
+        upsert(request_id="r2", widget_id="weather", data_ref="w2"), ref(ref_id="w2")
+    )
+    after = {
+        c.widget_id: (c.request_id, c.replaced, c.data_ref.id) for c in board.snapshot()
+    }
+    assert after == {"flight": ("r1", False, "f1"), "weather": ("r2", False, "w2")}
+
+
+def test_the_snapshot_orders_cards_and_carries_revisions() -> None:
+    board = two_cards()
+    board.apply(
+        upsert(request_id="r1", widget_id="weather", data_ref="w9", revision=4),
+        ref(ref_id="w9"),
+    )
+    cards = board.snapshot()
+    assert [(c.widget_id, c.revision, c.component) for c in cards] == [
+        ("flight", 1, "flight_status"),
+        ("weather", 4, "weather_hourly"),
+    ]
+
+
+def test_a_whole_new_request_leaves_nothing_marked_replaced() -> None:
+    board = two_cards()
+    board.begin_request("r2", replaces=["weather"])
+    board.begin_request("r3")
+    assert board.snapshot() == []
+    board.apply(
+        upsert(request_id="r3", widget_id="weather", data_ref="w3"), ref(ref_id="w3")
+    )
+    assert [c.replaced for c in board.snapshot()] == [False]
+
+
+def test_a_snapshot_is_a_copy() -> None:
+    board = two_cards()
+    board.snapshot()[0].data_ref.payload["x"] = 1
+    assert "x" not in board.snapshot()[0].data_ref.payload

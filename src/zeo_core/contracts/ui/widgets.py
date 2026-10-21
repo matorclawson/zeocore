@@ -280,6 +280,24 @@ class WidgetUpsert(_Closed):
     revision: Annotated[int, Field(ge=1, le=2**31 - 1)]
 
 
+class CardState(_Closed):
+    """
+    One card in a snapshot, with its own provenance.
+
+    ``request_id`` is the request that wrote the card, so a preserved flight card can
+    sit beside a weather card from a newer request. ``replaced`` is true while a newer
+    request has taken the widget over but has not written it yet: the surface marks
+    the old card as superseded rather than showing it as current.
+    """
+
+    widget_id: str
+    component: Component
+    revision: Annotated[int, Field(ge=0)]
+    request_id: str
+    replaced: StrictBool
+    data_ref: DataRef
+
+
 class WidgetBoard:
     """
     The cards of one conversation, and the rules that route an event onto them.
@@ -299,7 +317,8 @@ class WidgetBoard:
         self._live: set[str] = set()
         self._retired: set[str] = set()
         self._blocked: dict[str, set[str]] = {}
-        self._cards: dict[str, tuple[int, str, DataRef]] = {}
+        self._cards: dict[str, tuple[int, str, DataRef, str]] = {}
+        self._pending: set[str] = set()
 
     def begin_request(
         self, request_id: str, *, replaces: Iterable[str] | None = None
@@ -314,13 +333,15 @@ class WidgetBoard:
             self._live = {request_id}
             self._blocked.clear()
             self._cards.clear()
+            self._pending.clear()
             return
         widgets = set(replaces)
         for other in self._live:
             self._blocked.setdefault(other, set()).update(widgets)
         for widget_id in widgets & self._cards.keys():
-            _, component, data = self._cards[widget_id]
-            self._cards[widget_id] = (0, component, data)  # revisions start again
+            _, component, data, owner = self._cards[widget_id]
+            self._cards[widget_id] = (0, component, data, owner)  # revisions restart
+            self._pending.add(widget_id)
         self._live.add(request_id)
 
     def supersede(self, request_id: str) -> None:
@@ -345,11 +366,33 @@ class WidgetBoard:
             if event.revision <= current[0]:
                 return False
         # A copy, so a caller cannot mutate the stored payload past the checks.
-        self._cards[event.widget_id] = (event.revision, event.component, _copy(data))
+        self._cards[event.widget_id] = (
+            event.revision,
+            event.component,
+            _copy(data),
+            event.request_id,
+        )
+        self._pending.discard(event.widget_id)
         return True
 
     def cards(self) -> dict[str, DataRef]:
         return {key: _copy(value[2]) for key, value in self._cards.items()}
+
+    def snapshot(self) -> list[CardState]:
+        """Every card with its own request and revision, in widget order."""
+        return [
+            CardState(
+                widget_id=widget_id,
+                component=component,  # type: ignore[arg-type]
+                revision=revision,
+                request_id=owner,
+                replaced=widget_id in self._pending,
+                data_ref=_copy(data),
+            )
+            for widget_id, (revision, component, data, owner) in sorted(
+                self._cards.items()
+            )
+        ]
 
 
 def _copy(data: DataRef) -> DataRef:
