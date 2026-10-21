@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "Assumption": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "assumption",
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "label",
+        "value",
+        "kind"
+      ],
+      "title": "Assumption",
+      "type": "object"
+    },
+    "DataError": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "maxLength": 200,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "DataError",
+      "type": "object"
+    }
+  },
+  "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/ui.widget-data-ref.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What a ``data_ref`` resolves to: provenance plus the component's payload.",
+  "properties": {
+    "as_of": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "As Of"
+    },
+    "assumptions": {
+      "items": {
+        "$ref": "#/$defs/Assumption"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "delayed": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delayed"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DataError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "fetched_at": {
+      "maxLength": 40,
+      "title": "Fetched At",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "replay": {
+      "title": "Replay",
+      "type": "boolean"
+    },
+    "source": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "source",
+    "fetched_at",
+    "as_of",
+    "replay",
+    "payload"
+  ],
+  "title": "DataRef",
+  "type": "object"
+}

@@ -2,7 +2,7 @@
   "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/ui.widget-upsert.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "``widget.upsert``: put the referenced data on one card, replacing its older one.",
+  "description": "``widget.upsert``: put the referenced data on one card.",
   "properties": {
     "component": {
       "enum": [
@@ -15,12 +15,14 @@
       "type": "string"
     },
     "data_ref": {
-      "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+      "maxLength": 80,
+      "minLength": 1,
       "title": "Data Ref",
       "type": "string"
     },
     "request_id": {
-      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "maxLength": 80,
+      "minLength": 1,
       "title": "Request Id",
       "type": "string"
     },
@@ -36,7 +38,7 @@
       "type": "string"
     },
     "widget_id": {
-      "pattern": "^[a-z][a-z0-9_.-]{0,63}$",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
       "title": "Widget Id",
       "type": "string"
     }

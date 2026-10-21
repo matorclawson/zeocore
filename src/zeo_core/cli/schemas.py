@@ -43,7 +43,7 @@ SCHEMAS: Final[dict[str, str]] = {
     ),
     "ui.result-card": "zeo_core.contracts.ui.card:UiCardResult",
     "ui.widget-upsert": "zeo_core.contracts.ui.widgets:WidgetUpsert",
-    "ui.widget-data": "zeo_core.contracts.ui.widgets:WidgetData",
+    "ui.widget-data-ref": "zeo_core.contracts.ui.widgets:DataRef",
     "revolut.account": "zeo_core.integrations.revolut.models:Account",
     # TransactionQuery waits for its wire alias ("from", contract §6): its
     # schema today would name the Python field "from_".
