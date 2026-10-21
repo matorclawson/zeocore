@@ -322,3 +322,15 @@ Common testing utilities are provided in `conftest.py`:
 
 The goal is to maintain at least 90% test coverage for all modules. 
 Coverage reports are generated when running tests with `make test`.
+
+## macOS keychain proof availability
+
+An ordinary test run may skip the stdin-transport proofs when the default
+keychain probe returns exit 1 and the specific "SecKeychainCopyDefault: A default
+keychain could not be found" diagnostic on stderr. This records an unavailable
+proof; it does not claim that the proof passed. Empty output, a different exit
+code, a stdout-only diagnostic, other errors and timeouts remain failures.
+
+A designated proof host sets ZEOCORE_REQUIRE_KEYCHAIN_PROOF=1; unavailable
+proofs then fail rather than skip. Preserve skip reasons in qualification logs
+with make verify PYTEST_ARGS='-v -rs'.
