@@ -17,7 +17,7 @@ request is refused, so it cannot overwrite the card of the changed destination.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import datetime
 from typing import Annotated, Any, Final, Literal
 
@@ -284,38 +284,56 @@ class WidgetBoard:
     """
     The cards of one conversation, and the rules that route an event onto them.
 
-    ``begin_request`` starts the request that owns the board and supersedes the one
-    before it: an event of a superseded request is refused, so a slow result for the
-    old destination cannot overwrite the card of the new one. Within a request a
-    revision at or below the card's current one is ignored (``apply`` returns False).
-    Cards are kept by ``widget_id``, so an update changes the existing card.
+    A request supersedes the older ones, either wholly (``begin_request(id)``) or only
+    for the widgets it replaces (``begin_request(id, replaces=[...])``). An older
+    request may no longer write a widget that a newer request replaced, so a slow
+    result for the old destination cannot overwrite the new destination's card, while
+    its other widgets (the flight, say) stay valid and in place. A replaced widget
+    keeps its card until the new request writes it, and its revision count starts
+    again. Within a widget, a revision at or below the current one is ignored
+    (``apply`` returns False). Cards are kept by ``widget_id``, so an update changes
+    the existing card.
     """
 
     def __init__(self) -> None:
-        self._request_id: str | None = None
-        self._cards: dict[str, tuple[int, str, DataRef]] = {}
+        self._live: set[str] = set()
         self._retired: set[str] = set()
+        self._blocked: dict[str, set[str]] = {}
+        self._cards: dict[str, tuple[int, str, DataRef]] = {}
 
-    def begin_request(self, request_id: str) -> None:
-        if request_id in self._retired:
+    def begin_request(
+        self, request_id: str, *, replaces: Iterable[str] | None = None
+    ) -> None:
+        """Start a request; it supersedes the others wholly, or only ``replaces``."""
+        if request_id in self._retired or request_id in self._live:
             raise WidgetRefused("request_already_superseded")
-        if len(self._retired) >= MAX_RETIRED:
+        if len(self._retired) + len(self._live) >= MAX_RETIRED:
             raise WidgetRefused("too_many_requests")
-        if self._request_id is not None and self._request_id != request_id:
-            self._retired.add(self._request_id)
+        if replaces is None:
+            self._retired |= self._live
+            self._live = {request_id}
+            self._blocked.clear()
             self._cards.clear()
-        self._request_id = request_id
+            return
+        widgets = set(replaces)
+        for other in self._live:
+            self._blocked.setdefault(other, set()).update(widgets)
+        for widget_id in widgets & self._cards.keys():
+            _, component, data = self._cards[widget_id]
+            self._cards[widget_id] = (0, component, data)  # revisions start again
+        self._live.add(request_id)
 
     def supersede(self, request_id: str) -> None:
         """Mark a request superseded without starting another: its late results fail."""
+        self._live.discard(request_id)
+        self._blocked.pop(request_id, None)
         self._retired.add(request_id)
-        if request_id == self._request_id:
-            self._request_id = None
-            self._cards.clear()
 
     def apply(self, event: WidgetUpsert, data: DataRef) -> bool:
         """Apply an event; False when ignored (a stale revision), raise when refused."""
-        if event.request_id != self._request_id:
+        if event.request_id not in self._live or event.widget_id in self._blocked.get(
+            event.request_id, ()
+        ):
             raise WidgetRefused("superseded_request")
         if data.id != event.data_ref:
             raise WidgetRefused("data_ref_mismatch")

@@ -411,3 +411,108 @@ def test_the_exported_data_ref_schema_says_it_is_not_sufficient() -> None:
         "NECESSARY BUT NOT SUFFICIENT"
         in render_schema("ui.widget-data-ref")["description"]
     )
+
+
+# --- rasa-ops S5b: a follow-up replaces only its own widget ------------------------
+
+
+def two_cards() -> WidgetBoard:
+    board = WidgetBoard()
+    board.begin_request("r1")
+    board.apply(
+        upsert("flight_status", request_id="r1", widget_id="flight", data_ref="f1"),
+        ref("flight_status", "f1"),
+    )
+    board.apply(
+        upsert(request_id="r1", widget_id="weather", data_ref="w1"), ref(ref_id="w1")
+    )
+    return board
+
+
+def test_a_follow_up_replaces_only_its_own_widget() -> None:
+    board = two_cards()
+    board.begin_request("r2", replaces=["weather"])
+    assert board.apply(
+        upsert(request_id="r2", widget_id="weather", data_ref="w2"), ref(ref_id="w2")
+    )
+    assert {key: card.id for key, card in board.cards().items()} == {
+        "flight": "f1",
+        "weather": "w2",
+    }
+
+
+def test_a_replaced_widget_keeps_its_card_until_the_new_one_arrives() -> None:
+    board = two_cards()
+    board.begin_request("r2", replaces=["weather"])
+    assert board.cards()["weather"].id == "w1"
+
+
+def test_the_old_request_cannot_write_a_replaced_widget_but_can_write_the_rest() -> (
+    None
+):
+    board = two_cards()
+    board.begin_request("r2", replaces=["weather"])
+    with pytest.raises(WidgetRefused) as refused:
+        board.apply(
+            upsert(request_id="r1", widget_id="weather", data_ref="late", revision=9),
+            ref(ref_id="late"),
+        )
+    assert refused.value.code == "superseded_request"
+    assert board.apply(
+        upsert(
+            "flight_status",
+            request_id="r1",
+            widget_id="flight",
+            data_ref="f2",
+            revision=2,
+        ),
+        ref("flight_status", "f2"),
+    )
+    assert board.cards()["flight"].id == "f2" and board.cards()["weather"].id == "w1"
+
+
+def test_revisions_start_again_for_a_replaced_widget_only() -> None:
+    board = two_cards()
+    board.apply(
+        upsert(request_id="r1", widget_id="weather", data_ref="w9", revision=5),
+        ref(ref_id="w9"),
+    )
+    board.begin_request("r2", replaces=["weather"])
+    assert board.apply(
+        upsert(request_id="r2", widget_id="weather", data_ref="n1", revision=1),
+        ref(ref_id="n1"),
+    )
+    assert not board.apply(
+        upsert(request_id="r2", widget_id="weather", data_ref="n0", revision=1),
+        ref(ref_id="n0"),
+    )
+
+
+def test_a_whole_request_still_supersedes_everything() -> None:
+    board = two_cards()
+    board.begin_request("r2")
+    assert board.cards() == {}
+    with pytest.raises(WidgetRefused):
+        board.apply(
+            upsert(
+                "flight_status",
+                request_id="r1",
+                widget_id="flight",
+                data_ref="f3",
+                revision=9,
+            ),
+            ref("flight_status", "f3"),
+        )
+
+
+def test_a_request_id_cannot_be_started_twice() -> None:
+    board = two_cards()
+    with pytest.raises(WidgetRefused) as refused:
+        board.begin_request("r1", replaces=["weather"])
+    assert refused.value.code == "request_already_superseded"
+
+
+def test_marking_a_request_superseded_keeps_the_cards_it_wrote() -> None:
+    board = two_cards()
+    board.supersede("r1")
+    assert set(board.cards()) == {"flight", "weather"}
