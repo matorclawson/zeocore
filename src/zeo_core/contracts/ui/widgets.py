@@ -55,6 +55,8 @@ _REFUSED: Final = re.compile(
 )
 TRANSFER_LABEL: Final = "transfer_minutes"
 MAX_RETIRED: Final = 4096
+MAX_REPLACES: Final = 32
+_WIDGET_ID: Final = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 
 
 def _date_time(value: str) -> str:
@@ -328,14 +330,14 @@ class WidgetBoard:
             raise WidgetRefused("request_already_superseded")
         if len(self._retired) + len(self._live) >= MAX_RETIRED:
             raise WidgetRefused("too_many_requests")
-        if replaces is None:
+        widgets = None if replaces is None else self._widget_ids(replaces)
+        if widgets is None:
             self._retired |= self._live
             self._live = {request_id}
             self._blocked.clear()
             self._cards.clear()
             self._pending.clear()
             return
-        widgets = set(replaces)
         for other in self._live:
             self._blocked.setdefault(other, set()).update(widgets)
         for widget_id in widgets & self._cards.keys():
@@ -343,6 +345,19 @@ class WidgetBoard:
             self._cards[widget_id] = (0, component, data, owner)  # revisions restart
             self._pending.add(widget_id)
         self._live.add(request_id)
+
+    @staticmethod
+    def _widget_ids(replaces: Iterable[str]) -> set[str]:
+        """The widget ids to replace: a list of real ids, never a bare string."""
+        if isinstance(replaces, str | bytes):
+            raise WidgetRefused("replaces_must_be_a_list")
+        widgets = list(replaces)
+        if len(widgets) > MAX_REPLACES or not all(
+            isinstance(widget, str) and _WIDGET_ID.fullmatch(widget)
+            for widget in widgets
+        ):
+            raise WidgetRefused("bad_replaces")
+        return set(widgets)
 
     def supersede(self, request_id: str) -> None:
         """Mark a request superseded without starting another: its late results fail."""

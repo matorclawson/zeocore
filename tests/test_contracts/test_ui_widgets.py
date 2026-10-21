@@ -560,3 +560,53 @@ def test_a_snapshot_is_a_copy() -> None:
     board = two_cards()
     board.snapshot()[0].data_ref.payload["x"] = 1
     assert "x" not in board.snapshot()[0].data_ref.payload
+
+
+# --- council round 2 on #159 (N1): replaces is a list of real widget ids ----------
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["weather", b"weather", ["Weather"], ["a b"], [""], [1], ["x" * 64], [None]],
+)
+def test_replaces_must_be_a_list_of_real_widget_ids(bad: Any) -> None:  # noqa: ANN401
+    board = two_cards()
+    with pytest.raises(WidgetRefused) as refused:
+        board.begin_request("r2", replaces=bad)
+    assert refused.value.code in {"replaces_must_be_a_list", "bad_replaces"}
+
+
+def test_a_bad_replaces_changes_nothing() -> None:
+    board = two_cards()
+    with pytest.raises(WidgetRefused):
+        board.begin_request("r2", replaces="weather")
+    # r1 is still live and may still write weather, and r2 never started
+    assert board.apply(
+        upsert(request_id="r1", widget_id="weather", data_ref="w2", revision=2),
+        ref(ref_id="w2"),
+    )
+    with pytest.raises(WidgetRefused) as refused:
+        board.apply(
+            upsert(request_id="r2", widget_id="weather", data_ref="w3"),
+            ref(ref_id="w3"),
+        )
+    assert refused.value.code == "superseded_request"
+
+
+def test_replaces_is_capped() -> None:
+    board = two_cards()
+    too_many = [f"w{i}" for i in range(widgets.MAX_REPLACES + 1)]
+    with pytest.raises(WidgetRefused) as refused:
+        board.begin_request("r2", replaces=too_many)
+    assert refused.value.code == "bad_replaces"
+    board.begin_request("r3", replaces=too_many[: widgets.MAX_REPLACES])
+
+
+def test_an_empty_replaces_replaces_nothing() -> None:
+    board = two_cards()
+    board.begin_request("r2", replaces=[])
+    assert {c.widget_id for c in board.snapshot()} == {"flight", "weather"}
+    assert board.apply(
+        upsert(request_id="r1", widget_id="weather", data_ref="w2", revision=2),
+        ref(ref_id="w2"),
+    )
