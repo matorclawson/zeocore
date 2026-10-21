@@ -288,7 +288,7 @@ def _arguments(raw: object) -> Mapping[str, Any]:
                 object_pairs_hook=_no_duplicates,
                 parse_constant=_refuse_constant,
             )
-        except ValueError, RecursionError:
+        except (ValueError, RecursionError):
             raise AgentsRefused("tool_arguments_not_json") from None
     if not isinstance(raw, Mapping):
         raise AgentsRefused("malformed_function_call")
