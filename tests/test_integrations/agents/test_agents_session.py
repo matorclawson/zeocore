@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from types import SimpleNamespace
 from typing import Any
 
@@ -635,32 +635,72 @@ def test_a_refusal_raised_by_the_stream_itself_keeps_its_code() -> None:
     assert refused.value.code == "script_exhausted"
 
 
-# --- run_native: the real openai 3.36.0 contract ------------------------------------
-# The fake below has the REAL signature of Sessions.create (read from the SDK source at
-# tag v3.36.0): a wrong keyword raises TypeError here as it would there.
+# --- run_native: the real openai SDK contract (read at v3.29.0 and v3.36.0) --------
+# The fake has the REAL 3.29.0 signature of Sessions.create (3.36.0 only adds
+# spend_control), a stream with NO session_id, and dispatches like the real one: a
+# handler call happens AFTER its event is yielded, and EVERY handler exception is
+# swallowed (the model is told "Tool handler failed."), the run goes on.
 
 
-class AgentTurnResultError(Exception):
-    """Named like the SDK's; run_native recognises it by name."""
+class _SdkResultError(Exception):
+    """Named like the SDK's AgentTurnResultError; run_native checks the name."""
+
+    def __init__(self, reason: str, session_id: str | None) -> None:
+        super().__init__("SECRET provider detail")
+        self.reason = reason
+        self.session_id = session_id
+
+
+_SdkResultError.__name__ = "AgentTurnResultError"
+
+
+def AgentTurnResultError(reason: str, session_id: str | None = None) -> Exception:  # noqa: N802
+    return _SdkResultError(reason, session_id)
 
 
 class _RealShapedStream:
     def __init__(
         self,
         handlers: Mapping[str, Callable[[dict[str, Any]], Any]],
-        script: Callable[[Mapping[str, Callable[[dict[str, Any]], Any]]], Any],
+        events: Sequence[tuple[str, ...] | tuple[str, str, dict[str, Any]]],
+        final: Callable[[], Any],
     ) -> None:
-        # NO session_id attribute: openai 3.29.0 and 3.36.0 streams have none.
-        self._handlers, self._script = handlers, script
+        self._handlers, self._events, self._final = handlers, events, final
+        self.collecting = False
+        self.closed = False
+        self.consumed = 0
+
+    def with_result_collection(self) -> _RealShapedStream:
+        self.collecting = True
+        return self
+
+    def __iter__(self) -> Iterator[SimpleNamespace]:
+        for event in self._events:
+            self.consumed += 1
+            yield SimpleNamespace(type=event[0])
+            if event[0] == "call":  # dispatch AFTER the yield; swallow like the SDK
+                try:
+                    arguments = event[2] if len(event) > 2 else {}
+                    self._handlers[event[1]](
+                        arguments if isinstance(arguments, dict) else {}
+                    )
+                except Exception:  # noqa: BLE001, S110
+                    pass
 
     def get_final_result(self) -> Any:  # noqa: ANN401
-        return self._script(self._handlers)
+        if not self.collecting:
+            raise AgentTurnResultError("observation_failed")
+        return self._final()
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _RealShapedSessions:
-    def __init__(self, script: Callable[[Any], Any]) -> None:
-        self._script = script
+    def __init__(self, events: Sequence[Any], final: Callable[[], Any]) -> None:
+        self._events, self._final = events, final
         self.seen: dict[str, Any] = {}
+        self.stream: _RealShapedStream | None = None
 
     def create(  # noqa: PLR0913
         self,
@@ -685,30 +725,39 @@ class _RealShapedSessions:
             "input": input,
             "stream": stream,
             "handlers": sorted(tool_handlers or {}),
+            "timeout": timeout,
         }
-        return _RealShapedStream(tool_handlers or {}, self._script)
+        self.stream = _RealShapedStream(tool_handlers or {}, self._events, self._final)
+        return self.stream
+
+
+def answer(text_value: object = "the answer") -> Callable[[], SimpleNamespace]:
+    return lambda: SimpleNamespace(output_text=text_value, session_id="ses_native")
 
 
 def native_client(
-    script: Callable[[Any], Any],
+    events: Sequence[Any] = (), final: Callable[[], Any] | None = None
 ) -> tuple[SimpleNamespace, _RealShapedSessions]:
-    sessions = _RealShapedSessions(script)
-    return SimpleNamespace(
-        beta=SimpleNamespace(agents=SimpleNamespace(sessions=sessions))
-    ), sessions
-
-
-def answer(text_value: str = "the answer") -> SimpleNamespace:
-    return SimpleNamespace(output_text=text_value, session_id="ses_native")
+    sessions = _RealShapedSessions(events, final or answer())
+    return (
+        SimpleNamespace(
+            beta=SimpleNamespace(agents=SimpleNamespace(sessions=sessions))
+        ),
+        sessions,
+    )
 
 
 def native(client: object, **kwargs: Any) -> agents.NativeTurn:  # noqa: ANN401
     return agents.run_native(client, agent=AGENT, environment=ENV, text="x", **kwargs)
 
 
+def calls_of(name: str, count: int, **arguments: Any) -> list[tuple[Any, ...]]:  # noqa: ANN401
+    return [("call", name, arguments or {})] * count
+
+
 def test_run_native_uses_exactly_the_real_create_contract() -> None:
-    client, sessions = native_client(lambda handlers: answer())
-    result = native(client, handlers={"get_flight": lambda a: "1"})
+    client, sessions = native_client()
+    result = native(client, handlers={"get_flight": lambda a: "1"}, timeout=12.5)
     assert (result.status, result.ok, result.output_text) == (
         "completed",
         True,
@@ -721,26 +770,19 @@ def test_run_native_uses_exactly_the_real_create_contract() -> None:
         "input": "x",
         "stream": True,
         "handlers": ["get_flight"],
+        "timeout": 12.5,
     }
+    assert sessions.stream is not None and sessions.stream.collecting
 
 
-def test_the_sdk_calls_our_guarded_handlers_with_a_dict() -> None:
+def test_the_sdk_dispatches_our_guarded_handlers_with_a_dict() -> None:
     seen: list[Mapping[str, Any]] = []
-
-    def script(
-        handlers: Mapping[str, Callable[[dict[str, Any]], Any]],
-    ) -> SimpleNamespace:
-        assert handlers["get_flight"]({"flight": "BA117"}) == json.dumps(
-            {"s": "Delayed"}, sort_keys=True
-        )
-        return answer()
-
-    client, _ = native_client(script)
 
     def flight(arguments: Mapping[str, Any]) -> dict[str, str]:
         seen.append(arguments)
         return {"s": "Delayed"}
 
+    client, _ = native_client(calls_of("get_flight", 1, flight="BA117"))
     result = native(client, handlers={"get_flight": flight})
     assert (
         result.ok
@@ -750,76 +792,146 @@ def test_the_sdk_calls_our_guarded_handlers_with_a_dict() -> None:
 
 
 def test_only_declared_handlers_are_offered_to_the_sdk() -> None:
-    client, sessions = native_client(lambda handlers: answer())
+    client, sessions = native_client()
     native(client, handlers={"a": lambda x: "1"})
     assert sessions.seen["handlers"] == ["a"]
-    client, sessions = native_client(lambda handlers: answer())
+    client, sessions = native_client()
     native(client)
     assert sessions.seen["handlers"] == []
 
 
-def test_a_guarded_handler_refuses_too_many_calls_and_oversize_input(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def script(
-        handlers: Mapping[str, Callable[[dict[str, Any]], Any]],
-    ) -> SimpleNamespace:
-        handlers["n"]({})
-        with pytest.raises(AgentsRefused) as refused:
-            handlers["n"]({})
-        assert refused.value.code == "too_many_calls"
-        return answer()
-
-    client, _ = native_client(script)
-    assert native(client, handlers={"n": lambda a: "1"}, max_calls=1).ok
-    monkeypatch.setattr(agents, "MAX_ARGUMENT_BYTES", 8)
-
-    def big(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> SimpleNamespace:
-        with pytest.raises(AgentsRefused) as refused:
-            handlers["n"]({"a": "0123456789"})
-        assert refused.value.code == "tool_arguments_too_large"
-        return answer()
-
-    client, _ = native_client(big)
-    assert native(client, handlers={"n": lambda a: "1"}).ok
+# P1-B: the SDK swallows what a handler raises; the cap must still stop the run.
 
 
-@pytest.mark.parametrize("bad", [{"x": float("nan")}, "bad\ud800text"])
-def test_a_guarded_handler_refuses_a_non_finite_or_unencodable_result(
-    bad: object,
-) -> None:
-    def script(
-        handlers: Mapping[str, Callable[[dict[str, Any]], Any]],
-    ) -> SimpleNamespace:
-        with pytest.raises((ValueError, UnicodeEncodeError)):
-            handlers["n"]({})
-        return answer()
+def test_a_capped_run_is_incomplete_and_never_ok_even_if_the_sdk_would_answer() -> None:
+    runs: list[int] = []
 
-    client, _ = native_client(script)
-    assert native(client, handlers={"n": lambda a, v=bad: v}).ok
+    def counting_handler(arguments: Mapping[str, Any]) -> str:
+        runs.append(1)
+        return "1"
 
-
-def test_a_result_the_sdk_cannot_establish_is_incomplete_not_ok() -> None:
-    def script(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> None:
-        msg = "SECRET provider detail"
-        raise AgentTurnResultError(msg)
-
-    client, _ = native_client(script)
-    result = native(client)
+    client, sessions = native_client(calls_of("n", 3))
+    result = native(client, handlers={"n": counting_handler}, max_calls=1)
     assert (result.status, result.ok, result.error_code) == (
         "incomplete",
         False,
-        "result_not_established",
+        "too_many_calls",
     )
-    assert "SECRET" not in repr(result)
+    assert len(runs) == 1 and sessions.stream is not None and sessions.stream.closed
+
+
+@pytest.mark.parametrize(
+    ("arguments", "output", "code"),
+    [
+        ({"a": "0123456789"}, "1", "tool_arguments_too_large"),
+        ({}, {"x": float("nan")}, "tool_result_not_encodable"),
+        ({}, "bad\ud800text", "tool_result_not_encodable"),
+        ({}, "x" * 20, "tool_result_too_large"),
+    ],
+)
+def test_a_guard_refusal_stops_the_run_with_its_code(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: dict[str, Any],
+    output: object,
+    code: str,
+) -> None:
+    monkeypatch.setattr(agents, "MAX_ARGUMENT_BYTES", 8)
+    monkeypatch.setattr(agents, "MAX_RESULT_BYTES", 10)
+    client, sessions = native_client([("call", "n", arguments), ("event",), ("event",)])
+    result = native(client, handlers={"n": lambda a: output})
+    assert (result.status, result.ok, result.error_code) == ("incomplete", False, code)
+    assert (
+        sessions.stream is not None
+        and sessions.stream.closed
+        and sessions.stream.consumed < 3
+    )
+
+
+def test_a_refusal_on_the_last_event_is_still_never_ok() -> None:
+    client, _ = native_client(calls_of("n", 2))
+    result = native(client, handlers={"n": lambda a: "1"}, max_calls=1)
+    assert (result.ok, result.error_code) == (False, "too_many_calls")
+
+
+def test_a_tools_own_fault_is_reported_by_the_sdk_and_the_run_goes_on() -> None:
+    def boom(arguments: Mapping[str, Any]) -> str:
+        msg = "secret-token-123"
+        raise RuntimeError(msg)
+
+    client, _ = native_client(calls_of("n", 1))
+    result = native(client, handlers={"n": boom})
+    assert result.ok and result.tools_called == ("n",)
+    assert "secret" not in repr(result)
+
+
+# P1-A: our loop bounds the run.
+
+
+def test_too_many_events_close_the_stream_and_return_incomplete() -> None:
+    client, sessions = native_client([("event",)] * 50)
+    result = native(client, max_events=10)
+    assert (result.status, result.ok, result.error_code) == (
+        "incomplete",
+        False,
+        "too_many_events",
+    )
+    assert (
+        sessions.stream is not None
+        and sessions.stream.closed
+        and sessions.stream.consumed <= 11
+    )
+
+
+def test_a_passed_deadline_closes_the_stream_and_returns_incomplete() -> None:
+    client, sessions = native_client([("event",)] * 5)
+    result = native(client, deadline_seconds=-1.0)
+    assert (result.status, result.ok, result.error_code) == (
+        "incomplete",
+        False,
+        "deadline_exceeded",
+    )
+    assert sessions.stream is not None and sessions.stream.closed
+
+
+def test_the_client_timeout_is_passed_to_create_by_default() -> None:
+    client, sessions = native_client()
+    native(client)
+    assert sessions.seen["timeout"] == agents.CLIENT_TIMEOUT_SECONDS
+
+
+# P2: the SDK's fixed error reasons map to our codes; no provider text.
+
+
+@pytest.mark.parametrize(
+    ("reason", "status", "code"),
+    [
+        ("failed", "failed", "turn_failed"),
+        ("cancelled", "cancelled", "turn_cancelled"),
+        ("requires_action", "incomplete", "requires_action"),
+        ("incomplete", "incomplete", "turn_incomplete"),
+        ("observation_failed", "incomplete", "observation_failed"),
+        ("something_new", "incomplete", "result_not_established"),
+    ],
+)
+def test_the_sdks_result_error_reason_maps_to_a_code(
+    reason: str, status: str, code: str
+) -> None:
+    def final() -> None:
+        raise AgentTurnResultError(reason, "ses_from_error")
+
+    client, sessions = native_client(final=final)
+    result = native(client)
+    assert (result.status, result.ok, result.error_code) == (status, False, code)
+    assert result.session_id == "ses_from_error" and "SECRET" not in repr(result)
+    assert sessions.stream is not None and sessions.stream.closed
 
 
 def test_any_other_sdk_exception_is_a_coded_failure_without_its_text() -> None:
-    def script(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> None:
+    def final() -> None:
         msg = "SECRET provider detail"
         raise RuntimeError(msg)
 
-    client, _ = native_client(script)
+    client, _ = native_client(final=final)
     result = native(client)
     assert (result.status, result.ok, result.error_code) == (
         "failed",
@@ -829,11 +941,28 @@ def test_any_other_sdk_exception_is_a_coded_failure_without_its_text() -> None:
     assert "SECRET" not in repr(result)
 
 
+def test_only_the_sdks_result_errors_may_supply_a_session_id() -> None:
+    class Other(Exception):  # noqa: N818 -- any other exception, carrying an id
+        session_id = "ses_must_not_be_trusted"
+
+    def final() -> None:
+        raise Other
+
+    client, _ = native_client(final=final)
+    result = native(client)
+    assert (result.session_id, result.error_code) == (None, "provider_error")
+
+
+def test_the_session_id_comes_from_the_result_never_from_the_stream() -> None:
+    client, sessions = native_client()
+    stream = client.beta.agents.sessions.create(environment=ENV, stream=True)
+    assert not hasattr(stream, "session_id")  # as in openai 3.29.0 and 3.36.0
+    assert native(client).session_id == "ses_native"
+
+
 @pytest.mark.parametrize("value", ["", "  \n", None, 5])
 def test_a_blank_or_missing_answer_is_not_ok(value: object) -> None:
-    client, _ = native_client(
-        lambda handlers: SimpleNamespace(output_text=value, session_id="s")
-    )
+    client, _ = native_client(final=answer(value))
     result = native(client)
     assert (result.ok, result.error_code) == (False, "completed_without_output")
 
@@ -873,53 +1002,9 @@ def test_run_native_takes_no_key() -> None:
     ]
 
 
-class _ErrorWithSession(Exception):  # noqa: N818 -- renamed to the SDK's class name
-    session_id = "ses_from_error"
-
-
-_ErrorWithSession.__name__ = "AgentTurnResultError"
-
-
-def test_the_session_id_comes_from_the_result_never_from_the_stream() -> None:
-    client, _ = native_client(lambda handlers: answer())
-    stream = client.beta.agents.sessions.create(environment=ENV, stream=True)
-    assert not hasattr(stream, "session_id")  # as in openai 3.29.0 and 3.36.0
-    assert native(client).session_id == "ses_native"
-
-
-def test_the_sdk_error_supplies_the_session_id_when_the_result_is_not_established() -> (
-    None
-):
-    def script(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> None:
-        msg = "SECRET provider detail"
-        raise _ErrorWithSession(msg)
-
-    client, _ = native_client(script)
-    result = native(client)
-    assert (result.session_id, result.error_code) == (
-        "ses_from_error",
-        "result_not_established",
-    )
-    assert "SECRET" not in repr(result)
-
-
 def test_dev17s_start_cannot_start_on_a_stream_shaped_like_the_real_sdk() -> None:
     """The defect run_native replaces: SdkTransport.start needs stream.session_id."""
-    client, _ = native_client(lambda handlers: answer())
+    client, _ = native_client()
     with pytest.raises(AgentsRefused) as refused:
         SdkTransport(client).start(agent=AGENT, environment=ENV, text="x")
-    # the real Sessions.create takes no positional/unknown keywords as dev17 sent them,
-    # or, when it accepts them, the stream has no session_id: either way no live start
     assert refused.value.code in {"provider_error", "no_session_id"}
-
-
-def test_only_the_sdks_result_errors_may_supply_a_session_id() -> None:
-    class Other(Exception):  # noqa: N818 -- any other exception, carrying an id
-        session_id = "ses_must_not_be_trusted"
-
-    def script(handlers: Mapping[str, Callable[[dict[str, Any]], Any]]) -> None:
-        raise Other
-
-    client, _ = native_client(script)
-    result = native(client)
-    assert (result.session_id, result.error_code) == (None, "provider_error")

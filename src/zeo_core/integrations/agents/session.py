@@ -43,6 +43,7 @@ MAX_ROUNDS: Final = 8
 MAX_CALLS_PER_TURN: Final = 16
 MAX_EVENTS_PER_DRAIN: Final = 10_000
 DEADLINE_SECONDS: Final = 300.0
+CLIENT_TIMEOUT_SECONDS: Final = 60.0
 MAX_ARGUMENT_BYTES: Final = 64 * 1024
 MAX_RESULT_BYTES: Final = 4 * 1024 * 1024
 _ENV_NAME: Final = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
@@ -512,31 +513,105 @@ class NativeTurn:
         return self.status == "completed" and bool(self.output_text.strip())
 
 
+#: What the SDK's ``AgentTurnResultError.reason`` can say (openai 3.29.0), as a status
+#: and a code of ours. Anything else is "result_not_established".
+_REASONS: Final[Mapping[str, tuple[Status, str]]] = {
+    "failed": ("failed", "turn_failed"),
+    "cancelled": ("cancelled", "turn_cancelled"),
+    "requires_action": ("incomplete", "requires_action"),
+    "incomplete": ("incomplete", "turn_incomplete"),
+    "observation_failed": ("incomplete", "observation_failed"),
+}
+
+
+class _NativeState:
+    """What the guarded handlers saw. The SDK swallows every handler exception and
+    carries on, so a refusal is recorded HERE and the run is stopped by the loop."""
+
+    def __init__(self) -> None:
+        self.called: list[str] = []
+        self.refusal: str | None = None
+
+    def refuse(self, code: str) -> AgentsRefused:
+        self.refusal = self.refusal or code
+        return AgentsRefused(code)
+
+
 def _guard(
-    name: str, handler: Handler, calls: list[str], max_calls: int
+    name: str, handler: Handler, state: _NativeState, max_calls: int
 ) -> Callable[[dict[str, Any]], str]:
     """A handler the SDK may call: bounded, size-capped, finite, and never echoing."""
 
     def guarded(arguments: dict[str, Any]) -> str:
-        # Anything raised here is reported by the SDK as a generic failed result
-        # with no exception text: that is the refusal channel.
-        if len(calls) >= max_calls:
-            raise AgentsRefused("too_many_calls")
-        calls.append(name)
-        encoded_arguments = json.dumps(arguments, allow_nan=False)
-        if len(encoded_arguments.encode()) > MAX_ARGUMENT_BYTES:
-            raise AgentsRefused("tool_arguments_too_large")
-        output = handler(arguments)
-        encoded = (
-            output
-            if isinstance(output, str)
-            else json.dumps(output, sort_keys=True, allow_nan=False)
-        )
-        if len(encoded.encode()) > MAX_RESULT_BYTES:
-            raise AgentsRefused("tool_result_too_large")
+        if len(state.called) >= max_calls:
+            raise state.refuse("too_many_calls")
+        state.called.append(name)
+        try:
+            size = len(json.dumps(arguments, allow_nan=False).encode())
+        except (TypeError, ValueError, RecursionError):
+            raise state.refuse("tool_arguments_not_json") from None
+        if size > MAX_ARGUMENT_BYTES:
+            raise state.refuse("tool_arguments_too_large")
+        output = handler(
+            arguments
+        )  # a fault here is the tool's own: the SDK reports it
+        try:
+            encoded = (
+                output
+                if isinstance(output, str)
+                else json.dumps(output, sort_keys=True, allow_nan=False)
+            )
+            size = len(encoded.encode())
+        except (TypeError, ValueError, RecursionError):
+            raise state.refuse("tool_result_not_encodable") from None
+        if size > MAX_RESULT_BYTES:
+            raise state.refuse("tool_result_too_large")
         return encoded
 
     return guarded
+
+
+def _close(stream: object) -> None:
+    """Close a provider stream without cancelling the backend turn; best effort."""
+    close = getattr(stream, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # noqa: BLE001, S110 -- closing must never raise provider text
+            pass
+
+
+def _watch(
+    stream: Iterable[object], state: _NativeState, max_events: int, deadline: float
+) -> str | None:
+    """Iterate the SDK stream (this runs the handlers); a code if the run must stop."""
+    for count, _ in enumerate(stream, start=1):
+        if state.refusal is not None:
+            return state.refusal
+        if count > max_events:
+            return "too_many_events"
+        if time.monotonic() > deadline:
+            return "deadline_exceeded"
+    return state.refusal
+
+
+def _native_failure(error: Exception, state: _NativeState) -> NativeTurn:
+    """A coded NativeTurn for an SDK exception; never its text."""
+    called = tuple(state.called)
+    if state.refusal is not None:
+        return NativeTurn(None, "incomplete", "", called, state.refusal)
+    if type(error).__name__ not in {"AgentTurnResultError", "AgentOutputParseError"}:
+        return NativeTurn(None, "failed", "", called, "provider_error")
+    # Only the SDK's own result errors may name a session (by class name).
+    known = getattr(error, "session_id", None)
+    reason = getattr(error, "reason", None)
+    status, code = _REASONS.get(
+        reason if isinstance(reason, str) else "",
+        ("incomplete", "result_not_established"),
+    )
+    return NativeTurn(
+        known if isinstance(known, str) else None, status, "", called, code
+    )
 
 
 def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
@@ -547,30 +622,46 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
     text: str,
     handlers: Mapping[str, Handler] | None = None,
     max_calls: int = MAX_CALLS_PER_TURN,
+    max_events: int = MAX_EVENTS_PER_DRAIN,
+    deadline_seconds: float = DEADLINE_SECONDS,
+    timeout: float = CLIENT_TIMEOUT_SECONDS,
 ) -> NativeTurn:
     """
     Run one message on a NEW managed session through the SDK's own contract.
 
-    ``client.beta.agents.sessions.create(..., stream=True, tool_handlers=...)`` and then
+    ``client.beta.agents.sessions.create(..., stream=True, tool_handlers=...)``, then
+    ``with_result_collection()``, then OUR loop over the stream, then
     ``get_final_result()`` (read from openai 3.29.0 and 3.36.0; the stream has no
-    ``session_id``, the result and the SDK's result error do): the SDK runs the
-    function actions with our guarded handlers
-    (the mapping is the allowlist) and raises ``AgentTurnResultError`` unless a complete
-    successful result can be established. The turn is ``completed`` only when that
-    result carries non-blank ``output_text``. Every SDK exception becomes a code with no
-    provider text. A follow-up is a NEW session whose input carries the prior brief:
-    ``tool_handlers`` on a saved session is not part of what was verified.
+    ``session_id``, the result and the SDK's result error do). The SDK runs the function
+    actions with our guarded handlers (the mapping is the allowlist); it swallows what
+    a handler raises, so a guard refusal (call cap, argument or result size, non-finite
+    JSON) is recorded and stops the run as ``incomplete`` with its code: a capped run is
+    never ``ok``. A tool's own fault is reported to the model by the SDK as a generic
+    failed result and the run goes on. A refusal that comes AFTER a handler ran cannot
+    undo that handler's side effects: a tool with side effects can repeat up to
+    ``max_calls``.
+
+    Bounds: ``max_events`` and ``deadline_seconds`` (the whole run) are checked as each
+    event ARRIVES in this loop; a read that blocks is bounded by ``timeout`` (passed to
+    ``create`` as the SDK's per-request timeout) alone. A breach closes the stream
+    (without cancelling the backend turn) and returns ``incomplete``. The turn is
+    ``completed`` only when ``get_final_result`` returns a non-blank ``output_text``;
+    ``AgentTurnResultError`` is mapped from its fixed ``reason``. Every SDK exception
+    becomes a code with no provider text. A follow-up is a NEW session whose input
+    carries the prior brief: ``tool_handlers`` on a saved session was not verified.
+    Needs ``openai>=3.29.0``; the repository's own lock is older.
     """
     agents = getattr(getattr(client, "beta", None), "agents", None)
     sessions = getattr(agents, "sessions", None)
     if sessions is None or not hasattr(sessions, "create"):
         raise AgentsRefused("agents_api_unavailable")
-    called: list[str] = []
+    state = _NativeState()
     guarded = {
-        name: _guard(name, handler, called, max_calls)
+        name: _guard(name, handler, state, max_calls)
         for name, handler in (handlers or {}).items()
     }
     stream: Any = None
+    deadline = time.monotonic() + deadline_seconds
     try:
         stream = sessions.create(
             agent=dict(agent),
@@ -578,24 +669,21 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
             input=text,
             stream=True,
             tool_handlers=guarded,
+            timeout=timeout,
         )
+        stream = stream.with_result_collection()
+        limit = _watch(stream, state, max_events, deadline)
+        if limit is not None:
+            _close(stream)
+            return NativeTurn(None, "incomplete", "", tuple(state.called), limit)
         result = stream.get_final_result()
     except AgentsRefused:
         raise
     except Exception as error:  # noqa: BLE001 -- coded, no provider text
-        known = type(error).__name__ in {
-            "AgentTurnResultError",
-            "AgentOutputParseError",
-        }
-        # The stream has no session_id (openai 3.29.0, 3.36.0); the SDK's error does.
-        session_id = getattr(error, "session_id", None) if known else None
-        return NativeTurn(
-            session_id if isinstance(session_id, str) else None,
-            "incomplete" if known else "failed",
-            "",
-            tuple(called),
-            "result_not_established" if known else "provider_error",
-        )
+        _close(stream)
+        return _native_failure(error, state)
+    if state.refusal is not None:
+        return NativeTurn(None, "incomplete", "", tuple(state.called), state.refusal)
     output = getattr(result, "output_text", None)
     session_id = getattr(result, "session_id", None)
     output = output.strip() if isinstance(output, str) else ""
@@ -603,6 +691,6 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
         session_id if isinstance(session_id, str) else None,
         "completed",
         output,
-        tuple(called),
+        tuple(state.called),
         None if output else "completed_without_output",
     )
