@@ -581,17 +581,75 @@ def _close(stream: object) -> None:
             pass
 
 
+_TURN_END: Final = {
+    "agent.session.turn.completed": "completed",
+    "agent.session.turn.failed": "failed",
+    "agent.session.turn.cancelled": "cancelled",
+}
+
+
+class _Boundary:
+    """
+    Where the SDK itself stops reading (openai 3.29.0, ``_result.py``). The session
+    event stream does NOT end with the turn: it stays open and idle. The SDK is done
+    at ``agent.session.idle`` after the first MAIN turn (no ``subagent_id``) reached a
+    terminal state, or at ``agent.session.failed``. A ``requires_action`` for a function
+    this run has no handler for is the SDK's immediate ``requires_action`` outcome:
+    nothing else will arrive, so waiting would only run into the read timeout.
+    """
+
+    def __init__(self, names: Iterable[str]) -> None:
+        self._names = frozenset(names)
+        self._turn_id: object = None
+        self._status: str | None = None
+
+    def done(self, event: object) -> bool:
+        kind = _get(event, "type")
+        if kind == "agent.session.turn.created":
+            turn = _get(event, "turn")
+            if self._turn_id is None and _get(turn, "subagent_id") is None:
+                self._turn_id = _get(turn, "id")
+        elif kind in _TURN_END:
+            if self._turn_id is not None and _get(event, "turn_id") == self._turn_id:
+                self._status = _TURN_END[str(kind)]
+        elif kind == "agent.session.failed":
+            return True
+        elif kind == "agent.session.idle":
+            return self._status is not None
+        elif kind == "agent.session.requires_action":
+            return self._unhandled(event)
+        return False
+
+    def _unhandled(self, event: object) -> bool:
+        actions = _get(_get(event, "session"), "required_actions")
+        if actions is None:
+            actions = _get(event, "required_actions")
+        if not isinstance(actions, list | tuple):
+            return False
+        return any(
+            _get(action, "type") != "function_call"
+            or _get(action, "name") not in self._names
+            for action in actions
+        )
+
+
 def _watch(
-    stream: Iterable[object], state: _NativeState, max_events: int, deadline: float
+    stream: Iterable[object],
+    state: _NativeState,
+    boundary: _Boundary,
+    max_events: int,
+    deadline: float,
 ) -> str | None:
-    """Iterate the SDK stream (this runs the handlers); a code if the run must stop."""
-    for count, _ in enumerate(stream, start=1):
+    """Iterate the SDK stream (this runs the handlers) up to the SDK's own boundary."""
+    for count, event in enumerate(stream, start=1):
         if state.refusal is not None:
             return state.refusal
         if count > max_events:
             return "too_many_events"
         if time.monotonic() > deadline:
             return "deadline_exceeded"
+        if boundary.done(event):
+            break
     return state.refusal
 
 
@@ -641,8 +699,10 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
     undo that handler's side effects: a tool with side effects can repeat up to
     ``max_calls``.
 
-    Bounds: ``max_events`` and ``deadline_seconds`` (the whole run) are checked as each
-    event ARRIVES in this loop; a read that blocks is bounded by ``timeout`` (passed to
+    Our loop stops where the SDK stops (:class:`_Boundary`): the event stream stays open
+    after the turn, so reading to its end would block until the read timeout. Bounds:
+    ``max_events`` and ``deadline_seconds`` (the whole run) are checked as each event
+    ARRIVES in this loop; a read that blocks is bounded by ``timeout`` (passed to
     ``create`` as the SDK's per-request timeout) alone. A breach closes the stream
     (without cancelling the backend turn) and returns ``incomplete``. The turn is
     ``completed`` only when ``get_final_result`` returns a non-blank ``output_text``;
@@ -672,7 +732,7 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
             timeout=timeout,
         )
         stream = stream.with_result_collection()
-        limit = _watch(stream, state, max_events, deadline)
+        limit = _watch(stream, state, _Boundary(guarded), max_events, deadline)
         if limit is not None:
             _close(stream)
             return NativeTurn(None, "incomplete", "", tuple(state.called), limit)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from types import SimpleNamespace
 from typing import Any
 
@@ -637,9 +637,16 @@ def test_a_refusal_raised_by_the_stream_itself_keeps_its_code() -> None:
 
 # --- run_native: the real openai SDK contract (read at v3.29.0 and v3.36.0) --------
 # The fake has the REAL 3.29.0 signature of Sessions.create (3.36.0 only adds
-# spend_control), a stream with NO session_id, and dispatches like the real one: a
-# handler call happens AFTER its event is yielded, and EVERY handler exception is
-# swallowed (the model is told "Tool handler failed."), the run goes on.
+# spend_control), a stream with NO session_id, dispatches like the real one (a handler
+# call happens AFTER its event is yielded; EVERY handler exception is swallowed and the
+# run goes on), and, like the real one, DOES NOT END at the turn: after its listed
+# events it blocks, which here raises a read timeout. get_final_result stops at the
+# SDK's own boundary (idle after a terminal main turn, agent.session.failed, or an
+# action nobody handles) and reads no further.
+
+
+class ReadTimeoutError(Exception):
+    """What a blocked read of an idle stream ends in (the SDK's client timeout)."""
 
 
 class _SdkResultError(Exception):
@@ -658,38 +665,111 @@ def AgentTurnResultError(reason: str, session_id: str | None = None) -> Exceptio
     return _SdkResultError(reason, session_id)
 
 
+def ev(kind: str, **fields: Any) -> SimpleNamespace:  # noqa: ANN401
+    return SimpleNamespace(type=f"agent.session.{kind}", **fields)
+
+
+def created(turn_id: str = "t1", subagent_id: str | None = None) -> SimpleNamespace:
+    turn = SimpleNamespace(id=turn_id, subagent_id=subagent_id, status="in_progress")
+    return ev("turn.created", turn=turn)
+
+
+def ended(kind: str = "completed", turn_id: str = "t1") -> SimpleNamespace:
+    turn = SimpleNamespace(id=turn_id, status=kind)
+    return ev(f"turn.{kind}", turn_id=turn_id, turn=turn)
+
+
+def action_event(
+    *names: str,
+    kind: str = "function_call",
+    **arguments: Any,  # noqa: ANN401
+) -> SimpleNamespace:
+    actions = [
+        SimpleNamespace(type=kind, name=name, arguments=arguments) for name in names
+    ]
+    return ev("requires_action", session=SimpleNamespace(required_actions=actions))
+
+
+def turn(*middle: SimpleNamespace) -> list[SimpleNamespace]:
+    """A whole successful main turn, ending in idle: the stream stays open after it."""
+    return [created(), *middle, ended(), ev("idle")]
+
+
 class _RealShapedStream:
     def __init__(
         self,
         handlers: Mapping[str, Callable[[dict[str, Any]], Any]],
-        events: Sequence[tuple[str, ...] | tuple[str, str, dict[str, Any]]],
+        events: Sequence[SimpleNamespace],
         final: Callable[[], Any],
     ) -> None:
         self._handlers, self._events, self._final = handlers, events, final
         self.collecting = False
         self.closed = False
         self.consumed = 0
+        self._pending: SimpleNamespace | None = None
+        # the SDK's collector, as quoted from _result.py
+        self._turn: str | None = None
+        self._status: str | None = None
+        self._boundary = False
+        self._unhandled = False
 
     def with_result_collection(self) -> _RealShapedStream:
         self.collecting = True
         return self
 
-    def __iter__(self) -> Iterator[SimpleNamespace]:
-        for event in self._events:
-            self.consumed += 1
-            yield SimpleNamespace(type=event[0])
-            if event[0] == "call":  # dispatch AFTER the yield; swallow like the SDK
-                try:
-                    arguments = event[2] if len(event) > 2 else {}
-                    self._handlers[event[1]](
-                        arguments if isinstance(arguments, dict) else {}
-                    )
-                except Exception:  # noqa: BLE001, S110
-                    pass
+    def __iter__(self) -> _RealShapedStream:
+        return self
+
+    def __next__(self) -> SimpleNamespace:
+        if self._pending is not None:  # dispatch AFTER the yield; swallow like the SDK
+            event, self._pending = self._pending, None
+            for action in event.session.required_actions:
+                if action.type == "function_call" and action.name in self._handlers:
+                    try:
+                        self._handlers[action.name](action.arguments)
+                    except Exception:  # noqa: BLE001, S110
+                        pass
+        if self.consumed >= len(self._events):
+            msg = "SECRET read timed out"
+            raise ReadTimeoutError(msg)
+        event = self._events[self.consumed]
+        self.consumed += 1
+        self._accept(event)
+        if event.type == "agent.session.requires_action":
+            self._pending = event
+        return event
+
+    def _accept(self, event: SimpleNamespace) -> None:
+        if event.type == "agent.session.turn.created":
+            if self._turn is None and event.turn.subagent_id is None:
+                self._turn = event.turn.id
+        elif event.type.startswith("agent.session.turn.") and event.type.split(".")[
+            -1
+        ] in {
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            if event.turn_id == self._turn:
+                self._status = event.type.split(".")[-1]
+        elif event.type == "agent.session.failed":
+            self._boundary = True
+        elif event.type == "agent.session.idle":
+            self._boundary = self._status is not None
+        elif event.type == "agent.session.requires_action":
+            if any(
+                a.type != "function_call" or a.name not in self._handlers
+                for a in event.session.required_actions
+            ):
+                self._unhandled = True
 
     def get_final_result(self) -> Any:  # noqa: ANN401
         if not self.collecting:
             raise AgentTurnResultError("observation_failed")
+        while not (self._boundary or self._unhandled):
+            next(self)  # reads on only until the SDK's boundary
+        if self._unhandled:
+            raise AgentTurnResultError("requires_action", "ses_native")
         return self._final()
 
     def close(self) -> None:
@@ -697,7 +777,9 @@ class _RealShapedStream:
 
 
 class _RealShapedSessions:
-    def __init__(self, events: Sequence[Any], final: Callable[[], Any]) -> None:
+    def __init__(
+        self, events: Sequence[SimpleNamespace], final: Callable[[], Any]
+    ) -> None:
         self._events, self._final = events, final
         self.seen: dict[str, Any] = {}
         self.stream: _RealShapedStream | None = None
@@ -736,9 +818,12 @@ def answer(text_value: object = "the answer") -> Callable[[], SimpleNamespace]:
 
 
 def native_client(
-    events: Sequence[Any] = (), final: Callable[[], Any] | None = None
+    events: Sequence[SimpleNamespace] | None = None,
+    final: Callable[[], Any] | None = None,
 ) -> tuple[SimpleNamespace, _RealShapedSessions]:
-    sessions = _RealShapedSessions(events, final or answer())
+    sessions = _RealShapedSessions(
+        turn() if events is None else events, final or answer()
+    )
     return (
         SimpleNamespace(
             beta=SimpleNamespace(agents=SimpleNamespace(sessions=sessions))
@@ -751,8 +836,8 @@ def native(client: object, **kwargs: Any) -> agents.NativeTurn:  # noqa: ANN401
     return agents.run_native(client, agent=AGENT, environment=ENV, text="x", **kwargs)
 
 
-def calls_of(name: str, count: int, **arguments: Any) -> list[tuple[Any, ...]]:  # noqa: ANN401
-    return [("call", name, arguments or {})] * count
+def calls(name: str, count: int, **arguments: Any) -> list[SimpleNamespace]:  # noqa: ANN401
+    return [action_event(name, **arguments) for _ in range(count)]
 
 
 def test_run_native_uses_exactly_the_real_create_contract() -> None:
@@ -775,6 +860,78 @@ def test_run_native_uses_exactly_the_real_create_contract() -> None:
     assert sessions.stream is not None and sessions.stream.collecting
 
 
+# P1-C: the stream does not end at the turn; we stop where the SDK stops.
+
+
+def test_a_finished_turn_returns_completed_without_reading_past_idle() -> None:
+    client, sessions = native_client([*turn(), ev("noise"), ev("noise")])
+    result = native(client)
+    assert (result.status, result.ok) == ("completed", True)
+    assert (
+        sessions.stream is not None and sessions.stream.consumed == 3
+    )  # created, ended, idle: no further
+
+
+def test_a_stream_that_would_block_after_the_turn_is_not_a_failure() -> None:
+    # the listed events end at idle; reading one more would raise the read timeout
+    client, _ = native_client(turn())
+    assert native(client).error_code is None
+
+
+def test_idle_before_the_main_turn_ended_is_not_the_boundary() -> None:
+    client, _ = native_client([created(), ev("idle")])
+    result = native(client)
+    assert (result.status, result.error_code) == ("failed", "provider_error")  # timeout
+
+
+def test_a_subagent_turn_does_not_make_the_boundary() -> None:
+    events = [
+        created("t1"),
+        created("sub", "agent-b"),
+        ended("completed", "sub"),
+        ev("idle"),
+    ]
+    client, _ = native_client(events)
+    assert native(client).error_code == "provider_error"  # still waiting for t1's end
+
+
+def test_a_session_failure_is_a_boundary_and_the_sdk_reports_it() -> None:
+    def final() -> None:
+        raise AgentTurnResultError("failed", "ses_native")
+
+    client, _ = native_client([created(), ev("failed")], final=final)
+    result = native(client)
+    assert (result.status, result.error_code) == ("failed", "turn_failed")
+
+
+def test_an_action_nobody_handles_stops_at_once_as_requires_action() -> None:
+    client, sessions = native_client([created(), action_event("unknown_tool")])
+    result = native(client, handlers={"known": lambda a: "1"})
+    assert (result.status, result.ok, result.error_code) == (
+        "incomplete",
+        False,
+        "requires_action",
+    )
+    assert sessions.stream is not None and sessions.stream.consumed == 2
+
+
+def test_a_handled_action_does_not_stop_the_stream() -> None:
+    client, _ = native_client(turn(action_event("known")))
+    result = native(client, handlers={"known": lambda a: "1"})
+    assert result.ok and result.tools_called == ("known",)
+
+
+def test_the_stream_that_goes_silent_before_the_boundary_is_a_coded_failure() -> None:
+    client, _ = native_client([created()])
+    result = native(client)
+    assert (result.status, result.ok, result.error_code) == (
+        "failed",
+        False,
+        "provider_error",
+    )
+    assert "SECRET" not in repr(result)
+
+
 def test_the_sdk_dispatches_our_guarded_handlers_with_a_dict() -> None:
     seen: list[Mapping[str, Any]] = []
 
@@ -782,7 +939,7 @@ def test_the_sdk_dispatches_our_guarded_handlers_with_a_dict() -> None:
         seen.append(arguments)
         return {"s": "Delayed"}
 
-    client, _ = native_client(calls_of("get_flight", 1, flight="BA117"))
+    client, _ = native_client(turn(action_event("get_flight", flight="BA117")))
     result = native(client, handlers={"get_flight": flight})
     assert (
         result.ok
@@ -810,7 +967,7 @@ def test_a_capped_run_is_incomplete_and_never_ok_even_if_the_sdk_would_answer() 
         runs.append(1)
         return "1"
 
-    client, sessions = native_client(calls_of("n", 3))
+    client, sessions = native_client(turn(*calls("n", 3)))
     result = native(client, handlers={"n": counting_handler}, max_calls=1)
     assert (result.status, result.ok, result.error_code) == (
         "incomplete",
@@ -837,18 +994,17 @@ def test_a_guard_refusal_stops_the_run_with_its_code(
 ) -> None:
     monkeypatch.setattr(agents, "MAX_ARGUMENT_BYTES", 8)
     monkeypatch.setattr(agents, "MAX_RESULT_BYTES", 10)
-    client, sessions = native_client([("call", "n", arguments), ("event",), ("event",)])
+    client, sessions = native_client(
+        turn(action_event("n", **arguments), ev("a"), ev("b"))
+    )
     result = native(client, handlers={"n": lambda a: output})
     assert (result.status, result.ok, result.error_code) == ("incomplete", False, code)
-    assert (
-        sessions.stream is not None
-        and sessions.stream.closed
-        and sessions.stream.consumed < 3
-    )
+    assert sessions.stream is not None and sessions.stream.closed
+    assert sessions.stream.consumed < 6
 
 
 def test_a_refusal_on_the_last_event_is_still_never_ok() -> None:
-    client, _ = native_client(calls_of("n", 2))
+    client, _ = native_client([created(), ended(), *calls("n", 2), ev("idle")])
     result = native(client, handlers={"n": lambda a: "1"}, max_calls=1)
     assert (result.ok, result.error_code) == (False, "too_many_calls")
 
@@ -858,7 +1014,7 @@ def test_a_tools_own_fault_is_reported_by_the_sdk_and_the_run_goes_on() -> None:
         msg = "secret-token-123"
         raise RuntimeError(msg)
 
-    client, _ = native_client(calls_of("n", 1))
+    client, _ = native_client(turn(action_event("n")))
     result = native(client, handlers={"n": boom})
     assert result.ok and result.tools_called == ("n",)
     assert "secret" not in repr(result)
@@ -868,7 +1024,7 @@ def test_a_tools_own_fault_is_reported_by_the_sdk_and_the_run_goes_on() -> None:
 
 
 def test_too_many_events_close_the_stream_and_return_incomplete() -> None:
-    client, sessions = native_client([("event",)] * 50)
+    client, sessions = native_client([ev("noise")] * 50)
     result = native(client, max_events=10)
     assert (result.status, result.ok, result.error_code) == (
         "incomplete",
@@ -883,7 +1039,7 @@ def test_too_many_events_close_the_stream_and_return_incomplete() -> None:
 
 
 def test_a_passed_deadline_closes_the_stream_and_returns_incomplete() -> None:
-    client, sessions = native_client([("event",)] * 5)
+    client, sessions = native_client([ev("noise")] * 5)
     result = native(client, deadline_seconds=-1.0)
     assert (result.status, result.ok, result.error_code) == (
         "incomplete",
@@ -954,7 +1110,7 @@ def test_only_the_sdks_result_errors_may_supply_a_session_id() -> None:
 
 
 def test_the_session_id_comes_from_the_result_never_from_the_stream() -> None:
-    client, sessions = native_client()
+    client, _ = native_client()
     stream = client.beta.agents.sessions.create(environment=ENV, stream=True)
     assert not hasattr(stream, "session_id")  # as in openai 3.29.0 and 3.36.0
     assert native(client).session_id == "ses_native"
@@ -1008,3 +1164,36 @@ def test_dev17s_start_cannot_start_on_a_stream_shaped_like_the_real_sdk() -> Non
     with pytest.raises(AgentsRefused) as refused:
         SdkTransport(client).start(agent=AGENT, environment=ENV, text="x")
     assert refused.value.code in {"provider_error", "no_session_id"}
+
+
+# Stopping our loop EARLIER than the SDK would skip our caps on the rest of the stream
+# (the SDK's get_final_result would read on without them): these make that visible.
+
+
+def test_idle_before_a_terminal_main_turn_does_not_end_our_watch() -> None:
+    noise = [ev("noise")] * 20
+    client, _ = native_client([created(), ev("idle"), *noise])
+    assert native(client, max_events=5).error_code == "too_many_events"
+
+
+def test_a_subagent_turn_never_becomes_the_main_turn() -> None:
+    noise = [ev("noise")] * 20
+    events = [created("sub", "agent-b"), ended("completed", "sub"), ev("idle"), *noise]
+    client, _ = native_client(events)
+    assert native(client, max_events=5).error_code == "too_many_events"
+
+
+def test_the_end_of_another_turn_is_not_the_end_of_the_main_turn() -> None:
+    noise = [ev("noise")] * 20
+    events = [created("t1"), ended("completed", "other"), ev("idle"), *noise]
+    client, _ = native_client(events)
+    assert native(client, max_events=5).error_code == "too_many_events"
+
+
+def test_an_action_that_is_not_a_function_call_stops_at_once() -> None:
+    client, sessions = native_client(
+        [created(), action_event("known", kind="computer_call"), ev("noise")]
+    )
+    result = native(client, handlers={"known": lambda a: "1"})
+    assert (result.status, result.error_code) == ("incomplete", "requires_action")
+    assert sessions.stream is not None and sessions.stream.consumed == 2
