@@ -1,0 +1,51 @@
+name: zeocore-pandoc
+
+# zeocore-SOW-40. The two tests that call a real Pandoc cannot run in zeo.yml's
+# zeo-certify job: zeo.yml is the org canon (byte-identical adoption) and installs
+# no Pandoc. There they are reported as skipped ("pandoc runs in zeocore-pandoc.yml").
+# This workflow is their gate: after every push to main it installs the same pinned,
+# checksummed Pandoc that ci.yml and publish.yml use and runs exactly those tests.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zeocore-pandoc-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pandoc-tests:
+    name: pandoc-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install Pandoc for real authoring receipt tests
+        # Pinned and checksummed, from GitHub's CDN, not the Ubuntu mirror.
+        run: tools/install-pandoc.sh
+
+      - name: make setup (uv sync --locked from uv.lock)
+        run: make setup PYTHON_VERSION=3.14
+
+      - name: The tests that need a real Pandoc
+        # No skip is allowed here: a missing Pandoc must fail, not pass silently.
+        run: |
+          set -euo pipefail
+          pandoc --version | head -1
+          .venv/bin/python -m pytest -p no:cacheprovider -v \
+            tests/authoring/test_receipt_failures.py::test_real_pandoc_receipts \
+            tests/authoring/test_reference_consumer.py::test_reference_repeated_and_separate_environments \
+            | tee pandoc-tests.log
+          ! grep -q SKIPPED pandoc-tests.log

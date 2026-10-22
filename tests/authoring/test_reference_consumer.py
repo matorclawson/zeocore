@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,15 @@ def normalized(release: dict) -> dict:
     return release
 
 
+# zeo.yml (the org canon) has no Pandoc, so its zeo-certify job reports these tests as
+# skipped; zeocore-pandoc.yml is their gate (zeocore-SOW-40).
+_PANDOC_ELSEWHERE = pytest.mark.skipif(
+    os.environ.get("GITHUB_WORKFLOW") == "zeo",
+    reason="pandoc runs in zeocore-pandoc.yml",
+)
+
+
+@_PANDOC_ELSEWHERE
 def test_reference_repeated_and_separate_environments(tmp_path: Path) -> None:
     payloads = []
     for mode, name in [("test", "one"), ("test", "two"), ("production", "one")]:
