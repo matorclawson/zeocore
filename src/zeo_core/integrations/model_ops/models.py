@@ -69,7 +69,7 @@ class TextCompletionRequest(BaseModel):
     def _bounded_utf8(self) -> TextCompletionRequest:
         try:
             encoded = self.canonical_bytes()
-        except rfc8785.CanonicalizationError, UnicodeEncodeError, ValueError:
+        except (rfc8785.CanonicalizationError, UnicodeEncodeError, ValueError):
             raise ValueError("request must encode as finite UTF-8 JSON") from None
         if len(encoded) > MAX_REQUEST_BYTES:
             raise ValueError("serialized model request exceeds candidate byte limit")

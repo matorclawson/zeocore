@@ -27,7 +27,7 @@ class ProcessTracker:
                     group = os.getpgid(child.pid)
                     if group != os.getpgrp():
                         self.groups.add(group)
-        except self.psutil.Error, ProcessLookupError:
+        except (self.psutil.Error, ProcessLookupError):
             return
 
     def _freeze(self) -> None:

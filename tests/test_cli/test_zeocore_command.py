@@ -309,3 +309,43 @@ def test_the_command_runs_on_a_plain_install(
 def test_the_canonical_digest_is_a_base_dependency() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     assert "rfc8785==0.1.4" in project["dependencies"]
+
+
+_UI_CARD = (
+    Path(__file__).parent.parent
+    / "test_contracts"
+    / "fixtures"
+    / "ui_result_card"
+    / "valid-labels-card.json"
+)
+
+
+def test_validate_takes_the_ui_result_wire_tag_and_the_registered_name() -> None:
+    raw = _UI_CARD.read_bytes()
+    for name in ("zeo.ui-result/v1", "ui.result-card"):
+        status, answer = _call("validate", name, stdin=raw)
+        assert status == 0
+        assert answer["value"] == json.loads(raw)
+        assert json.loads(raw)["schema"] == "zeo.ui-result/v1"
+
+
+def test_validate_ui_result_refuses_with_held_and_never_echoes_input() -> None:
+    doc = json.loads(_UI_CARD.read_bytes())
+    doc["components"][0]["kind"] = "table"
+    doc["leaked_SECRET_key"] = 1
+    status, answer = _call(
+        "validate", "zeo.ui-result/v1", stdin=json.dumps(doc).encode()
+    )
+    assert status == 20
+    assert answer["outcome"] == "invalid"
+    assert "SECRET" not in json.dumps(answer)
+    status, answer = _call("validate", "zeo.ui-result/v1", stdin=b'{"a":1,"a":2}')
+    assert status == 20
+    assert answer["errors"] == [{"loc": [], "type": "duplicate_key"}]
+
+
+def test_schema_takes_the_ui_result_wire_tag() -> None:
+    status, answer = _call("schema", "zeo.ui-result/v1")
+    assert status == 0
+    assert str(answer["$id"]).endswith("/ui.result-card.schema.json")
+    assert '"const": "zeo.ui-result/v1"' in json.dumps(answer)

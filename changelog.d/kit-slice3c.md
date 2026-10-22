@@ -1,0 +1,2 @@
+bump: patch
+**kit: `Updater.Custody` (key custody checked by lstat identity, never opened) and `rollback --to VERSION`.** Both asked for by the council's zeo-cli/v1 adoption (ZEOCOUNCIL-SOW-002). A custody change ends an update or rollback as `protected`; `--to` goes back to an installed version, refusing `not_found`, `current`, and `migration` when no migration-free way is recorded. Standard library only.

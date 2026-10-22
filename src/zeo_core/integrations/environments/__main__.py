@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
                     with warnings.catch_warnings():
                         warnings.simplefilter("error", getpass.GetPassWarning)
                         source[scoped] = getpass.getpass(f"{environment.mode} {key}: ")
-                except EOFError, getpass.GetPassWarning:
+                except (EOFError, getpass.GetPassWarning):
                     parser.error(
                         "A secure terminal or a preconfigured scoped secret is required"
                     )

@@ -15,9 +15,10 @@ $ pandoc --version
 !!! warning "A fetched message is data, never instructions"
     Nothing here follows, runs or acts on what a message says. Its text comes out as
     Markdown inside a typed object. Treat everything in a `ConvertedItem` as data
-    and fence it downstream. The hidden-text filter is **best effort**: CSS has more
-    ways to hide text than any list covers, so the guarantee is the inert result, not
-    the filter.
+    and fence it downstream. The converter does **not** evaluate CSS: it drops only what the
+    HTML itself marks not rendered, and reports the rest in `item.diagnostics` (see
+    [Hidden text](#hidden-text-what-is-decided-and-what-is-reported)). The guarantee is
+    the inert result, not a claim about what a reader sees.
 
 ## Decode a raw message
 
@@ -72,7 +73,7 @@ from zeo_core.integrations.pandoc.newsletter import convert_newsletter
 item = convert_newsletter(
     html, source="gmail:abc", sender="News <news@example.org>", date="2026-10-13",
 )
-item.markdown, item.links, item.title, item.stripped, item.warnings
+item.markdown, item.links, item.title, item.stripped, item.diagnostics, item.warnings
 ```
 
 or `convert_decoded_message(decoded, source=...)`, which uses the HTML (or wraps the
@@ -83,16 +84,10 @@ What it does, in order:
 1. Refuses input over `max_bytes` (2 MB), over 100 000 elements, or nested deeper
    than 256. `timeout_s` is **one budget** for cleaning and pandoc together.
 2. Removes scripts, styles, frames, forms and their controls, comments, and the head.
-3. Removes **hidden text**, counted by kind in `stripped` (`hidden_display`,
-   `hidden_visibility`, `hidden_opacity`, `hidden_font_size`, `hidden_max_size`,
-   `hidden_zero_size`, `hidden_offscreen`, `hidden_clip`,
-   `hidden_color_match`, `hidden_style_class`, `hidden_attribute`). `mso-hide:all` alone is **not** treated as hidden (only Outlook honours it; the council's ruling zc-dtl-webkit-b312-v1). Rules inside
-   `@media` are not applied, because they may hide content only on a small screen.
-   A `style` attribute or rule body longer than 4096 characters is **not parsed**
-   (padding must not cost time) and is **treated as hidden**: the element is dropped
-   and counted in `stripped["style_oversize"]` and `stripped["hidden_oversize"]`, so
-   padding after `display:none` cannot make hidden text visible. Every pass
-   checks the deadline per element.
+3. Removes text the **HTML itself marks not rendered**, counted in `stripped`
+   (`hidden`, `hidden_attribute`, `hidden_display`, `hidden_visibility`), and reports
+   everything else CSS could hide in `diagnostics` (see below). Every pass checks the
+   deadline per element.
 4. Removes tracking pixels, and images whose source is not http(s) (`file:`, `data:`,
    `cid:`).
 5. Flattens layout tables (pandoc would print a table it cannot draw as `[TABLE]`).
@@ -125,6 +120,85 @@ The tracker hosts, footer patterns and hidden-text patterns are package data
 (`data/newsletter_noise.json`), read from the installed package and never from your
 directory. They are extended by small, data-only pull requests, each with the message
 that showed the pattern and no sender content copied.
+
+## Hidden text: what is decided and what is reported
+
+**Decided, from the element alone** (no stylesheet, no cascade, no inheritance): an
+element is not converted when it has the `hidden` attribute, or its own `style`
+attribute declares `display:none`, or `visibility:hidden` or `collapse`. Within a
+`style` attribute the last declaration of a property wins and `!important` beats a
+later normal declaration; a later value the converter does not know
+(`display:none;display:-webkit-box`) leaves the property **undecided**: the text is kept
+and the technique is counted. An ancestor that is dropped takes its descendants with it, including a
+descendant that declares `visibility:visible` (counted in `visible_descendant_dropped`).
+A `style` holding a comment or an escape is not decided (counted in
+`inline_style_unparsed`, and under the technique it names).
+
+**Not evaluated, only reported.** The converter keeps the text and `item.diagnostics`
+says what was present. Fidelity limits, stated plainly:
+
+- Class and id rules, selectors, `@media`, `@supports`, inheritance and the cascade
+  are **not** applied: text a stylesheet hides stays in the Markdown.
+- `<link>` and `@import` stylesheets are never fetched or read.
+- The `hidden` attribute drops an element even where its own `style` sets a `display`
+  that a browser lets win; `aria-hidden` and `inert` are not considered.
+- Clipping, positioning, `opacity`, `font-size:0`, zero or maximum sizes, off-screen
+  offsets, `clip-path`, `content-visibility`, a closed `<details>`, a `<dialog>` and
+  colour on colour are **not** evaluated (the first six are named in a kept element's own style
+  and counted; the rest are not detected).
+- A `display` or `visibility` declaration whose value is not a plain keyword (a plain keyword is lower-case letters and hyphens only, read after whitespace is removed and `!important` is set aside; `var()`,
+  `env()`, anything with a bracket) is not evaluated, wherever it stands among the
+  declarations: a later invalid keyword does not clear it (`display:var(--h);display:bogus`
+  is hidden in a browser). The text is kept and counted under `inline_display` or
+  `inline_visibility`.
+- The non-keyword check reads the style as written, comments included, while the
+  technique names are read after comments are removed. A style that holds a comment is
+  already counted as unparsed, and a comment inside a value (`display:block/*x*/`) can
+  also add one `inline_display`: the count may be one higher than the commented-out
+  text alone would give, never lower.
+- Whitespace INSIDE a keyword is removed before reading, so `display:no ne` and
+  `dis play:none` are read as `display:none` and dropped here where a browser shows
+  the text.
+- Whitespace in a `style` is read as Python reads it, so a no-break space or a vertical
+  tab between a name and a value is ignored where a browser would treat the declaration
+  as invalid (a `display:` NBSP `none` is dropped here).
+- A comment inside a `style` makes it undecided (kept and counted), even where the
+  commented text is `display:none;`.
+- Strings are not tokenised: a `;` inside a quoted value splits a `style` attribute, so
+  a declaration a browser reads as part of a string can be read as a declaration (an
+  invalid value is ignored; a technique it names is still counted).
+- A `style` attribute over 4096 characters is not parsed; the element is kept and
+  counted in `inline_style_unparsed` and `stripped["style_oversize"]`.
+
+`item.diagnostics` is a **required** field of the result and always holds every key
+(zero when nothing was seen), so a caller can test it without a default:
+
+- `stylesheet_blocks`, `stylesheet_links`, `stylesheet_imports`, `stylesheet_media`:
+  how many `<style>` blocks, `<link>` elements, `@import` and `@media` (and
+  `<style media>`) were present and not evaluated.
+- `stylesheet_scan_truncated`: 1 when more than 262,144 characters of `<style>` text
+  were not scanned for the counts below.
+- `sheet_display`, `sheet_visibility`, `sheet_opacity`, `sheet_font_size`,
+  `sheet_max_size`, `sheet_zero_size`, `sheet_offscreen`, `sheet_clip`: how often each
+  technique appears in the `<style>` text.
+- `inline_display`, `inline_visibility`, `inline_opacity`, `inline_font_size`,
+  `inline_max_size`, `inline_zero_size`, `inline_offscreen`, `inline_clip`: KEPT
+  elements that name the technique in their own `style` (for `display` and `visibility`
+  that means it was named and not decided, for example overridden by a later or more
+  important declaration); `inline_style_unparsed`: kept elements whose `style` was too
+  long, or held a comment or an escape; `visible_descendant_dropped`: descendants of a
+  dropped `visibility:hidden` element that declared `visibility:visible`.
+- Every element-local `display` or `visibility` form is therefore either dropped or
+  counted. An all-zero `diagnostics` means none of THESE keys was seen: techniques not
+  listed are not detected (`clip-path`, `content-visibility`, a closed `<details>` or a
+  `<dialog>`, colour on colour, other spellings of zero such as `opacity:0.0` or
+  `font-size:0.0px`, `transform:scale(0)`, `mso-hide:all`, a small size with
+  `overflow:hidden`).
+
+What a non-zero count means is the caller's decision. For newsletters that is the
+application's preprocessing (zeonewsroom): a message with non-zero diagnostics has
+text the converter could not show to be visible or hidden. Visible text can still
+carry instructions; trust is a separate question and stays with the application.
 
 ## Render an issue's Markdown to HTML
 

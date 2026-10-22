@@ -40,21 +40,6 @@ _DROPPED: Final = {
 }
 _SILENT: Final = ("head", "meta", "link", "base", "title")
 _TABLE_TAGS: Final = ("table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption")
-HIDDEN_KINDS: Final = (
-    "attribute",
-    "display",
-    "visibility",
-    "opacity",
-    "font_size",
-    "max_size",
-    "mso",
-    "zero_size",
-    "offscreen",
-    "clip",
-    "color_match",
-    "style_class",
-    "oversize",
-)
 COUNT_KEYS: Final = (
     "scripts",
     "styles",
@@ -62,7 +47,7 @@ COUNT_KEYS: Final = (
     "forms",
     "comments",
     "hidden",
-    *(f"hidden_{kind}" for kind in HIDDEN_KINDS),
+    *(f"hidden_{kind}" for kind in _hidden.HIDDEN_KINDS),
     "pixels",
     "footers",
     "tracked_links",
@@ -184,42 +169,29 @@ def drop_comments(
         node.extract()
 
 
-def css_rules(
-    soup: Any,  # noqa: ANN401
-    noise: Noise,
-    deadline: Deadline,
-) -> tuple[dict[str, str], dict[str, str]]:
-    """The hiding ``.class`` and ``#id`` rules from every ``<style>`` block."""
-    classes: dict[str, str] = {}
-    ids: dict[str, str] = {}
-    for block in soup.find_all("style"):
-        deadline.check()
-        found_classes, found_ids = _hidden.style_rules(block.get_text(), noise)
-        classes.update(found_classes)
-        ids.update(found_ids)
-    return classes, ids
-
-
 def drop_hidden(
     soup: Any,  # noqa: ANN401
     noise: Noise,
     counts: dict[str, int],
-    rules: tuple[dict[str, str], dict[str, str]],
+    diagnostics: dict[str, int],
     deadline: Deadline,
 ) -> None:
-    """Remove elements a reader cannot see, counting each kind."""
-    classes, ids = rules
+    """Remove elements the HTML itself marks not rendered; report the rest."""
     for tag in soup.find_all(True):
         deadline.check()
         if gone(tag):
             continue
         if len(str(tag.get("style", ""))) > _hidden.STYLE_MAX_CHARS:
             counts["style_oversize"] += 1  # not parsed: see STYLE_MAX_CHARS
-        kind = _hidden.hidden_kind(tag, noise, classes, ids)
+        kind = _hidden.hidden_kind(tag)
         if kind is not None:
             counts["hidden"] += 1
             counts[f"hidden_{kind}"] += 1
+            if kind == "visibility":
+                _hidden.note_dropped_visible(tag, diagnostics)
             tag.decompose()
+        else:
+            _hidden.note_inline(tag, noise, diagnostics)
 
 
 def _size_of(value: Any) -> int | None:  # noqa: ANN401

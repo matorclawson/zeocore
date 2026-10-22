@@ -23,7 +23,7 @@ from urllib.parse import quote
 
 import pytest
 
-from zeo_core.integrations.pandoc import _cleaning, _noise, _runner
+from zeo_core.integrations.pandoc import _cleaning, _hidden, _noise, _runner
 from zeo_core.integrations.pandoc.newsletter import (
     ConvertedItem,
     convert_decoded_message,
@@ -67,6 +67,8 @@ def test_the_golden_fixtures(name: str) -> None:
     want = EXPECTED["items"][name]
     expected_md = (FIXTURES / f"{name}.expected.md").read_text("utf-8")
     assert {k: v for k, v in item.stripped.items() if v} == want["stripped"]
+    assert set(item.diagnostics) == set(_hidden.DIAGNOSTIC_KEYS)
+    assert {k: v for k, v in item.diagnostics.items() if v} == want["diagnostics"]
     assert [[x.url, x.text, x.original_url, x.tracked] for x in item.links] == want[
         "links"
     ]
@@ -473,30 +475,6 @@ def test_no_markup_survives_into_the_markdown(name: str) -> None:
     assert _RAW_TAG.search(item.markdown) is None, item.markdown
 
 
-def test_every_hidden_kind_is_removed_and_counted() -> None:
-    item = _convert((FIXTURES / "11-hidden-kinds.html").read_text("utf-8"))
-    assert "H-" not in item.markdown
-    for kept in ("VISIBLE-START", "VISIBLE-END", "KEPT-mobile-only-rule",
-                 "KEPT-normal-colours", "KEPT-opacity-point-eight",
-                 "KEPT-mso-alone"):  # fmt: skip
-        assert kept in item.markdown
-    kinds = {k: v for k, v in item.stripped.items() if k.startswith("hidden_") and v}
-    assert kinds == {
-        "hidden_attribute": 1,
-        "hidden_display": 1,
-        "hidden_visibility": 1,
-        "hidden_opacity": 1,
-        "hidden_font_size": 1,
-        "hidden_max_size": 1,
-        "hidden_zero_size": 1,
-        "hidden_offscreen": 1,
-        "hidden_clip": 1,
-        "hidden_color_match": 2,
-        "hidden_style_class": 2,
-    }
-    assert item.stripped["hidden"] == sum(kinds.values())
-
-
 def test_gfm_default_extensions_come_out_as_inert_text() -> None:
     item = _convert((FIXTURES / "12-gfm-extensions.html").read_text("utf-8"))
     md = item.markdown
@@ -565,29 +543,6 @@ def test_a_pixel_declared_in_a_normal_style_is_still_dropped() -> None:
     assert item.stripped["pixels"] == 1
 
 
-def test_a_style_over_the_bound_is_not_parsed_and_is_treated_as_hidden() -> None:
-    """Padding after ``display:none`` must not make hidden text visible (council N3)."""
-    long_style = "display:none;" + "a:b;" * 2_000
-    item = _convert(f'<p>kept</p><p style="{long_style}">secret instruction</p>')
-    assert item.stripped["style_oversize"] == 1
-    assert item.stripped["hidden"] == 1
-    assert item.stripped["hidden_oversize"] == 1
-    assert "secret instruction" not in item.markdown
-    assert "kept" in item.markdown
-
-
-def test_a_style_rule_body_over_the_bound_hides_what_it_selects() -> None:
-    pad = "a:b;" * 2_000
-    page = (
-        f"<style>.h {{ display:none; {pad} }} .v {{ color:red }}</style>"
-        '<p class="h">secret instruction</p><p class="v">visible</p>'
-    )
-    item = _convert(page)
-    assert "secret instruction" not in item.markdown
-    assert "visible" in item.markdown
-    assert item.stripped["hidden_style_class"] == 1
-
-
 class _CountingDeadline(_runner.Deadline):
     """A deadline that has room for ``room`` checks and refuses the next one."""
 
@@ -609,7 +564,7 @@ def _soup(html: str) -> Any:  # noqa: ANN401
 @pytest.mark.parametrize(
     "name",
     [
-        "drop_tags", "drop_comments", "css_rules", "drop_hidden", "drop_images",
+        "drop_tags", "drop_comments", "drop_hidden", "drop_images",
         "flatten_tables", "drop_footers", "clean_links",
     ],
 )  # fmt: skip
@@ -621,7 +576,6 @@ def test_each_pass_checks_the_deadline_per_element_not_just_once(name: str) -> N
     body = {
         "drop_tags": "<script>x</script>" * 600,
         "drop_comments": "<!-- c -->" * 600,
-        "css_rules": "<style>.a{color:red}</style>" * 600,
         "drop_hidden": "<p>x</p>" * 600,
         "drop_images": '<img src="https://example.org/a.png" alt="a">' * 600,
         "flatten_tables": "<table><tr><td>x</td></tr></table>" * 600,
@@ -633,8 +587,7 @@ def test_each_pass_checks_the_deadline_per_element_not_just_once(name: str) -> N
     args: tuple[Any, ...] = {
         "drop_tags": (soup, counts, noise, room),
         "drop_comments": (soup, bs4, counts, room),
-        "css_rules": (soup, noise, room),
-        "drop_hidden": (soup, noise, counts, ({}, {}), room),
+        "drop_hidden": (soup, noise, counts, _hidden.new_diagnostics(), room),
         "drop_images": (soup, noise, counts, room),
         "flatten_tables": (soup, counts, room),
         "drop_footers": (soup, noise, counts, room),
@@ -768,12 +721,13 @@ def test_a_relative_or_mismatched_pandoc_is_refused(
 
 
 def _visible(markup: str) -> bool:
-    return "SENTINEL" in _convert(markup).markdown
+    item = _convert(markup)
+    return "SENTINEL" in item.markdown
 
 
 def test_mso_hide_alone_is_not_hidden() -> None:
-    """Council zc-dtl-webkit-b312-v1: mso-hide is Outlook-only; a browser paints it."""
     item = _convert('<p style="mso-hide:all">SENTINEL</p>')
     assert "SENTINEL" in item.markdown
     assert not item.stripped.get("hidden_mso")
+    # A different hiding rule next to it still hides.
     assert not _visible('<p style="mso-hide:all;display:none">SENTINEL</p>')

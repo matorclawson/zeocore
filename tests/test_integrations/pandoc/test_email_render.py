@@ -3,6 +3,7 @@
 The golden issue was recorded with pandoc 3.11. Where the installed pandoc differs,
 its HTML is compared by shape (tags, attributes and text) and the renderer digest is
 expected to differ: a new pandoc is a new renderer, which is the point of the tuple.
+The same version from another build of the binary is a new renderer too.
 """
 
 from __future__ import annotations
@@ -77,7 +78,12 @@ def test_the_golden_issue() -> None:
     if rendered.pandoc_version == GOLDEN["recorded_with_pandoc"]:
         assert rendered.html == expected
         assert rendered.sha256 == GOLDEN["sha256"]
-        assert rendered.renderer_digest == GOLDEN["renderer_digest"]
+        # The digest names the pandoc BINARY too, so the same version from another
+        # build (Homebrew bottle, official release) is another renderer by design
+        if rendered.renderer["pandoc_binary_sha256"] == GOLDEN["pandoc_binary_sha256"]:
+            assert rendered.renderer_digest == GOLDEN["renderer_digest"]
+        else:
+            assert rendered.renderer_digest != GOLDEN["renderer_digest"]
     else:
         assert _shape(rendered.html) == _shape(expected)
         assert rendered.renderer_digest != GOLDEN["renderer_digest"]

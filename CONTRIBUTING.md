@@ -79,7 +79,7 @@ One-time trusted-publisher setup (on PyPI's web UI): owner `zeroemployeeorg`, re
 
 **Dependencies.** Every dependency, new tool or pin goes through the Architect. Never ask the operator.
 
-**Set up.** `make setup` installs exactly what `uv.lock` pins (Python 3.14; the package requires 3.14+; every gate extra, `dev` and `lint`, the documentation group) into `.venv`. `make help` lists every target.
+**Set up.** `make setup` installs exactly what `uv.lock` pins (Python 3.12; the package requires 3.12+; every gate extra, `dev` and `lint`, the documentation group) into `.venv`. `make help` lists every target.
 
 **Heavy work on ZeoWork.** Keep the venv, caches and temporary files off the system disk:
 

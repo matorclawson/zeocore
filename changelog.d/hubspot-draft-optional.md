@@ -1,0 +1,3 @@
+bump: minor
+
+**HubSpot: an email draft needs only a name (ZEONEWSROOM-SOW-56).** `EmailDraft.subscription_id`, `EmailDraft.office_location_id` and `EmailContent.template_path` are now optional, as in HubSpot's v3 create, which requires only `name`. `to_api()` emits `subscriptionDetails` (each key separately) and `templatePath` only when set, so a draft that sets them is byte-for-byte what it was. Nothing is weakened at send time: `publish_email` still refuses an email whose stored `subscriptionDetails.subscriptionId` is not the reviewed one, so a draft without a subscription cannot be sent. `reply_to` (which sets `from.customReplyTo`) is unchanged.

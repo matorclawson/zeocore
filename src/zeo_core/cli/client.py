@@ -607,7 +607,7 @@ def artifact(args: Sequence[str], stdin: bytes) -> Answer:
         options = parser.parse_args(list(args))
         try:
             descriptor = HostedArtifactDescriptor.model_validate(parse_json(stdin))
-        except ProtocolError, ValidationError:
+        except (ProtocolError, ValidationError):
             raise ArgumentsError("stdin is not an artifact descriptor") from None
         destination = Path(options.out)
         if destination.exists() or not destination.parent.is_dir():

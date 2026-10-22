@@ -46,7 +46,7 @@ class SigningJournal:
                 key, action = record["key"], record["action"]
                 if not isinstance(key, str) or action not in (INTENT, SIGNED, FAILED):
                     raise ValueError
-            except ValueError, KeyError, TypeError:
+            except (ValueError, KeyError, TypeError):
                 self._file.close()
                 raise ValueError(
                     f"{path} line {number}: unreadable journal record"

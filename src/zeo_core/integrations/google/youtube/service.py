@@ -564,7 +564,7 @@ def _reason(text: str) -> str:
     try:
         errors = json.loads(text).get("error", {}).get("errors") or []
         reason = errors[0].get("reason") if errors else None
-    except ValueError, AttributeError, TypeError:
+    except (ValueError, AttributeError, TypeError):
         reason = None
     return str(reason) if reason else ""
 

@@ -8,14 +8,19 @@ credential and no file read:
   them over, to a ``DecodedMessage``: the HTML and plain-text bodies, a few headers
   and Gmail's verdict on the sender. Standard-library ``email`` only.
 * ``convert_newsletter``: one message's HTML to clean Markdown through pandoc,
-  keeping the links, source, sender and date, and stripping scripts, styles, hidden
-  elements, tracking pixels, tracking parameters and unsubscribe noise.
+  keeping the links, source, sender and date, and stripping scripts, styles, elements
+  the HTML itself marks not rendered, tracking pixels, tracking parameters and
+  unsubscribe noise.
 * ``convert_decoded_message``: the two joined, for a decoded message.
 
 A fetched newsletter is data, never instructions. Nothing here follows, runs or acts
 on what a message says: its text comes out as Markdown inside a typed object, and
 every failure is a typed refusal whose message is fixed (see ``refusals``). The
-hidden-text filter is best effort; the guarantee is that the result is inert data.
+converter decides hidden text from the element alone (the ``hidden`` attribute and its
+own inline ``display:none`` or ``visibility:hidden``) and does NOT evaluate CSS: class
+and id rules, selectors, ``@media``, inheritance and clipping are reported in
+``diagnostics``, not applied (see ``_hidden``). The guarantee is that the result is
+inert data.
 Time is bounded in-process (one deadline, checked per element and between pieces of
 the message), but BeautifulSoup and the email parser cannot be interrupted inside one
 step: call these under your own watchdog for mail you do not trust.
@@ -32,7 +37,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Final
 
-from zeo_core.integrations.pandoc import _cleaning, _noise
+from zeo_core.integrations.pandoc import _cleaning, _hidden, _noise
 from zeo_core.integrations.pandoc._cleaning import ConvertedLink
 from zeo_core.integrations.pandoc._mime import (
     MAX_MIME_DEPTH,
@@ -61,7 +66,7 @@ DEFAULT_MAX_BYTES: Final = 2_000_000
 DEFAULT_TIMEOUT_S: Final = 30.0
 
 #: The cleaner's own version; a change to what it strips is a new version.
-CLEANER_VERSION: Final = "newsletter-clean-1"
+CLEANER_VERSION: Final = "newsletter-clean-2"
 
 #: The fixed pandoc flags for the conversion. Raw HTML is off in the reader and the
 #: writer, so no markup of the message survives into the Markdown.
@@ -80,6 +85,14 @@ class ConvertedItem:
     """
     One converted message. Every field is data; none is ever an instruction.
 
+    ``diagnostics`` is REQUIRED and always holds every key of
+    ``_hidden.DIAGNOSTIC_KEYS``: what CSS could hide that was present and NOT
+    evaluated (stylesheets, links, ``@import``, ``@media``, techniques named in a kept
+    element's own style or in the ``<style>`` text). Zero means none of THOSE was seen:
+    techniques not listed are not detected (``clip-path``, ``content-visibility``, a
+    closed ``<details>`` or a ``<dialog>``, colour on colour, other spellings of zero
+    such as ``opacity:0.0`` or ``font-size:0.0px``, ``transform:scale(0)``,
+    ``mso-hide:all``, a small size with ``overflow:hidden``).
     ``converter`` is the convert step's own tuple (pandoc version, binary digest,
     flags, cleaner version, data-file version and digest), so a stored item says
     exactly what produced it. ``sender_verified`` and ``authentication`` come only
@@ -94,6 +107,7 @@ class ConvertedItem:
     date: str
     content_sha256: str
     stripped: dict[str, int]
+    diagnostics: dict[str, int]
     warnings: tuple[str, ...]
     pandoc_version: str
     noise_data_version: str
@@ -136,20 +150,28 @@ def _as_text(html_in: str | bytes, max_bytes: int) -> tuple[str, bytes, list[str
 
 def _clean(
     text: str, noise: _noise.Noise, deadline: Deadline
-) -> tuple[Any, dict[str, int], list[ConvertedLink], int, str | None]:  # noqa: ANN401
-    """Parse and clean; return the soup, counts, links, opaque count and title."""
+) -> tuple[Any, dict[str, int], dict[str, int], list[ConvertedLink], int, str | None]:  # noqa: ANN401
+    """Parse and clean: soup, counts, diagnostics, links, opaque count and title."""
     bs4 = _cleaning.bs4_module()
     counts = dict.fromkeys(_cleaning.COUNT_KEYS, 0)
+    diagnostics = _hidden.new_diagnostics()
     try:
         _cleaning.precheck(text)
-        soup = bs4.BeautifulSoup(text, "html.parser")
+        soup = bs4.BeautifulSoup(
+            text,
+            "html.parser",
+            # a browser keeps the FIRST of two equal attributes (bs4 keeps the last),
+            # and splits a class on ASCII whitespace only
+            on_duplicate_attribute="ignore",
+            multi_valued_attributes=None,
+        )
         deadline.check()
         _cleaning.check_bounds(text, soup, deadline)
         title = _cleaning.title_of(soup)
-        rules = _cleaning.css_rules(soup, noise, deadline)
+        _hidden.note_sheets(soup, noise, diagnostics, deadline)  # before styles go
         _cleaning.drop_comments(soup, bs4, counts, deadline)
         _cleaning.drop_tags(soup, counts, noise, deadline)
-        _cleaning.drop_hidden(soup, noise, counts, rules, deadline)
+        _cleaning.drop_hidden(soup, noise, counts, diagnostics, deadline)
         _cleaning.drop_images(soup, noise, counts, deadline)
         _cleaning.flatten_tables(soup, counts, deadline)
         _cleaning.drop_footers(soup, noise, counts, deadline)
@@ -157,7 +179,7 @@ def _clean(
         deadline.check()
     except RecursionError as error:
         raise refusal("html_too_deep") from error
-    return soup, counts, links, opaque, title
+    return soup, counts, diagnostics, links, opaque, title
 
 
 def _tidy(markdown: str) -> str:
@@ -199,7 +221,7 @@ def convert_newsletter(
     deadline = Deadline(timeout_s)
     text, data, warnings = _as_text(html_in, max_bytes)
     noise = _noise.load()
-    soup, counts, links, opaque, title = _clean(text, noise, deadline)
+    soup, counts, diagnostics, links, opaque, title = _clean(text, noise, deadline)
     binary = find_pandoc(expected_pandoc_sha256, path=pandoc_path)
     out = run_pandoc(
         binary,
@@ -220,6 +242,7 @@ def convert_newsletter(
         date=date_text,
         content_sha256=hashlib.sha256(data).hexdigest(),
         stripped=counts,
+        diagnostics=diagnostics,
         warnings=tuple(warnings),
         pandoc_version=binary.version,
         noise_data_version=noise.version,
@@ -286,6 +309,7 @@ def convert_decoded_message(
         date=item.date,
         content_sha256=item.content_sha256,
         stripped=item.stripped,
+        diagnostics=item.diagnostics,
         warnings=(*decoded.warnings, *extra, *item.warnings),
         pandoc_version=item.pandoc_version,
         noise_data_version=item.noise_data_version,
