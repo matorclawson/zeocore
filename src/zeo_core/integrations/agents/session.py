@@ -507,6 +507,10 @@ class NativeTurn:
     output_text: str
     tools_called: tuple[str, ...] = field(default_factory=tuple)
     error_code: str | None = None
+    #: For ``provider_error`` only: the provider's own short identifiers, such as
+    #: ``http_400 code=model_not_found param=agent.model type=invalid_request_error``.
+    #: Never its message: each part is a short plain token or it is dropped.
+    provider_detail: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -653,13 +657,31 @@ def _watch(
     return state.refusal
 
 
+_TOKEN: Final = re.compile(r"[A-Za-z0-9_.\[\]-]{1,64}")
+
+
+def _provider_detail(error: Exception) -> str | None:
+    """The status and the error's ``code``, ``param`` and ``type``; never its text."""
+    parts: list[str] = []
+    status = getattr(error, "status_code", None)
+    if type(status) is int and 100 <= status <= 599:  # noqa: PLR2004 -- HTTP range
+        parts.append(f"http_{status}")
+    for name in ("code", "param", "type"):
+        value = getattr(error, name, None)
+        if isinstance(value, str) and _TOKEN.fullmatch(value):
+            parts.append(f"{name}={value}")
+    return " ".join(parts) or None
+
+
 def _native_failure(error: Exception, state: _NativeState) -> NativeTurn:
     """A coded NativeTurn for an SDK exception; never its text."""
     called = tuple(state.called)
     if state.refusal is not None:
         return NativeTurn(None, "incomplete", "", called, state.refusal)
     if type(error).__name__ not in {"AgentTurnResultError", "AgentOutputParseError"}:
-        return NativeTurn(None, "failed", "", called, "provider_error")
+        return NativeTurn(
+            None, "failed", "", called, "provider_error", _provider_detail(error)
+        )
     # Only the SDK's own result errors may name a session (by class name).
     known = getattr(error, "session_id", None)
     reason = getattr(error, "reason", None)
