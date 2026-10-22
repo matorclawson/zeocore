@@ -81,3 +81,32 @@ def test_public_facade_keeps_independent_sources_and_validated_models() -> None:
         )
     finally:
         sources.close()
+
+
+def test_stated_destination_is_named_in_timeline_source_and_assumption() -> None:
+    from tests.test_integrations.briefing_sources.test_flight import handler
+    from tests.test_integrations.briefing_sources.test_http import NOW, client
+    from zeo_core.integrations.briefing_sources.flight import StatedDestination, flight
+
+    http, _ = client(handler)
+    try:
+        ref = flight(
+            http,
+            "TEST123",
+            fetched_at=NOW,
+            stated_destination=StatedDestination("EGLL", 51.4775, -0.4614),
+        ).reference
+        result = arrival_timeline(
+            ref,
+            transfer_minutes=45,
+            meeting_time=NOW + timedelta(hours=5),
+            fetched_at=NOW,
+        )
+        assert result.error is None
+        assert "destination stated by traveller EGLL" in result.source
+        assert any(
+            item.label == "destination_stated_by_traveller"
+            for item in result.assumptions
+        )
+    finally:
+        http.close()

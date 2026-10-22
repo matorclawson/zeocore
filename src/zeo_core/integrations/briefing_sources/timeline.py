@@ -52,6 +52,13 @@ def arrival_timeline(
         meeting = meeting_time.astimezone(UTC)
         arrival = landing + timedelta(minutes=transfer_minutes)
         margin = round((meeting - arrival).total_seconds() / 60)
+        stated = [
+            item
+            for item in flight.assumptions
+            if item.label == "destination_stated_by_traveller"
+        ]
+        if stated:
+            source += ", destination stated by traveller " + str(stated[0].value)
         return DataRef(
             id="timeline-" + uuid4().hex,
             source=source,
@@ -67,7 +74,8 @@ def arrival_timeline(
                     value="position + speed + distance, stated transfer and meeting",
                     kind="assumption",
                 ),
-            ],
+            ]
+            + stated,
             payload={
                 "steps": [
                     {"label": "Computed landing", "time": landing.isoformat()},

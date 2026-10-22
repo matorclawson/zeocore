@@ -8,6 +8,7 @@ from datetime import datetime
 import httpx
 
 from zeo_core.contracts.ui.widgets import DataRef
+from zeo_core.integrations.briefing_sources.flight import StatedDestination
 from zeo_core.integrations.briefing_sources.flight import flight as read_flight
 from zeo_core.integrations.briefing_sources.http import (
     PublicSourceHTTP,
@@ -23,6 +24,7 @@ from zeo_core.integrations.briefing_sources.weather import weather as read_weath
 
 __all__ = [
     "PublicBriefingSources",
+    "StatedDestination",
     "PublicSourceHTTP",
     "SourceUnavailableError",
     "arrival_timeline",
@@ -42,8 +44,15 @@ class PublicBriefingSources:
         self.http = http or PublicSourceHTTP(transport=transport, clock=clock)
         self._clock = clock
 
-    def flight(self, callsign: str) -> DataRef:
-        return read_flight(self.http, callsign, fetched_at=self._clock()).reference
+    def flight(
+        self, callsign: str, *, stated_destination: StatedDestination | None = None
+    ) -> DataRef:
+        return read_flight(
+            self.http,
+            callsign,
+            fetched_at=self._clock(),
+            stated_destination=stated_destination,
+        ).reference
 
     def weather(
         self,
@@ -82,10 +91,13 @@ class PublicBriefingSources:
         transfer_minutes: float,
         meeting_time: datetime,
         currencies: Sequence[str] = ("USD", "GBP"),
+        stated_destination: StatedDestination | None = None,
     ) -> dict[str, DataRef]:
         """Independent source failures remain visible; never substitute a replay."""
         now = self._clock()
-        observed = read_flight(self.http, callsign, fetched_at=now)
+        observed = read_flight(
+            self.http, callsign, fetched_at=now, stated_destination=stated_destination
+        )
         ref = observed.reference
         if (
             observed.destination_latitude is not None
@@ -107,7 +119,9 @@ class PublicBriefingSources:
                 "weather_hourly",
                 "MET Norway (api.met.no), CC BY 4.0",
                 now,
-                "destination_unavailable",
+                "route_not_provided"
+                if ref.error is None
+                else "destination_unavailable",
             )
         return {
             "flight_status": ref,
