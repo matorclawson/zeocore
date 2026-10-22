@@ -49,3 +49,8 @@ The recorded smoke contains one real forecast, an empty aircraft response and
 an unavailable ECB transport. Successful synthetic offline vectors test
 behaviour; they are not live-source or full-demo proof. Independent consuming
 fresh-clone and graphical acceptance remain separate.
+
+The ADSB route lookup accepts HTTP 200 or 201 Created for the guarded
+`POST /api/0/routeset` only. GET responses still require HTTP 200; redirects,
+202 Accepted and 204 No Content remain unavailable. Ops observed the 201
+status on a real route lookup; regression payloads remain synthetic.

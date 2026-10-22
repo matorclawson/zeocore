@@ -163,6 +163,40 @@ MUTANTS.append(
 )
 
 
+MUTANTS.extend(
+    [
+        (
+            "Routeset Created rejected",
+            "http.py",
+            "response.status_code == 201",
+            "response.status_code == 299",
+            "test_flight.py::test_routeset_created_status_keeps_valid_flight",
+        ),
+        (
+            "Any 2xx accepted",
+            "http.py",
+            "response.status_code != 200 and not created_routeset",
+            "not 200 <= response.status_code < 300 and not created_routeset",
+            "test_http.py::test_created_is_only_allowed_for_routeset_post",
+        ),
+        (
+            "Created GET accepted",
+            "http.py",
+            (
+                '                    and method == "POST"\n'
+                '                    and host == "api.adsb.lol"\n'
+                '                    and path == "/api/0/routeset"'
+            ),
+            (
+                '                    and method in ("POST", "GET")\n'
+                '                    and host == "api.adsb.lol"'
+            ),
+            "test_http.py::test_created_is_only_allowed_for_routeset_post",
+        ),
+    ]
+)
+
+
 def main() -> int:
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
