@@ -62,7 +62,7 @@ def _project_json(
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Discard unneeded fields before cache custody, notably aircraft owners."""
     if host == "api.adsb.lol" and path.startswith("/v2/"):
-        if not isinstance(value, dict):
+        if not isinstance(value, dict) or not isinstance(value.get("ac"), list):
             raise ValueError
         return {
             "now": value.get("now"),
@@ -109,6 +109,23 @@ def _project_json(
             }
         )
     return {"updated_at": properties["meta"].get("updated_at"), "hours": hours}
+
+
+def _point_request(method: str, path: str, body: object, query: str) -> bool:
+    point = re.fullmatch(
+        r"/v2/point/(-?(?:0|[1-9][0-9]{0,2})(?:\.[0-9]{1,6})?)/"
+        r"(-?(?:0|[1-9][0-9]{0,2})(?:\.[0-9]{1,6})?)/([1-9][0-9]{0,2})",
+        path,
+    )
+    return bool(
+        point is not None
+        and method == "GET"
+        and body is None
+        and not query
+        and -90 <= float(point[1]) <= 90
+        and -180 <= float(point[2]) <= 180
+        and 1 <= int(point[3]) <= 250
+    )
 
 
 class PublicSourceHTTP:
@@ -183,6 +200,7 @@ class PublicSourceHTTP:
                     and not query
                     and bool(re.fullmatch(r"/v2/callsign/[A-Z0-9]{2,10}", u.path))
                 )
+                allowed = allowed or _point_request(method, u.path, body, u.query)
                 if (
                     method == "POST"
                     and u.path == "/api/0/routeset"

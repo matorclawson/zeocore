@@ -2,11 +2,16 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 
-from tests.test_integrations.briefing_sources.test_http import NOW, client
+from tests.test_integrations.briefing_sources.test_http import (
+    NOW,
+    client,
+    response_handler,
+)
 from zeo_core.integrations.briefing_sources.flight import flight
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "briefing_sources"
@@ -316,3 +321,300 @@ def test_empty_route_with_stated_airport_makes_four_real_reader_references() -> 
         assert refs["weather_hourly"].payload["location"] == "EGLL"
     finally:
         source.close()
+
+
+def test_discovery_matches_published_routes_without_route_network_requests() -> None:
+    from zeo_core.integrations.briefing_sources import (
+        PublicBriefingSources,
+        PublishedRoute,
+    )
+
+    calls: list[httpx.Request] = []
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "now": NOW.timestamp(),
+                "ac": [
+                    {
+                        "flight": "TST0001 ",
+                        "lat": 40.7,
+                        "lon": -73.8,
+                        "gs": 350,
+                        "seen_pos": 5,
+                        "alt_baro": 25000,
+                        "owner": "PRIVATE CANARY",
+                    },
+                    {
+                        "flight": "TST2",
+                        "lat": 40.7,
+                        "lon": -73.8,
+                        "gs": 350,
+                        "seen_pos": 3,
+                        "alt_baro": 24000,
+                    },
+                    {
+                        "flight": "TST3",
+                        "lat": 40.7,
+                        "lon": -73.8,
+                        "gs": 350,
+                        "seen_pos": 3,
+                        "alt_baro": 24000,
+                    },
+                ],
+            },
+        )
+
+    http, _ = client(reply)
+    sources = PublicBriefingSources(http, clock=lambda: NOW)
+    routes = {
+        "TST1": PublishedRoute("Synthetic Airline", "EGLL", "KJFK"),
+        "TST2": PublishedRoute("Synthetic Airline", "EGLL", "EDDF"),
+    }
+    try:
+        args: dict[str, Any] = {
+            "latitude": 40.7,
+            "longitude": -73.8,
+            "airport_codes": ("KJFK", "KEWR", "KLGA"),
+            "routes": routes,
+            "route_date": "2026-10-21",
+        }
+        found = sources.find_flights("New York", **args)
+        assert found.error is None
+        assert (
+            found.label == "headed to New York per published route data; position live"
+        )
+        assert found.route_date == "2026-10-21"
+        assert len(found.candidates) == 1
+        candidate = found.candidates[0]
+        assert candidate.callsign == "TST0001"
+        assert candidate.origin == "EGLL" and candidate.destination == "KJFK"
+        assert candidate.airline == "Synthetic Airline"
+        assert candidate.altitude_feet == 25000 and candidate.position_age_seconds == 5
+        assert candidate.ground_speed_knots == 350
+        assert "PRIVATE" not in repr(found)
+        assert sources.find_flights("New York", **args) == found
+        assert len(calls) == 1
+        assert calls[0].method == "GET"
+        assert calls[0].url.path == "/v2/point/40.700000/-73.800000/250"
+    finally:
+        sources.close()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("seen_pos", 121),
+        ("seen_pos", -1),
+        ("alt_baro", "ground"),
+        ("alt_baro", True),
+        ("alt_baro", None),
+        ("gs", 0),
+        ("gs", "NaN"),
+        ("lat", 91),
+        ("lat", 0),
+        ("flight", "TST00000001"),
+        ("flight", "UNKNOWN1"),
+    ],
+)
+def test_discovery_never_lists_stale_ground_unknown_or_remote_aircraft(
+    field: str, value: object
+) -> None:
+    from zeo_core.integrations.briefing_sources.flight import (
+        PublishedRoute,
+        find_flights,
+    )
+
+    row: dict[str, Any] = {
+        "flight": "TST1",
+        "lat": 40.7,
+        "lon": -73.8,
+        "gs": 350,
+        "seen_pos": 5,
+        "alt_baro": 25000,
+    }
+    row[field] = value
+    http, _ = client(
+        lambda request: httpx.Response(200, json={"now": NOW.timestamp(), "ac": [row]})
+    )
+    try:
+        found = find_flights(
+            http,
+            "New York",
+            latitude=40.7,
+            longitude=-73.8,
+            airport_codes=("KJFK",),
+            routes={"TST1": PublishedRoute("Test", "EGLL", "KJFK")},
+            route_date="2026-10-21",
+            fetched_at=NOW,
+        )
+        assert found.error is None
+        assert found.candidates == () and found.message == "No flights found"
+    finally:
+        http.close()
+
+
+def test_discovery_limits_to_five_and_omits_ambiguous_duplicates() -> None:
+    from zeo_core.integrations.briefing_sources.flight import (
+        PublishedRoute,
+        find_flights,
+    )
+
+    rows = [
+        {
+            "flight": f"TST{i}",
+            "lat": 40.7,
+            "lon": -73.8,
+            "gs": 350,
+            "seen_pos": 5,
+            "alt_baro": 25000,
+        }
+        for i in range(1, 9)
+    ]
+    rows.append(dict(rows[0]))
+    http, _ = client(
+        lambda req: httpx.Response(200, json={"now": NOW.timestamp(), "ac": rows})
+    )
+    try:
+        found = find_flights(
+            http,
+            "New York",
+            latitude=40.7,
+            longitude=-73.8,
+            airport_codes=("KJFK",),
+            routes={
+                f"TST{i}": PublishedRoute("Test", "EGLL", "KJFK") for i in range(1, 9)
+            },
+            route_date="2026-10-21",
+            fetched_at=NOW,
+        )
+        assert found.error is None
+        assert [item.callsign for item in found.candidates] == [
+            "TST2",
+            "TST3",
+            "TST4",
+            "TST5",
+            "TST6",
+        ]
+    finally:
+        http.close()
+
+
+def test_discovery_refuses_invalid_local_inputs_before_any_connection() -> None:
+    from zeo_core.integrations.briefing_sources.flight import (
+        PublishedRoute,
+        find_flights,
+    )
+
+    cases: list[dict[str, Any]] = [
+        {"latitude": float("nan")},
+        {"longitude": 181},
+        {"destination": "New York://injection"},
+        {"route_date": "2026-02-30"},
+        {"route_date": "2026-10-23"},
+        {"airport_codes": ("JFK",)},
+        {"routes": {"TST1": PublishedRoute("https://evil.invalid", "EGLL", "KJFK")}},
+    ]
+    for change in cases:
+        calls: list[httpx.Request] = []
+
+        http, _ = client(response_handler(httpx.Response(200, json={"ac": []}), calls))
+        try:
+            args: dict[str, Any] = {
+                "destination": "New York",
+                "latitude": 40.7,
+                "longitude": -73.8,
+                "airport_codes": ("KJFK",),
+                "routes": {"TST1": PublishedRoute("Test", "EGLL", "KJFK")},
+                "route_date": "2026-10-21",
+                "fetched_at": NOW,
+            }
+            args.update(change)
+            found = find_flights(http, **args)
+            assert found.error == "The flight search inputs are invalid"
+            assert found.candidates == () and not calls
+            assert "evil" not in repr(found) and "injection" not in repr(found)
+        finally:
+            http.close()
+
+
+def test_discovery_distinguishes_empty_source_from_provider_failure() -> None:
+    from zeo_core.integrations.briefing_sources.flight import find_flights
+
+    for response, failure in [
+        (httpx.Response(200, json={"ac": []}), False),
+        (httpx.Response(429), True),
+        (httpx.Response(500), True),
+        (httpx.Response(200, json={"ac": [], "now": "invalid"}), False),
+        (httpx.Response(200, json={"ac": "invalid"}), True),
+    ]:
+        http, _ = client(response_handler(response))
+        try:
+            found = find_flights(
+                http,
+                "New York",
+                latitude=40.7,
+                longitude=-73.8,
+                airport_codes=("KJFK",),
+                routes={},
+                route_date="2026-10-21",
+                fetched_at=NOW,
+            )
+            assert bool(found.error) is failure
+            if not failure:
+                assert found.message == "No flights found"
+        finally:
+            http.close()
+
+
+def test_discovery_rechecks_position_age_on_a_cached_read() -> None:
+    from datetime import timedelta
+
+    from zeo_core.integrations.briefing_sources.flight import (
+        PublishedRoute,
+        find_flights,
+    )
+
+    calls: list[httpx.Request] = []
+
+    def reply(req: httpx.Request) -> httpx.Response:
+        calls.append(req)
+        return httpx.Response(
+            200,
+            json={
+                "now": NOW.timestamp(),
+                "ac": [
+                    {
+                        "flight": "TST1",
+                        "lat": 40.7,
+                        "lon": -73.8,
+                        "gs": 350,
+                        "seen_pos": 100,
+                        "alt_baro": 25000,
+                    }
+                ],
+            },
+        )
+
+    http, clock = client(reply)
+    try:
+        args: dict[str, Any] = {
+            "latitude": 40.7,
+            "longitude": -73.8,
+            "airport_codes": ("KJFK",),
+            "routes": {"TST1": PublishedRoute("Test", "EGLL", "KJFK")},
+            "route_date": "2026-10-21",
+        }
+        assert (
+            len(find_flights(http, "New York", fetched_at=NOW, **args).candidates) == 1
+        )
+        clock.t = 59
+        later = find_flights(
+            http, "New York", fetched_at=NOW + timedelta(seconds=59), **args
+        )
+        assert later.candidates == () and later.error is None
+        assert len(calls) == 1
+    finally:
+        http.close()

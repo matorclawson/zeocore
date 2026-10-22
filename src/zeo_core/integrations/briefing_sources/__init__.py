@@ -8,7 +8,14 @@ from datetime import datetime
 import httpx
 
 from zeo_core.contracts.ui.widgets import DataRef
-from zeo_core.integrations.briefing_sources.flight import StatedDestination
+from zeo_core.integrations.briefing_sources.flight import (
+    FlightSearch,
+    PublishedRoute,
+    StatedDestination,
+)
+from zeo_core.integrations.briefing_sources.flight import (
+    find_flights as read_find_flights,
+)
 from zeo_core.integrations.briefing_sources.flight import flight as read_flight
 from zeo_core.integrations.briefing_sources.http import (
     PublicSourceHTTP,
@@ -25,6 +32,8 @@ from zeo_core.integrations.briefing_sources.weather import weather as read_weath
 __all__ = [
     "PublicBriefingSources",
     "StatedDestination",
+    "PublishedRoute",
+    "FlightSearch",
     "PublicSourceHTTP",
     "SourceUnavailableError",
     "arrival_timeline",
@@ -53,6 +62,27 @@ class PublicBriefingSources:
             fetched_at=self._clock(),
             stated_destination=stated_destination,
         ).reference
+
+    def find_flights(
+        self,
+        destination: str,
+        *,
+        latitude: float,
+        longitude: float,
+        airport_codes: tuple[str, ...],
+        routes: dict[str, PublishedRoute],
+        route_date: str,
+    ) -> FlightSearch:
+        return read_find_flights(
+            self.http,
+            destination,
+            latitude=latitude,
+            longitude=longitude,
+            airport_codes=airport_codes,
+            routes=routes,
+            route_date=route_date,
+            fetched_at=self._clock(),
+        )
 
     def weather(
         self,
