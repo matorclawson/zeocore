@@ -17,3 +17,9 @@ running into the next. Layout is CSS checked by tests, not measured in a browser
 change.
 The cards use the Rasa deck palette (taupe, ink, pink), larger type with an answer-first line, and
 columns that follow the container's width (two at 960 px and up), with no font or image fetched.
+The flight headline names the route's own destination (the Place only sets the zone); the arrival
+timeline's headline carries its assumption ("assuming a 75 min transfer") and lists its stops in time
+order; a weather table that crosses a daylight-saving change says "local time (EDT/EST)"; the weather
+chart is drawn near its rendered size so its labels are readable, and the board says whose clock the
+times are on (or that destination time is unavailable and times are UTC). Visible times in the card
+footers are local, with the exact ISO times inside a details line; changes are shown to two places.

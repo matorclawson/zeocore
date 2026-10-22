@@ -275,7 +275,7 @@ def test_weather_is_an_hourly_chart_with_the_arrival_hour_marked() -> None:
 
 def test_the_timeline_shows_the_transfer_as_an_assumption_and_the_margin() -> None:
     out = render_card_html(snapshot("arrival_timeline")[0])
-    assert "<svg" in out and "Land" in out and "Customs" in out
+    assert "<ol" in out and "Land" in out and "Customs" in out  # a list in time order
     assert "75" in out and "ASSUMPTION" in out
     assert "zc-late" in out and "50" in out and "late" in out.lower()
     payload = copy.deepcopy(PAYLOADS["arrival_timeline"])
@@ -823,7 +823,7 @@ def test_k4_a_missing_previous_value_says_change_unavailable_not_zero() -> None:
 
 def test_k4_the_change_is_shown_exactly_as_given() -> None:
     out = _ecb_card()
-    assert "1.1634" in out and "0.0021" in out
+    assert "1.1634" in out and "<td>&lt;0.01</td>" in out  # 0.0021 to 2 places
     assert "0.18 %" in out
 
 
@@ -878,7 +878,7 @@ def test_a_tiny_nonzero_value_is_never_shown_as_zero_on_a_card() -> None:
         snapshot("market_watchlist", payload=payload, delayed=False)[0]
     )
     assert "<0.0001" not in out  # never a raw '<' in the markup
-    assert "&lt;0.0001" in out and "-&lt;0.01 %" in out
+    assert "&lt;0.01" in out and "-&lt;0.01 %" in out
     assert ">0.0000<" not in out and "-0.00 %" not in out
 
 
@@ -1122,7 +1122,7 @@ def test_r4_the_computed_tag_names_its_inputs() -> None:
         "COMPUTED FROM LIVE POSITION, not an airline time (inputs: live position from"
         in out
     )
-    assert "adsb.lol" in out and f"fetched {T}" in out
+    assert "adsb.lol" in out and "fetched 13:40 UTC" in out  # ISO is in the details
 
 
 def test_p2_a_reason_with_an_id_or_a_host_name_is_not_shown() -> None:
@@ -1370,12 +1370,12 @@ def test_t8_precedence_replay_then_delayed_then_daily_then_component() -> None:
 
 def test_t9_the_timeline_leads_with_the_verdict_in_plain_words() -> None:
     out = render_card_html(snapshot("arrival_timeline")[0], place=NYC)
-    assert _big(out) == "You will miss it: 50 min late"  # the fixture's margin is -50
+    assert _big(out) == "You will miss it: 50 min late (assuming a 75 min transfer)"
     ok = copy.deepcopy(PAYLOADS["arrival_timeline"])
     ok["margin_minutes"] = 1925
     assert (
         _big(render_card_html(snapshot("arrival_timeline", payload=ok)[0]))
-        == "You will make it: 32 h 5 min spare"
+        == "You will make it: 32 h 5 min spare (assuming a 75 min transfer)"
     )
     assert "18:00 EDT" in out  # the meeting 22:00Z in New York time
 
@@ -1385,7 +1385,7 @@ def test_t10_the_market_card_leads_with_the_rate_rounded_to_four_places() -> Non
     sample["symbols"][0].update(price=1.123449, change=0.0021449, change_pct=0.183749)
     out = _ecb_card(**{"symbols": sample["symbols"]})
     assert _big(out) == "1 EUR = 1.1234 USD"
-    assert "<td>1.1234</td>" in out and "<td>0.0021</td>" in out
+    assert "<td>1.1234</td>" in out and "<td>&lt;0.01</td>" in out
     assert "<td>0.18 %</td>" in out
     assert "1.123449" not in out and "0.183749" not in out
 
@@ -1432,3 +1432,103 @@ def test_t15_the_board_uses_the_rasa_palette_container_columns_and_no_clipping()
     assert "@import" not in style and "url(" not in style  # no font or image fetch
     html = render_snapshot_html(FULL)
     assert '<div class="zc-grid">' in html and html.count("<article") == 4
+
+
+# --- council R1/R2/R4 and the design seat's browser findings ---
+
+
+def test_r1_the_headline_names_the_routes_destination_not_the_places_code() -> None:
+    sample = copy.deepcopy(PAYLOADS["flight_status"])
+    sample["route"] = {"from": "LHR", "to": "EWR"}
+    out = render_card_html(snapshot("flight_status", payload=sample)[0], place=NYC)
+    assert _big(out).startswith(
+        "Landing about 17:35 at EWR"
+    )  # the Place gives the zone
+    assert " at JFK" not in _big(out)
+
+
+def test_r2_the_timeline_headline_carries_its_assumption() -> None:
+    out = render_card_html(snapshot("arrival_timeline")[0])
+    assert "(assuming a 75 min transfer)" in _big(out)
+
+
+def _dst_hours(times: list[str]) -> dict[str, Any]:
+    payload = copy.deepcopy(PAYLOADS["weather_hourly"])
+    payload["hourly"] = [
+        {"time": t, "temp_c": 10.0 + i, "precip_prob": 10, "precip_mm": 0.0}
+        for i, t in enumerate(times)
+    ]
+    payload["valid_from"], payload["valid_to"] = times[0], times[-1]
+    payload["arrival_hour"] = times[1]
+    return payload
+
+
+def test_r4_across_the_new_york_dst_change_hours_are_edt_then_est() -> None:
+    # New York falls back on 2026-11-01: 05:00Z is 01:00 EDT, 06:00Z is 01:00 EST
+    times = [
+        "2026-11-01T04:00:00Z",  # 00:00 EDT
+        "2026-11-01T05:00:00Z",  # 01:00 EDT
+        "2026-11-01T06:00:00Z",  # 01:00 EST
+        "2026-11-01T07:00:00Z",  # 02:00 EST
+    ]
+    out = render_card_html(
+        snapshot("weather_hourly", payload=_dst_hours(times))[0], place=NYC
+    )
+    rows = re.findall(r"<tr><td>(\d\d:\d\d)</td>", out)
+    assert rows == ["00:00", "01:00", "01:00", "02:00"]
+    assert "local time (EDT/EST)" in out and "times in EDT<" not in out
+
+
+def test_r4_a_meeting_after_the_change_shows_est() -> None:
+    sample = copy.deepcopy(PAYLOADS["arrival_timeline"])
+    sample["meeting_time"] = "2026-11-01T18:00:00Z"  # 13:00 EST
+    sample["steps"] = [
+        {"label": "Land", "time": "2026-11-01T04:30:00Z"},
+        {"label": "Customs", "time": "2026-11-01T05:30:00Z"},
+    ]
+    out = render_card_html(snapshot("arrival_timeline", payload=sample)[0], place=NYC)
+    assert "Meeting at 13:00 EST" in out
+    assert re.search(r"<strong>(?:\w{3} )?00:30</strong> Land", out)  # 04:30Z, EDT
+
+
+def test_b1_the_weather_chart_is_drawn_near_its_rendered_size() -> None:
+    out = render_card_html(snapshot("weather_hourly")[0], place=NYC)
+    assert 'viewBox="0 0 360 300"' in out  # not a 560-wide box scaled to a fifth
+    style = widget_html.STYLE
+    assert ".zc-svg text{font-size:20px" in style  # 20 units at about 1:1 is 16 px+
+    assert "min-height:220px" in style and "max-height:300px" in style
+    assert out.count("<text") >= 4 and "&deg;C" in out
+
+
+def test_b2_no_raw_iso_time_is_visible_outside_the_details() -> None:
+    iso = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")
+    for component in ("flight_status", "weather_hourly", "arrival_timeline"):
+        out = render_card_html(snapshot(component)[0], place=NYC)
+        visible = re.sub(r"<details.*?</details>", "", out, flags=re.S)
+        assert iso.search(visible) is None, (component, iso.search(visible))
+    flight = render_card_html(snapshot("flight_status")[0], place=NYC)
+    assert "fetched 09:40 EDT" in flight
+
+
+def test_b3_changes_are_shown_to_two_places() -> None:
+    sample = _ecb()
+    sample["symbols"][0].update(price=1.1234, change=0.0112, change_pct=-0.0049)
+    out = _ecb_card(symbols=sample["symbols"])
+    assert "<td>0.01</td>" in out and "<td>-&lt;0.01 %</td>" in out  # not "-0.00 %"
+    assert "0.0112" not in out
+    sample["symbols"][0].update(change_pct=-0.0079)
+    assert "<td>-0.01 %</td>" in _ecb_card(symbols=sample["symbols"])  # rounds, not <
+
+
+def test_b4_the_board_says_whose_clock_the_times_are_on() -> None:
+    with_place = render_snapshot_html(FULL, place=NYC)
+    assert "Times are in New York JFK (JFK) local time" in with_place
+    without = render_snapshot_html(FULL)
+    assert "Destination local time unavailable; times are in UTC" in without
+
+
+def test_b5_the_timeline_lists_its_stops_in_time_order() -> None:
+    out = render_card_html(snapshot("arrival_timeline")[0], place=NYC)
+    order = re.findall(r"<li><strong>(?:\w{3} )?(\d\d:\d\d)</strong> (\w+)", out)
+    # 17:35 Land, 18:00 Meeting, 18:05 Customs: the fixture lists Customs before Meeting
+    assert [label for _, label in order] == ["Land", "Meeting", "Customs"]

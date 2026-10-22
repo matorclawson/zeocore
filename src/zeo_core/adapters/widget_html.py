@@ -110,6 +110,7 @@ STYLE: Final = (
     ".zc-tag-computed{background:#EDE8E0;color:#AA1E54}"
     ".zc-tag-derived{background:#EDE8E0;color:#AA1E54}"
     ".zc-fresh{margin:4px 0;font-size:15px;line-height:21px;color:#524A43}"
+    ".zc-context{margin:0 0 12px;font-size:15px;line-height:21px;color:#524A43}"
     ".zc-note{margin:4px 0;font-size:15px;line-height:21px;color:#524A43}"
     ".zc-details{margin:6px 0;font-size:13px;line-height:18px;color:#524A43}"
     ".zc-details p{margin:2px 0;overflow-wrap:anywhere}"
@@ -121,12 +122,14 @@ STYLE: Final = (
     ".zc-card td,.zc-card th{padding:4px 6px;text-align:right;"
     "border-bottom:1px solid #C8C0B6;font-variant-numeric:tabular-nums}"
     ".zc-card td:first-child,.zc-card th:first-child{text-align:left}"
-    ".zc-chart{max-width:100%;height:auto;background:#EDE8E0;border-radius:12px}"
+    ".zc-chart{display:block;width:100%;max-height:300px;min-height:220px;"
+    "background:#EDE8E0;border-radius:12px}"
     ".zc-temp{fill:none;stroke:#AA1E54;stroke-width:3}"
     ".zc-precip{fill:#E85A91;opacity:.35}"
     ".zc-arrival{stroke:#181210;stroke-dasharray:4 3}"
     ".zc-axis{stroke:#524A43}.zc-dot{fill:#AA1E54}.zc-spark{fill:none;stroke:#AA1E54}"
-    ".zc-svg text{font-size:16px;fill:#181210}"
+    ".zc-svg text{font-size:20px;fill:#181210}"
+    ".zc-steps{margin:8px 0;padding-left:22px}.zc-steps li{margin:2px 0}"
 )
 
 
@@ -212,27 +215,38 @@ def _tags(card: CardState, extra: Sequence[str] = ()) -> str:
     return "".join(tags)
 
 
-def _provenance(card: CardState) -> str:
+def _stamp(value: object, place: Place | None) -> str:
+    return _clock(value, place, zone_name=True) if _moment(value) else _or(value)
+
+
+def _provenance(card: CardState, place: Place | None = None) -> str:
     data = card.data_ref
-    as_of = _get(data, "as_of")
-    when = _t(as_of) if as_of else "provider update time not given"
+    fetched, as_of = _get(data, "fetched_at"), _get(data, "as_of")
+    when = _stamp(as_of, place) if as_of else "provider update time not given"
     return (
         '<p class="zc-attr">Data: '
         f"<strong>{_source(_get(data, 'source'))}</strong></p>"
-        f'<p class="zc-prov">fetched {_or(_get(data, "fetched_at"))}'
+        f'<p class="zc-prov">fetched {_stamp(fetched, place)}'
         f" &middot; provider time {when}</p>"
+        '<details class="zc-details"><summary>exact times</summary>'
+        f"<p>fetched (ISO): {_or(fetched)}</p>"
+        f"<p>provider time (ISO): {_or(as_of, 'not given')}</p></details>"
     )
 
 
 def _article(
-    card: CardState, body: str, extra: Sequence[str] = (), fresh: str = ""
+    card: CardState,
+    body: str,
+    extra: Sequence[str] = (),
+    fresh: str = "",
+    place: Place | None = None,
 ) -> str:
     component = str(card.component)
     title = _t(_TITLES.get(component, component))
     return (
         f'<article class="zc-card zc-{_t(component)}"'
         f' data-widget="{_t(card.widget_id)}">'
-        f"<h3>{title} {_tags(card, extra)}</h3>{fresh}{body}{_provenance(card)}"
+        f"<h3>{title} {_tags(card, extra)}</h3>{fresh}{body}{_provenance(card, place)}"
         "</article>"
     )
 
@@ -279,9 +293,9 @@ def _fresh(card: CardState, payload: Any, place: Place | None = None) -> str:  #
     return f'<p class="zc-fresh"><strong>{text}</strong></p>'
 
 
-def _unavailable(card: CardState, reason: str = "") -> str:
+def _unavailable(card: CardState, reason: str = "", place: Place | None = None) -> str:
     body = '<p class="zc-unavail">unavailable</p>'
-    return _article(card, body + (f"<p>{reason}</p>" if reason else ""))
+    return _article(card, body + (f"<p>{reason}</p>" if reason else ""), place=place)
 
 
 def _reason(error: object) -> str:
@@ -400,8 +414,7 @@ def _flight(
 ) -> str:
     route = payload.route
     absent = "not provided"
-    code = place.code if place is not None else route.destination
-    code = "" if code == absent else code
+    code = "" if route.destination == absent else route.destination  # the route's own
     estimate = payload.estimated_arrival
     when, now = _moment(estimate), _moment(ref)
     if estimate and when is not None:
@@ -470,23 +483,46 @@ def _scale(values: Sequence[float]) -> tuple[float, float]:
     return (low, high if high > low else low + 1.0)
 
 
+def _zones(hours: Sequence[Any], place: Place | None) -> str:
+    """The zone name(s) of the table's hours, in order (EDT; EDT/EST over a change)."""
+    if place is None:
+        return "UTC"
+    names: list[str] = []
+    for hour in hours:
+        moment = _moment(hour.time)
+        name = moment.astimezone(_zone(place)).tzname() if moment is not None else None
+        if name and name not in names:
+            names.append(name)
+    return "/".join(names) or "UTC"
+
+
 def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
     hours = payload.hourly
-    width, height, left, top, bottom = 560.0, 230.0, 34.0, 12.0, 34.0
+    # Drawn at about its rendered size (a 360-unit-wide box in a 280 to 360 px card), so
+    # its 20-unit labels are 16 px or more on screen instead of a scaled-down 5 px.
+    width, height, left, top, bottom = 360.0, 300.0, 56.0, 16.0, 52.0
     plot_h = height - top - bottom
-    step = (width - left - 8) / max(len(hours), 1)
+    step = (width - left - 10) / max(len(hours), 1)
     low, high = _scale([h.temp_c for h in hours])
-    points, bars, marker, ticks = [], [], "", []
-    every = max(1, len(hours) // 6)
+    points, bars, marker, ticks, dots = [], [], "", [], []
+    every = max(1, -(-len(hours) // 5))  # at most five hour labels
+    previous_day = None
     for index, hour in enumerate(hours):
         x = left + step * (index + 0.5)
         y = top + plot_h * (1 - (hour.temp_c - low) / (high - low))
         points.append(f"{x:.1f},{y:.1f}")
+        dots.append(f'<circle class="zc-dot" cx="{x:.1f}" cy="{y:.1f}" r="4"></circle>')
+        moment = _moment(hour.time)
+        local_day = moment.astimezone(_zone(place)).date() if moment else None
         if index % every == 0:
+            label = f"{_clock(hour.time, place)[:2]}h"
+            if local_day is not None and local_day != previous_day and index:
+                label += f" {local_day.strftime('%a')}"  # a new local day: say which
             ticks.append(
-                f'<text x="{x:.1f}" y="{height - 8:.0f}" text-anchor="middle">'
-                f"{_clock(hour.time, place)[:2]}h</text>"
+                f'<text x="{x:.1f}" y="{height - 10:.0f}" text-anchor="middle">'
+                f"{label}</text>"
             )
+        previous_day = local_day
         if hour.precip_prob is not None:  # no probability: no bar, never a 0 % bar
             prob = min(max(float(hour.precip_prob), 0.0), 100.0)
             bar_h = plot_h * prob / 100.0
@@ -502,12 +538,12 @@ def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
             )
     base = f"{top + plot_h:.1f}"
     axis = (
-        f'<line class="zc-axis" x1="{left}" y1="{base}" x2="{width - 8}"'
+        f'<line class="zc-axis" x1="{left}" y1="{base}" x2="{width - 10}"'
         f' y2="{base}"></line>'
     )
     labels = (
         "".join(ticks)
-        + f'<text x="2" y="{top + 8}">{_fixed(high, 0)}&deg;C</text>'
+        + f'<text x="2" y="{top + 16}">{_fixed(high, 0)}&deg;C</text>'
         + f'<text x="2" y="{top + plot_h:.1f}">{_fixed(low, 0)}&deg;C</text>'
     )
     chart = (
@@ -517,16 +553,18 @@ def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
         "<title>Hourly temperature and precipitation probability</title>"
         f"{axis}{''.join(bars)}"
         f'<polyline class="zc-temp" points="{" ".join(points)}"></polyline>'
-        f"{marker}{labels}</svg>"
+        f"{''.join(dots)}{marker}{labels}</svg>"
     )
     chosen = next((h for h in hours if h.time == payload.arrival_hour), None)
     row, at = (chosen, "at landing") if chosen is not None else (hours[0], "next hour")
     rain = "no rain" if row.precip_mm == 0 else f"{_fixed(row.precip_mm, 1)} mm rain"
     head = f"{_fixed(row.temp_c, 0)} &deg;C, {rain} {at}"
-    zone = (
-        _zone(place).tzname(_moment(hours[0].time))
-        if place is not None and _moment(hours[0].time) is not None
-        else "UTC"
+    zones = _zones(hours, place)
+    zone_text = zones if "/" not in zones else f"local time ({zones})"
+    legend = (
+        f'<p class="zc-note">Dashed line: landing about {_clock(row.time, place)}</p>'
+        if chosen is not None
+        else ""
     )
     show_prob = any(h.precip_prob is not None for h in hours)
     rows = "".join(
@@ -538,7 +576,7 @@ def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
     name = _t(place.name) if place is not None else _t(payload.location)
     return (
         f'<p class="zc-big">{head}</p>'
-        f"<p>{name} &middot; times in {_t(zone)}</p>{chart}"
+        f"<p>{name} &middot; times in {_t(zone_text)}</p>{chart}{legend}"
         + (
             ""
             if show_prob
@@ -558,37 +596,24 @@ def _timeline(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
     stops = [(s.label, s.time) for s in payload.steps] + [
         ("Meeting", payload.meeting_time)
     ]
-    width, height = 560.0, 84.0
-    gap = (width - 80) / max(len(stops) - 1, 1)
-    parts = [
-        f'<line class="zc-axis" x1="40" y1="30" x2="{width - 40:.0f}" y2="30"></line>'
-    ]
-    for index, (label, when) in enumerate(stops):
-        x = 40 + gap * index
-        parts.append(f'<circle class="zc-dot" cx="{x:.1f}" cy="30" r="6"></circle>')
-        parts.append(
-            f'<text x="{x:.1f}" y="52" text-anchor="middle">{_t(label)}</text>'
-        )
-        parts.append(
-            f'<text x="{x:.1f}" y="70" text-anchor="middle">'
-            f"{_clock(when, place)}</text>"
-        )
-    chart = (
-        f'<svg class="zc-svg zc-chart" viewBox="0 0 {width:.0f} {height:.0f}"'
-        ' width="100%" role="img" aria-label="Arrival timeline">'
-        f"<title>Arrival timeline</title>{''.join(parts)}</svg>"
+    stops.sort(key=lambda stop: _moment(stop[1]) or datetime.max.replace(tzinfo=UTC))
+    items = "".join(
+        f"<li><strong>{_day_clock(when, place, payload.meeting_time)}</strong> "
+        f"{_t(label)}</li>"
+        for label, when in stops
     )
     margin = float(payload.margin_minutes)
+    transfer = f"(assuming a {_num(payload.transfer_minutes.value)} min transfer)"
     if margin < 0:
-        head = f"You will miss it: {_span(margin)} late"
+        head = f"You will miss it: {_span(margin)} late {transfer}"
         verdict = f'<span class="zc-late">{_num(-margin)} min late</span>'
     else:
-        head = f"You will make it: {_span(margin)} spare"
+        head = f"You will make it: {_span(margin)} spare {transfer}"
         verdict = f'<span class="zc-spare">{_num(margin)} min spare</span>'
     zone = "UTC" if place is None else _t(place.name)
     return (
         f'<p class="zc-big">{_t(head)}</p>'
-        + chart
+        f'<ol class="zc-steps" aria-label="Timeline, in time order">{items}</ol>'
         + f"<p>Transfer: <strong>{_num(payload.transfer_minutes.value)} min</strong> "
         + f"{_tag('assumption', 'ASSUMPTION')} (not live traffic)</p>"
         + f"<p>Meeting at {_clock(payload.meeting_time, place, zone_name=True)}"
@@ -620,7 +645,7 @@ def _change(q: Any) -> tuple[str, str]:  # noqa: ANN401
     """One symbol's change; unavailable (never 0) without a previous value."""
     if q.change is None or q.change_pct is None:
         return ("change unavailable", "change unavailable")
-    return (_fixed(q.change, 4), f"{_fixed(q.change_pct, 2)} %")
+    return (_fixed(q.change, 2), f"{_fixed(q.change_pct, 2)} %")
 
 
 def _computed_change(payload: Any, inputs: tuple[str, str]) -> str:  # noqa: ANN401
@@ -697,18 +722,18 @@ def render_card_html(card: CardState, *, place: Place | None = None) -> str:
     data = card.data_ref
     error = _get(data, "error")
     if error is not None:
-        return _unavailable(card, _reason(error))
+        return _unavailable(card, _reason(error), place)
     component = str(card.component)
     model = (
         REGISTRY.get(component) if isinstance(REGISTRY.get(component), type) else None
     )
     if model is None or component not in _BODIES:
-        return _unavailable(card)
+        return _unavailable(card, place=place)
     try:
         data.check(component)  # the board's own rules, also for a card built directly
         payload = model.model_validate(_get(data, "payload"))
     except (ValidationError, TypeError, ValueError, AttributeError):
-        return _unavailable(card)  # WidgetRefused is a ValueError
+        return _unavailable(card, place=place)  # WidgetRefused is a ValueError
     fresh = _fresh(card, payload, place)
     ref = _get(data, "fetched_at")
     if component == "flight_status":
@@ -716,19 +741,37 @@ def render_card_html(card: CardState, *, place: Place | None = None) -> str:
         computed = _get(
             data, "replay"
         ) is not True and LIVE_POSITION_ASSUMPTION in _labels(data)
-        inputs = (_source(_get(data, "source")), _or(_get(data, "fetched_at")))
-        return _article(card, _flight(payload, computed, inputs, place, ref), (), fresh)
+        inputs = (
+            _source(_get(data, "source")),
+            _stamp(_get(data, "fetched_at"), place),
+        )
+        return _article(
+            card, _flight(payload, computed, inputs, place, ref), (), fresh, place
+        )
     if component == "market_watchlist":
         computed = _get(
             data, "replay"
         ) is not True and MARKET_CHANGE_ASSUMPTION in _labels(data)
-        inputs = (_source(_get(data, "source")), _or(_get(data, "fetched_at")))
-        return _article(card, _market(payload, computed, inputs), (), fresh)
+        inputs = (
+            _source(_get(data, "source")),
+            _stamp(_get(data, "fetched_at"), place),
+        )
+        return _article(card, _market(payload, computed, inputs), (), fresh, place)
     if component == "weather_hourly":
-        return _article(card, _weather(payload, place), (), fresh)
+        return _article(card, _weather(payload, place), (), fresh, place)
     if component == "arrival_timeline":
-        return _article(card, _timeline(payload, place), (), fresh)
+        return _article(card, _timeline(payload, place), (), fresh, place)
     return _unavailable(card)  # not reachable: every registered component is handled
+
+
+def _context(place: Place | None) -> str:
+    """The board's one destination line: whose clock the times are on."""
+    text = (
+        f"Times are in {_t(place.name)} ({_t(place.code)}) local time"
+        if place is not None
+        else "Destination local time unavailable; times are in UTC"
+    )
+    return f'<p class="zc-context">{text}</p>'
 
 
 def render_snapshot_html(
@@ -751,6 +794,7 @@ def render_snapshot_html(
     )
     section = (
         f'<section class="zc-board"><style>{STYLE}</style>'
+        f"{_context(place)}"
         f'<div class="zc-grid">{body}</div></section>'
     )
     if not document:
