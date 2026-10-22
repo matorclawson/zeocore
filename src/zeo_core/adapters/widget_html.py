@@ -38,6 +38,10 @@ _DERIVED: Final = (
 #: The assumption label a service attaches when an estimated arrival was computed from
 #: a live position, not reported by a provider: the card then says so.
 LIVE_POSITION_ASSUMPTION: Final = "estimated_arrival_from_live_position"
+#: The assumption label a service attaches when a market card's change and change % were
+#: computed from two reference days, not reported by a provider: the card then says so.
+MARKET_CHANGE_ASSUMPTION: Final = "change_computed_from_two_reference_days"
+_DERIVATIONS: Final = (LIVE_POSITION_ASSUMPTION, MARKET_CHANGE_ASSUMPTION)
 
 #: Control (Cc), format (Cf: bidi overrides, zero-width) and line/paragraph separator
 #: (Zl, Zp) characters: never rendered, whatever field they arrive in.
@@ -177,9 +181,7 @@ def _tags(card: CardState, extra: Sequence[str] = ()) -> str:
         tags = [_tag("derived", _DERIVED)]
     else:
         tags = [_tag("provider", "PROVIDER DATA")]
-    if any(label != LIVE_POSITION_ASSUMPTION for label in labels) or (
-        "assumption" in extra
-    ):
+    if any(label not in _DERIVATIONS for label in labels) or ("assumption" in extra):
         tags.append(_tag("assumption", "ASSUMPTION"))
     if card.replaced is True:
         tags.append(_tag("superseded", "SUPERSEDED"))
@@ -396,7 +398,29 @@ def _change(q: Any) -> tuple[str, str]:  # noqa: ANN401
     return (_num(q.change), f"{_num(q.change_pct)} %")
 
 
-def _market(payload: Any) -> str:  # noqa: ANN401
+def _computed_change(payload: Any, inputs: tuple[str, str]) -> str:  # noqa: ANN401
+    """The value-level label of a change computed from two reference days."""
+    days = sorted(
+        {
+            str(point.time)
+            for q in payload.symbols
+            if q.change is not None
+            for point in payload.series.get(q.symbol, ())
+        }
+    )
+    named = f" {' and '.join(_t(day) for day in days)}" if days else ""
+    return (
+        '<p class="zc-computed"><strong>change and change % COMPUTED from two '
+        f"reference days{named}</strong>, not provider data "
+        f"(inputs: reference rates from {inputs[0]}, fetched {inputs[1]})</p>"
+    )
+
+
+def _market(
+    payload: Any,  # noqa: ANN401
+    computed: bool = False,  # noqa: FBT001, FBT002
+    inputs: tuple[str, str] = ("", ""),
+) -> str:
     rows = ""
     for q in payload.symbols:
         change, pct = _change(q)
@@ -410,6 +434,11 @@ def _market(payload: Any) -> str:  # noqa: ANN401
         _line("market", _t(payload.market_status))
         + published
         + _line("quote time", _or(payload.quote_time))
+        + (
+            _computed_change(payload, inputs)
+            if computed and any(q.change is not None for q in payload.symbols)
+            else ""
+        )
         + "<table><tr><th>symbol</th><th>price</th><th>change</th>"
         + "<th>change %</th><th></th></tr>"
         + f"{rows}</table>"
@@ -454,6 +483,12 @@ def render_card_html(card: CardState) -> str:
         ) is not True and LIVE_POSITION_ASSUMPTION in _labels(data)
         inputs = (_source(_get(data, "source")), _or(_get(data, "fetched_at")))
         return _article(card, _flight(payload, computed, inputs), (), fresh)
+    if component == "market_watchlist":
+        computed = _get(
+            data, "replay"
+        ) is not True and MARKET_CHANGE_ASSUMPTION in _labels(data)
+        inputs = (_source(_get(data, "source")), _or(_get(data, "fetched_at")))
+        return _article(card, _market(payload, computed, inputs), (), fresh)
     return _article(card, _BODIES[component](payload), (), fresh)
 
 
