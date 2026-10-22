@@ -288,7 +288,9 @@ def test_the_timeline_shows_the_transfer_as_an_assumption_and_the_margin() -> No
 def test_the_watchlist_is_a_table_with_the_delay_and_a_sparkline() -> None:
     out = render_card_html(snapshot("market_watchlist")[0])
     assert out.count("<tr") >= 3 and "AAPL" in out and "MSFT" in out and "231.4" in out
-    assert "DELAYED" in out and "open" in out and T in out
+    assert (
+        "DELAYED" in out and T in out
+    )  # the market-hours line is gone, ISO in details
     assert out.count("<polyline") == 1  # one series
 
 
@@ -786,7 +788,8 @@ def _ecb_card(**over: Any) -> str:  # noqa: ANN401
 
 def test_k1_a_daily_rate_says_so_and_shows_its_publication_date() -> None:
     out = _ecb_card()
-    assert "daily reference rate, not a live quote" in out and "2026-10-21" in out
+    assert "daily reference rate, not a live quote" in out
+    assert "published: <strong>21 Oct</strong>" in out  # in words, not 2026-10-21
     assert out.count('class="zc-fresh"') == 1 and "DELAYED" not in out
     lowered = out.lower()
     assert "live" not in lowered.replace("not a live quote", "")  # never a live claim
@@ -799,8 +802,8 @@ def test_k1_a_daily_rate_says_so_and_shows_its_publication_date() -> None:
 
 def test_k2_the_date_shown_is_the_payloads_not_the_clock() -> None:
     friday = _ecb_card(quote_date="2026-10-16")  # the weekend answer is still Friday's
-    assert "2026-10-16" in friday and "2026-10-21" not in friday
-    assert "published: <strong>2026-10-16" in friday
+    assert "16 Oct" in friday and "21 Oct" not in friday
+    assert "published: <strong>16 Oct</strong>" in friday
 
 
 def test_k2_no_midnight_publication_time_is_invented() -> None:
@@ -1286,7 +1289,7 @@ NYC = widget_html.Place("JFK", "New York JFK", "America/New_York")
 def _big(article: str) -> str:
     match = re.search(r'<p class="zc-big">(.*?)</p>', article)
     assert match is not None, article[:200]
-    return re.sub(r"&deg;", "°", match[1])
+    return re.sub(r"&deg;", "°", re.sub(r"</?span[^>]*>", "", match[1]))
 
 
 @pytest.mark.parametrize(
@@ -1658,3 +1661,95 @@ def test_a2_no_relative_text_means_no_as_of() -> None:
             "as of"
             not in _fresh_lines(render_card_html(snapshot(component)[0], place=NYC))[0]
         )
+
+
+# --- polish list (Architect 06:36Z): code and city, no repeats, short labels ---
+
+JFK_AP = widget_html.Airport("KJFK", "JFK", "New York")
+LHR_AP = widget_html.Airport("EGLL", "LHR", "London")
+AIRPORTS = {"KJFK": JFK_AP, "EGLL": LHR_AP}
+
+
+def _icao_flight() -> Any:  # noqa: ANN401
+    sample = copy.deepcopy(PAYLOADS["flight_status"])
+    sample["route"] = {"from": "EGLL", "to": "KJFK"}
+    return snapshot("flight_status", payload=sample)[0]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        ("KJFK", "JFK", ""),
+        ("JFK", "JFK", "NY"),
+        ("KJFK", "jfk", "NY"),
+        ("KJFK", "JFK", "<b>"),
+    ],
+)
+def test_p1_an_airport_is_validated(bad: tuple[str, str, str]) -> None:
+    with pytest.raises(ValueError, match="invalid_airport"):
+        widget_html.Airport(*bad)
+
+
+def test_p2_the_card_says_jfk_and_the_city_not_the_icao_code() -> None:
+    out = render_card_html(_icao_flight(), place=NYC, airports=AIRPORTS)
+    assert _big(out).startswith("Landing about 17:35 at JFK, in about ")
+    visible = re.sub(r"<details.*?</details>", "", out, flags=re.S)
+    assert "London (LHR) &rarr; New York (JFK)" in visible
+    assert "KJFK" not in visible and "EGLL" not in visible  # ICAO only in details
+    assert "EGLL &rarr; KJFK" in out  # ... where it is kept
+
+
+def test_p2b_without_the_table_the_codes_are_shown_as_given() -> None:
+    out = render_card_html(_icao_flight(), place=NYC)
+    assert _big(out).startswith("Landing about 17:35 at KJFK")
+
+
+def test_p3_the_timeline_headline_is_not_repeated_as_a_minutes_line() -> None:
+    out = render_card_html(snapshot("arrival_timeline")[0], place=NYC)
+    assert "50 min late" in out.split("</p>")[0] and out.count("min late") == 1
+    meeting = re.search(r"<p>Meeting at [^<]*</p>", out)[0]  # type: ignore[index]
+    assert "min" not in meeting  # the verdict is in the headline only
+    ok = copy.deepcopy(PAYLOADS["arrival_timeline"])
+    ok["margin_minutes"] = 1948
+    spare = render_card_html(snapshot("arrival_timeline", payload=ok)[0], place=NYC)
+    assert "1948 min spare" not in spare and "32 h 28 min spare" in spare
+    assert 'class="zc-spare"' in spare and 'class="zc-late"' not in spare
+
+
+def test_p4_the_market_card_drops_the_hours_line_and_says_the_date_in_words() -> None:
+    out = _ecb_card()
+    assert "market hours not provided" not in out and "daily reference" in out
+    assert "<p>market:" not in out  # no market-status line at all
+    assert "published: <strong>21 Oct</strong>" in out
+
+
+def test_p5_the_computed_label_is_short_and_its_inputs_are_in_the_details() -> None:
+    out = render_card_html(snapshot("arrival_timeline")[0], place=NYC)
+    labels = re.search(r'<p class="zc-labels">(.*?)</p>', out)[1]  # type: ignore[index]
+    assert ">COMPUTED<" in labels and "flight estimate" not in labels
+    details = re.search(r"<details.*?</details>", out, flags=re.S)[0]  # type: ignore[index]
+    assert "COMPUTED from the flight estimate, the stated transfer time" in details
+    replay = render_card_html(snapshot("arrival_timeline", replay=True)[0])
+    assert "COMPUTED" not in replay  # a recording never claims a computation
+
+
+def test_p6_the_adapters_live_status_is_tidied_and_anything_else_is_kept() -> None:
+    sample = copy.deepcopy(PAYLOADS["flight_status"])
+    sample["reported_status"] = "Live position: 25000 ft, 350 kt, position 5 s old"
+    out = render_card_html(snapshot("flight_status", payload=sample)[0])
+    assert (
+        "In the air &middot; 25,000 ft &middot; 350 kt &middot; position 5 s old" in out
+    )
+    assert "status (as reported)" not in out
+    lead = "Route not provided by the source. " + sample["reported_status"]
+    sample["reported_status"] = lead
+    out = render_card_html(snapshot("flight_status", payload=sample)[0])
+    assert "Route not provided by the source. In the air" in out
+    sample["reported_status"] = "Delayed"  # the provider's own word, shown as given
+    out = render_card_html(snapshot("flight_status", payload=sample)[0])
+    assert "status (as reported): <strong>Delayed</strong>" in out
+    sample["reported_status"] = "Live position: lots of feet, fast, just now"
+    out = render_card_html(snapshot("flight_status", payload=sample)[0])
+    assert (
+        "status (as reported): <strong>Live position: lots of feet" in out
+    )  # as given

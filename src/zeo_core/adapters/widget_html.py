@@ -23,7 +23,7 @@ from __future__ import annotations
 import html
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
@@ -35,7 +35,8 @@ from pydantic import ValidationError
 from zeo_core.contracts.ui.widgets import REGISTRY, CardState
 
 WITHHELD: Final = "[withheld]"
-_DERIVED: Final = (
+_DERIVED: Final = "COMPUTED"
+_DERIVED_INPUTS: Final = (
     "COMPUTED from the flight estimate, the stated transfer time and the meeting time"
 )
 #: The assumption label a service attaches when an estimated arrival was computed from
@@ -355,6 +356,36 @@ class Place:
             raise ValueError("invalid_place") from None
 
 
+@dataclass(frozen=True)
+class Airport:
+    """An airport as people say it: IATA code and city (ICAO stays in the details)."""
+
+    icao: str
+    iata: str
+    city: str
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.icao, str)
+            or re.fullmatch(r"[A-Z]{4}", self.icao) is None
+            or not isinstance(self.iata, str)
+            or re.fullmatch(r"[A-Z]{3}", self.iata) is None
+            or not isinstance(self.city, str)
+            or re.fullmatch(r"[A-Za-z][A-Za-z .,'()-]{0,39}", self.city) is None
+        ):
+            raise ValueError("invalid_airport")
+
+
+def _iata(code: str, airports: Mapping[str, Airport] | None) -> str:
+    known = airports.get(code) if airports else None
+    return known.iata if known is not None else code
+
+
+def _city_iata(code: str, airports: Mapping[str, Airport] | None) -> str:
+    known = airports.get(code) if airports else None
+    return f"{known.city} ({known.iata})" if known is not None else code
+
+
 def _moment(value: object) -> datetime | None:
     """An aware timestamp, or None (a bare day, a malformed or a naive value)."""
     if not isinstance(value, str) or len(value) < 20:
@@ -427,10 +458,12 @@ def _flight(
     inputs: tuple[str, str] = ("", ""),
     place: Place | None = None,
     ref: object = None,
+    airports: Mapping[str, Airport] | None = None,
 ) -> str:
     route = payload.route
     absent = "not provided"
-    code = "" if route.destination == absent else route.destination  # the route's own
+    # the route's own destination, as the people know it (IATA), never the ICAO
+    code = "" if route.destination == absent else _iata(route.destination, airports)
     estimate = payload.estimated_arrival
     when, now = _moment(estimate), _moment(ref)
     if estimate and when is not None:
@@ -441,12 +474,13 @@ def _flight(
             head += f", {_as_of(ref, place)}"  # the moment 'in about' counts from
     else:
         head = "No landing estimate"
+    to_name = _t(_city_iata(route.destination, airports))
     if route.origin == absent and route.destination == absent:
         where = ""
     elif route.origin == absent:
-        where = f" to {_t(route.destination)}"
+        where = f" to {to_name}"
     else:
-        where = f" {_t(route.origin)} &rarr; {_t(route.destination)}"
+        where = f" {_t(_city_iata(route.origin, airports))} &rarr; {to_name}"
     scheduled = (
         ("departure", payload.scheduled_departure),
         ("estimated departure", payload.estimated_departure),
@@ -469,6 +503,11 @@ def _flight(
     )
     details = (
         '<details class="zc-details"><summary>details</summary>'
+        + (
+            _line("route (ICAO)", f"{_t(route.origin)} &rarr; {_t(route.destination)}")
+            if absent not in (route.origin, route.destination)
+            else ""
+        )
         + _line("estimated arrival (ISO)", _or(estimate))
         + _line("source time (ISO)", _or(payload.source_timestamp))
         + "</details>"
@@ -490,9 +529,31 @@ def _flight(
             if given
             else '<p class="zc-note">airline schedule not provided by this source</p>'
         )
-        + _line("status (as reported)", _t(payload.reported_status))
+        + _status_line(payload.reported_status)
         + details
     )
+
+
+_LIVE_STATUS: Final = re.compile(
+    r"(?P<lead>Route not provided by the source\. )?Live position: "
+    r"(?P<alt>-?[0-9]+(?:\.[0-9]+)?) ft, (?P<kt>[0-9]+(?:\.[0-9]+)?) kt, "
+    r"position (?P<age>[0-9]+(?:\.[0-9]+)?) s old(?P<tail>;.*)?"
+)
+
+
+def _status_line(status: str) -> str:
+    """The adapter's own live-position text as 'In the air ...'; any other as given."""
+    match = _LIVE_STATUS.fullmatch(status)
+    if match is None:
+        return _line("status (as reported)", _t(status))
+    feet = f"{float(match['alt']):,.0f}"
+    text = (
+        f"In the air &middot; {feet} ft &middot; {_num(match['kt'])} kt"
+        f" &middot; position {_num(match['age'])} s old"
+    )
+    lead = _t(match["lead"].strip()) + " " if match["lead"] else ""
+    tail = _t(match["tail"]) if match["tail"] else ""
+    return f'<p class="zc-status">{lead}{text}{tail}</p>'
 
 
 def _scale(values: Sequence[float]) -> tuple[float, float]:
@@ -526,7 +587,11 @@ def _zone_name(value: object, place: Place | None) -> str:
     return moment.astimezone(_zone(place)).tzname() or "" if moment else ""
 
 
-def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
+def _weather(
+    payload: Any,  # noqa: ANN401
+    place: Place | None = None,
+    airports: Mapping[str, Airport] | None = None,
+) -> str:
     hours = payload.hourly
     # Drawn at about its rendered size (a 300-unit-wide box in a 262 to 360 px card), so
     # its 20-unit labels are 16 px or more on screen instead of a scaled-down 5 px.
@@ -605,7 +670,12 @@ def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
         + f"<td>{_fixed(h.precip_mm, 1)} mm</td></tr>"
         for h in hours
     )
-    name = _t(place.name) if place is not None else _t(payload.location)
+    known = airports.get(payload.location) if airports else None
+    name = (
+        _t(place.name)
+        if place is not None
+        else _t(known.city if known is not None else payload.location)
+    )
     return (
         f'<p class="zc-big">{head}</p>'
         f"<p>{name} &middot; times in {_t(zone_text)}</p>{chart}{legend}"
@@ -626,7 +696,11 @@ def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
     )
 
 
-def _timeline(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
+def _timeline(
+    payload: Any,  # noqa: ANN401
+    place: Place | None = None,
+    replay: bool = False,  # noqa: FBT001, FBT002
+) -> str:
     stops = [(s.label, s.time) for s in payload.steps] + [
         ("Meeting", payload.meeting_time)
     ]
@@ -647,19 +721,20 @@ def _timeline(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
     transfer = f"(assuming a {_num(payload.transfer_minutes.value)} min transfer)"
     if margin < 0:
         head = f"You will miss it: {_span(margin)} late {transfer}"
-        verdict = f'<span class="zc-late">{_num(-margin)} min late</span>'
+        tone = "zc-late"
     else:
         head = f"You will make it: {_span(margin)} spare {transfer}"
-        verdict = f'<span class="zc-spare">{_num(margin)} min spare</span>'
+        tone = "zc-spare"
     zone = "UTC" if place is None else _t(place.name)
     return (
-        f'<p class="zc-big">{_t(head)}</p>'
+        f'<p class="zc-big"><span class="{tone}">{_t(head)}</span></p>'
         f'<ol class="zc-steps" aria-label="Timeline, in time order">{items}</ol>'
         + f"<p>Transfer: <strong>{_num(payload.transfer_minutes.value)} min</strong> "
         + f"{_tag('assumption', 'ASSUMPTION')} (not live traffic)</p>"
         + f"<p>Meeting at {_clock(payload.meeting_time, place, zone_name=True)}"
-        + f" ({zone} time): {verdict}</p>"
+        + f" ({zone} time)</p>"
         + '<details class="zc-details"><summary>details</summary>'
+        + ("" if replay else f"<p>{_DERIVED_INPUTS}</p>")
         + _line("meeting (ISO)", _t(payload.meeting_time))
         + "</details>"
     )
@@ -707,6 +782,15 @@ def _computed_change(payload: Any, inputs: tuple[str, str]) -> str:  # noqa: ANN
     )
 
 
+def _words_date(value: object) -> str:
+    """``2026-10-21`` as ``21 Oct``; anything else as given."""
+    text = str(value)
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").strftime("%-d %b")  # noqa: DTZ007
+    except ValueError:
+        return _t(text)
+
+
 def _market(
     payload: Any,  # noqa: ANN401
     computed: bool = False,  # noqa: FBT001, FBT002
@@ -727,11 +811,14 @@ def _market(
         if pair
         else f"{_t(first.symbol)} {_fixed(first.price, 4)}"
     )
-    published = _line("published", _t(payload.quote_date)) if payload.quote_date else ""
+    published = (
+        _line("published", _words_date(payload.quote_date))
+        if payload.quote_date
+        else ""
+    )
     quoted = _line("quote time", _t(payload.quote_time)) if payload.quote_time else ""
     return (
         f'<p class="zc-big">{head}</p>'
-        + _line("market", _t(payload.market_status))
         + published
         + quoted
         + (
@@ -756,7 +843,11 @@ _BODIES: Final = {
 
 
 def render_card_html(
-    card: CardState, *, place: Place | None = None, now: datetime | None = None
+    card: CardState,
+    *,
+    place: Place | None = None,
+    now: datetime | None = None,
+    airports: Mapping[str, Airport] | None = None,
 ) -> str:
     """One card as an ``<article>``; an invalid reference renders as unavailable."""
     if not isinstance(card, CardState):  # model text or a raw dict is never rendered
@@ -793,7 +884,11 @@ def render_card_html(
             _stamp(_get(data, "fetched_at"), place),
         )
         return _article(
-            card, _flight(payload, computed, inputs, place, ref), (), fresh, place
+            card,
+            _flight(payload, computed, inputs, place, ref, airports),
+            (),
+            fresh,
+            place,
         )
     if component == "market_watchlist":
         computed = _get(
@@ -805,9 +900,15 @@ def render_card_html(
         )
         return _article(card, _market(payload, computed, inputs), (), fresh, place)
     if component == "weather_hourly":
-        return _article(card, _weather(payload, place), (), fresh, place)
+        return _article(card, _weather(payload, place, airports), (), fresh, place)
     if component == "arrival_timeline":
-        return _article(card, _timeline(payload, place), (), fresh, place)
+        return _article(
+            card,
+            _timeline(payload, place, _get(data, "replay") is True),
+            (),
+            fresh,
+            place,
+        )
     return _unavailable(card)  # not reachable: every registered component is handled
 
 
@@ -828,6 +929,7 @@ def render_snapshot_html(
     title: str = "Briefing",
     place: Place | None = None,
     now: datetime | None = None,
+    airports: Mapping[str, Airport] | None = None,
 ) -> str:
     """
     The cards of a ``WidgetBoard.snapshot()`` as HTML, in snapshot order.
@@ -838,10 +940,14 @@ def render_snapshot_html(
     traveller is going: with it every time is in that zone, without it in UTC. ``now``
     (aware) is the moment relative text ("in about 2 h") counts from; left out, it
     counts from each card's own fetch time, so one snapshot renders the same each time.
+    ``airports`` (ICAO to :class:`Airport`) is the class's airport table: with it a
+    route reads "London (LHR) to New York (JFK)" and a headline "at JFK"; without it
+    the codes are shown as given.
     """
-    body = "".join(render_card_html(card, place=place, now=now) for card in cards) or (
-        "<p>no cards yet</p>"
-    )
+    body = "".join(
+        render_card_html(card, place=place, now=now, airports=airports)
+        for card in cards
+    ) or ("<p>no cards yet</p>")
     section = (
         f'<section class="zc-board"><style>{STYLE}</style>'
         f"{_context(place)}"
