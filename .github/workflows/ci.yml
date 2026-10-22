@@ -1,56 +1,24 @@
 name: CI
 
-# The doctrine gate, run in CI the same way contributors run it locally:
-# `make verify` (see CONTRIBUTING.md / Makefile). We shell out to the same
-# `make` targets rather than reimplementing each tool invocation in YAML,
-# so local and CI behavior cannot drift apart. The only per-job deviation is
-# selecting the matrix Python version, which has to happen before `make setup`
-# creates the venv -- done via `PYTHON_VERSION=<matrix version>` on the make
-# command line, which overrides the Makefile's own `PYTHON_VERSION := 3.14`
-# default (make command-line assignments win over `:=` in the makefile).
+# zeocore-SOW-40 (DECISION-local-ci-on-pomar-actions-minimal-v1, 2026-10-18).
+# The full gate runs BEFORE the PR, on the seat (`make verify`, and
+# `make kit-verify` for kit changes), and its summary is in the PR body. The
+# PR itself runs ONE job, `smoke`: format, lint and a build, under three
+# minutes, no secrets. The full Python gate (`verify`) and the kit's gate with its
+# mutation rows (about 360) run on pushes to main and every night, not on pull
+# requests.
 #
-# RULING-413: a required status-check context must not carry a version,
-# because a legitimate matrix change (dropping an old Python floor) then
-# emits a context the branch ruleset can never see, deadlocking the repo
-# against its own required check with no error message anywhere. The
-# `verify` job below is left completely alone -- its context stays
-# `verify (py3.14)`, which the branch ruleset requires today, so this
-# change itself is never blocked by the condition it is fixing.
-#
-# `verify-all` is a NEW, ADDITIONAL `needs:` aggregation job (RULING-413
-# s1's own named shape) whose context is the fixed string `verify-all`.
-# A bare `needs: verify` with no `if:` was tried first and rejected: GitHub
-# skips a job whose `needs:` dependency did not succeed, and a SKIPPED
-# required check is indistinguishable in the UI from one still running --
-# it never emits `failure`, only silently stops existing, which is exactly
-# the failure mode RULING-413 exists to close (a required context that
-# blocks forever without announcing itself). So this job carries `if:
-# always()` (the same pattern publish.yml's smoke-test job already uses
-# and documents in this repo) plus a step that inspects
-# `needs.verify.result` itself and exits non-zero when it is not `success`
-# -- so this required context can actually EMIT a `failure` conclusion,
-# not merely go quiet. PROVEN behaviorally, not merely asserted from
-# GitHub's documented needs:/if: semantics, on this same branch -- see the
-# PR description for both the passing-run and the failing-run check-run
-# names, read from the check-runs API, not the legacy combined-status
-# endpoint (which is unconditionally blind in this repo -- it reports
-# only legacy commit statuses, and this repo emits check-runs
-# exclusively, so /status reads `pending` on both a fully green merged
-# commit and a genuinely failing one).
-#
-# Because this PR only ADDS a context and touches no required one, it
-# closes with zero deadlock window: `verify-all` starts reporting on
-# this PR's own run, and Master can then switch the ruleset's required
-# context from `verify (py3.14)` to `verify-all` (out of band -- a
-# branch-ruleset edit is outside this workflow's authority and outside a
-# stream's, per CLAUDE.md s8) once it is already live, never before.
-# A later, optional cleanup may simplify the matrix job's own context
-# once nothing requires the old string -- not part of closing this item.
+# Contexts: `smoke` is the only context a pull request posts. The branch
+# ruleset's old required contexts `zeo` and `verify-all` are replaced by
+# `smoke` in the same change by zeo-rt (zeo-rt-SOW-735); no required check may
+# name a job that this file no longer has.
 
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "41 3 * * *"
 
 permissions:
   contents: read
@@ -60,11 +28,35 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  smoke:
+    name: smoke
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+
+      - name: Format check (ruff, the version uv.lock pins)
+        run: uvx --from 'ruff==0.16.3' ruff format --check src tests
+
+      - name: Lint (ruff)
+        run: uvx --from 'ruff==0.16.3' ruff check src tests
+
+      - name: Build smoke (the wheel builds)
+        run: uv build --wheel --out-dir "$RUNNER_TEMP/smoke-dist"
+
+  # The full Python gate, after a merge and every night (not on pull requests).
   verify:
     name: verify (py${{ matrix.python-version }})
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
-    # The gate takes about 3 minutes; the headroom absorbs a slow runner.
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -90,15 +82,14 @@ jobs:
         run: make verify
 
   # The kit (kit/) is a Go module with its own gate, `make kit-verify`
-  # (ZEOCORE-SOW-34). It runs beside the Python job, and verify-all below
-  # aggregates both, so the one required context still covers everything. The
-  # Go toolchain comes from tools/install-go.sh (go.dev's archive, pinned by its
-  # published sha256), not from a third-party action; kit/go.mod pins the
-  # toolchain and the gate runs with GOTOOLCHAIN=local.
+  # (ZEOCORE-SOW-34). The Go toolchain comes from tools/install-go.sh (go.dev's
+  # archive, pinned by its published sha256); kit/go.mod pins the toolchain and
+  # the gate runs with GOTOOLCHAIN=local. Not a pull-request job.
   kit:
     name: kit (go1.27)
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -108,24 +99,3 @@ jobs:
 
       - name: make kit-verify (gofmt, vet, race tests, mutations, offline consumer build)
         run: make kit-verify
-
-  verify-all:
-    name: verify-all
-    needs: [verify, kit]
-    # See the RULING-413 comment above jobs: for why this needs if: always()
-    # plus an explicit needs.verify.result check rather than a bare needs:.
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Fail unless every verify matrix leg and the kit job succeeded
-        run: |
-          if [ "${{ needs.verify.result }}" != "success" ]; then
-            echo "verify did not succeed (result: ${{ needs.verify.result }}) -- failing verify-all"
-            exit 1
-          fi
-          if [ "${{ needs.kit.result }}" != "success" ]; then
-            echo "kit did not succeed (result: ${{ needs.kit.result }}) -- failing verify-all"
-            exit 1
-          fi
-          echo "verify-all -- every verify (py...) matrix leg and the kit job reported success"

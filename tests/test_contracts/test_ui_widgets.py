@@ -610,3 +610,163 @@ def test_an_empty_replaces_replaces_nothing() -> None:
         upsert(request_id="r1", widget_id="weather", data_ref="w2", revision=2),
         ref(ref_id="w2"),
     )
+
+
+# --- real sources never invent a value (rasa, 2026-10-22) -----------------------------
+
+
+def test_a_flight_without_schedules_is_valid_and_keeps_them_absent() -> None:
+    payload = copy.deepcopy(PAYLOADS["flight_status"])
+    payload["scheduled_departure"] = None
+    payload["scheduled_arrival"] = None
+    ref("flight_status", payload=payload).check("flight_status")
+    omitted = {k: v for k, v in payload.items() if not k.startswith("scheduled_")}
+    ref("flight_status", payload=omitted).check("flight_status")  # keyless ADS-B
+
+
+@pytest.mark.parametrize("value", ["tomorrow", "2026-13-45T99:99:99Z", 5, ""])
+def test_a_schedule_that_is_given_must_still_be_a_real_time(value: object) -> None:
+    payload = copy.deepcopy(PAYLOADS["flight_status"])
+    payload["scheduled_arrival"] = value
+    with pytest.raises(WidgetRefused):
+        ref("flight_status", payload=payload).check("flight_status")
+
+
+def test_a_forecast_without_a_probability_is_valid_and_is_not_zero() -> None:
+    payload = copy.deepcopy(PAYLOADS["weather_hourly"])
+    payload["hourly"][0]["precip_prob"] = None
+    checked = ref(payload=payload).check("weather_hourly")
+    model = REGISTRY["weather_hourly"].model_validate(checked.payload)
+    assert model.hourly[0].precip_prob is None  # type: ignore[attr-defined]
+    del payload["hourly"][0]["precip_prob"]
+    ref(payload=payload).check("weather_hourly")
+
+
+def test_a_probability_that_is_given_must_be_a_number() -> None:
+    payload = copy.deepcopy(PAYLOADS["weather_hourly"])
+    payload["hourly"][0]["precip_prob"] = "30%"
+    with pytest.raises(WidgetRefused):
+        ref(payload=payload).check("weather_hourly")
+
+
+def test_a_daily_reference_rate_carries_its_date_and_its_basis() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["quote_time"] = None  # the source publishes a DATE, no midnight is invented
+    payload["quote_date"] = "2026-10-21"
+    payload["rate_basis"] = "daily_reference"
+    payload["delayed"] = False
+    payload["series"] = {
+        "AAPL": [
+            {"time": "2026-10-20", "value": 1.16},
+            {"time": "2026-10-21", "value": 1.17},
+        ]
+    }
+    ref("market_watchlist", payload=payload, delayed=False).check("market_watchlist")
+
+
+@pytest.mark.parametrize(
+    "day", ["2026-02-30", "21-10-2026", "2026-10-21T00:00:00Z", "", "2026-13-01"]
+)
+def test_a_quote_date_must_be_a_real_calendar_day(day: str) -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["quote_date"] = day
+    payload["rate_basis"] = "daily_reference"  # so only the day itself is wrong
+    payload["delayed"] = False
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_the_rate_basis_is_one_of_two_values() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["rate_basis"] = "realtime"
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_a_series_day_must_be_real_too() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["series"] = {"AAPL": [{"time": "2026-02-30", "value": 1.0}]}
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_the_old_payloads_are_still_valid() -> None:
+    for component, payload in PAYLOADS.items():
+        ref(component, payload=copy.deepcopy(payload)).check(component)
+
+
+def test_a_quote_without_a_previous_value_has_no_change_and_is_not_zero() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["symbols"][0]["change"] = None
+    payload["symbols"][0]["change_pct"] = None
+    checked = ref("market_watchlist", payload=payload).check("market_watchlist")
+    model = REGISTRY["market_watchlist"].model_validate(checked.payload)
+    assert model.symbols[0].change is None and model.symbols[0].change_pct is None  # type: ignore[attr-defined]
+    del payload["symbols"][0]["change"], payload["symbols"][0]["change_pct"]
+    ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_a_change_that_is_given_must_be_a_finite_number() -> None:
+    for bad in ("0.5", float("nan"), float("inf")):
+        payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+        payload["symbols"][0]["change"] = bad
+        with pytest.raises(WidgetRefused):
+            ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_a_price_is_still_required() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    del payload["symbols"][0]["price"]
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+# --- one freshness per market card (Council, PR162) ---------------------------
+
+
+def _market(**over: object) -> dict[str, Any]:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload.update(over)
+    return payload
+
+
+def test_a_daily_rate_with_its_day_and_not_delayed_is_accepted() -> None:
+    payload = _market(
+        quote_time=None,
+        quote_date="2026-10-21",
+        rate_basis="daily_reference",
+        delayed=False,
+    )
+    ref("market_watchlist", payload=payload, delayed=False).check("market_watchlist")
+
+
+def test_a_live_or_delayed_quote_with_a_quote_time_is_accepted() -> None:
+    ref(
+        "market_watchlist",
+        payload=_market(rate_basis="live", delayed=False),
+        delayed=False,
+    ).check("market_watchlist")
+    ref("market_watchlist", payload=_market()).check(
+        "market_watchlist"
+    )  # delayed, no basis
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"rate_basis": "daily_reference", "quote_date": "2026-10-21", "delayed": True},
+        {"rate_basis": "daily_reference", "quote_date": None, "delayed": False},
+        {"rate_basis": "daily_reference", "delayed": False},
+        {"quote_date": "2026-10-21", "rate_basis": "live", "delayed": False},
+        {"quote_date": "2026-10-21", "rate_basis": None, "delayed": False},
+    ],
+)
+def test_the_combinations_that_would_show_two_freshness_lines_or_none_are_refused(
+    over: dict[str, Any],
+) -> None:
+    with pytest.raises(WidgetRefused):
+        ref(
+            "market_watchlist",
+            payload=_market(**over),
+            delayed=bool(over.get("delayed")),
+        ).check("market_watchlist")
