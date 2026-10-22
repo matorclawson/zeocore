@@ -1068,6 +1068,21 @@ they consume without importing Sovereign Agent.
 
 <a id="extras"></a>
 
+## Briefing cards and the managed Agents API
+
+Added in 0.30.0 to 0.35. Guides: [Briefing cards](../how-to/briefing-cards.md),
+[OpenAI managed Agents API](../integrations/agents-api.md).
+
+| Import path | Public names |
+|---|---|
+| `zeo_core.contracts.ui` | `DataRef`, `WidgetUpsert`, `WidgetBoard`, `WidgetRefused`, `UiCardResult`, `UiRefused`, `validate_bytes`, `errors_of`, `SCHEMA_TAG` |
+| `zeo_core.adapters.widget_html` | `render_snapshot_html`, `render_card_html` |
+| `zeo_core.integrations.briefing_sources` | `PublicBriefingSources`, `PublicSourceHTTP`, `StatedDestination`, `SourceUnavailableError`, `arrival_timeline` |
+| `zeo_core.integrations.agents` | `run_native`, `run`, `function_tool`, `mcp_server`, `NativeTurn`, `TurnResult`, `ScriptedTransport`, `AgentsRefused` |
+
+`zeo_core.integrations.agents.SdkTransport` is documented as not for use with
+the real SDK; use `run_native`.
+
 ## Optional extras
 
 Declared in [`pyproject.toml`](../../pyproject.toml); `uv pip install "zeocore[name]"`.
