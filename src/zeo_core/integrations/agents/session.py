@@ -27,7 +27,6 @@ carry a code, never provider text.
 
 from __future__ import annotations
 
-import inspect
 import ipaddress
 import json
 import re
@@ -659,16 +658,6 @@ def _watch(
     return state.refusal
 
 
-def _create_takes_spend_control(sessions: object) -> bool:
-    """Whether this SDK's ``sessions.create`` names ``spend_control`` (3.30.0+)."""
-    create: Any = getattr(sessions, "create", None)
-    try:
-        parameters = inspect.signature(create).parameters
-    except (TypeError, ValueError, AttributeError):
-        return False
-    return "spend_control" in parameters
-
-
 _TOKEN: Final = re.compile(r"[A-Za-z0-9_.\[\]-]{1,64}")
 
 
@@ -706,6 +695,26 @@ def _native_failure(error: Exception, state: _NativeState) -> NativeTurn:
     )
 
 
+def _whole_cents(value: object) -> bool:
+    return type(value) is int and 1 <= value <= MAX_SPEND_LIMIT_CENTS
+
+
+def _check_local_spend(limit: int | None, estimate: int | None, max_calls: int) -> None:
+    """Refuse, before any request, a run whose own estimate is over its own limit."""
+    if limit is None and estimate is None:
+        return
+    if limit is None:
+        raise AgentsRefused("spend_limit_required")
+    if not _whole_cents(limit):
+        raise AgentsRefused("spend_limit_invalid")
+    if estimate is None:
+        raise AgentsRefused("spend_estimate_required")
+    if not _whole_cents(estimate):
+        raise AgentsRefused("spend_estimate_invalid")
+    if max_calls * estimate > limit:
+        raise AgentsRefused("spend_estimate_over_limit")
+
+
 def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
     client: object,
     *,
@@ -718,6 +727,7 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
     deadline_seconds: float = DEADLINE_SECONDS,
     timeout: float = CLIENT_TIMEOUT_SECONDS,
     spend_limit_cents: int | None = None,
+    estimated_cents_per_call: int | None = None,
 ) -> NativeTurn:
     """
     Run one message on a NEW managed session through the SDK's own contract.
@@ -744,31 +754,20 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
     ``AgentTurnResultError`` is mapped from its fixed ``reason``. Every SDK exception
     becomes a code with no provider text. A follow-up is a NEW session whose input
     carries the prior brief: ``tool_handlers`` on a saved session was not verified.
-    ``spend_limit_cents`` is the SDK's ``spend_control``: a limit for the session in USD
-    cents that the provider is asked to apply (that it stops a session over the limit
-    is not shown here). It needs ``openai>=3.30.0``: ``sessions.create`` in 3.29.0 has
-    no ``spend_control``, and then the call is refused with
-    ``spend_limit_unsupported_by_sdk`` before any request, never silently dropped.
-    Omitted (``None``) the argument is not sent at all (an explicit null would remove a
-    limit a saved template carries).
+    There is NO provider-side money cap here: the SDK has a ``spend_control`` field, but
+    the service refused it (HTTP 400, parameter ``spend_control``) in a bounded run, so
+    this function never sends it. ``spend_limit_cents`` with
+    ``estimated_cents_per_call`` is a LOCAL check on YOUR estimate: if ``max_calls``
+    times the estimate is over the limit, the run is refused
+    (``spend_estimate_over_limit``) before any request. It is an estimate, not a cap;
+    the real cap is the project budget on the provider's side.
     Needs ``openai>=3.29.0``; the repository's own lock is older.
     """
-    if spend_limit_cents is not None and (
-        type(spend_limit_cents) is not int
-        or not 1 <= spend_limit_cents <= MAX_SPEND_LIMIT_CENTS
-    ):
-        raise AgentsRefused("spend_limit_invalid")
-    spend = (
-        {}
-        if spend_limit_cents is None
-        else {"spend_control": {"limit": spend_limit_cents}}
-    )
+    _check_local_spend(spend_limit_cents, estimated_cents_per_call, max_calls)
     agents = getattr(getattr(client, "beta", None), "agents", None)
     sessions = getattr(agents, "sessions", None)
     if sessions is None or not hasattr(sessions, "create"):
         raise AgentsRefused("agents_api_unavailable")
-    if spend_limit_cents is not None and not _create_takes_spend_control(sessions):
-        raise AgentsRefused("spend_limit_unsupported_by_sdk")
     state = _NativeState()
     guarded = {
         name: _guard(name, handler, state, max_calls)
@@ -784,7 +783,6 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
             stream=True,
             tool_handlers=guarded,
             timeout=timeout,
-            **spend,
         )
         stream = stream.with_result_collection()
         limit = _watch(stream, state, _Boundary(guarded), max_events, deadline)

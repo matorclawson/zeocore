@@ -1264,31 +1264,71 @@ def test_no_detail_without_a_provider_error_or_on_success() -> None:
     assert native(client).provider_detail is None
 
 
-# --- a hard spend limit for the session, in USD cents (the SDK's spend_control) ---
+# --- NO provider money cap: spend_control is never sent (the service refused it) ---
+# spend_limit_cents is a LOCAL check on the caller's own ESTIMATE: max_calls times
+# estimated_cents_per_call must fit the limit, or the run is refused before any request.
 
 
-def test_no_spend_limit_means_the_argument_is_omitted_not_null() -> None:
-    client, sessions = native_client()
-    native(client)
-    assert "spend_control" not in sessions.seen  # null would REMOVE a template limit
-
-
-def test_a_spend_limit_is_passed_as_the_sdks_spend_control() -> None:
-    client, sessions = native_client()
-    result = native(client, spend_limit_cents=250)
-    assert result.ok and sessions.seen["spend_control"] == {"limit": 250}
+def test_spend_control_is_never_sent_with_or_without_a_limit() -> None:
+    for extra in ({}, {"spend_limit_cents": 500, "estimated_cents_per_call": 10}):
+        client, sessions = native_client()  # its create() ACCEPTS spend_control
+        assert native(client, max_calls=10, **extra).ok
+        assert "spend_control" not in sessions.seen
 
 
 @pytest.mark.parametrize("value", [0, -1, True, 1.5, "5", 1_000_001])
 def test_an_invalid_spend_limit_is_refused_before_any_call(value: object) -> None:
     client, sessions = native_client()
     with pytest.raises(agents.AgentsRefused) as refused:
-        native(client, spend_limit_cents=value)
+        native(client, spend_limit_cents=value, estimated_cents_per_call=1)
     assert refused.value.code == "spend_limit_invalid"
     assert sessions.seen == {}  # create() was never reached
 
 
-# --- openai 3.29.0's create() has no spend_control (3.30.0 is the first that has) ---
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, "5", 1_000_001])
+def test_an_invalid_estimate_is_refused_before_any_call(value: object) -> None:
+    client, sessions = native_client()
+    with pytest.raises(agents.AgentsRefused) as refused:
+        native(client, spend_limit_cents=500, estimated_cents_per_call=value)
+    assert refused.value.code == "spend_estimate_invalid"
+    assert sessions.seen == {}
+
+
+def test_a_limit_without_an_estimate_and_an_estimate_without_a_limit_are_refused() -> (
+    None
+):
+    client, sessions = native_client()
+    with pytest.raises(agents.AgentsRefused) as refused:
+        native(client, spend_limit_cents=500)
+    assert refused.value.code == "spend_estimate_required"
+    with pytest.raises(agents.AgentsRefused) as refused:
+        native(client, estimated_cents_per_call=10)
+    assert refused.value.code == "spend_limit_required"
+    assert sessions.seen == {}
+
+
+def test_an_estimate_over_the_limit_is_refused_before_any_request() -> None:
+    client, sessions = native_client()
+    with pytest.raises(agents.AgentsRefused) as refused:
+        native(client, max_calls=11, spend_limit_cents=500, estimated_cents_per_call=50)
+    assert refused.value.code == "spend_estimate_over_limit"  # 11 * 50 = 550 > 500
+    assert sessions.seen == {}
+
+
+def test_an_estimate_that_fits_the_limit_runs_and_the_boundary_is_inclusive() -> None:
+    client, sessions = native_client()
+    result = native(
+        client, max_calls=10, spend_limit_cents=500, estimated_cents_per_call=50
+    )
+    assert result.ok and sessions.seen["stream"] is True  # 10 * 50 = 500 <= 500
+
+
+def test_the_default_call_cap_counts_in_the_estimate() -> None:
+    client, sessions = native_client()
+    with pytest.raises(agents.AgentsRefused) as refused:  # default max_calls is 16
+        native(client, spend_limit_cents=500, estimated_cents_per_call=32)
+    assert refused.value.code == "spend_estimate_over_limit"
+    assert sessions.seen == {}
 
 
 class _Sdk329Sessions:
@@ -1334,34 +1374,11 @@ def _client_329() -> tuple[SimpleNamespace, _Sdk329Sessions]:
     return client, sessions
 
 
-def test_a_spend_limit_on_an_sdk_without_spend_control_is_refused_plainly() -> None:
-    client, sessions = _client_329()
-    with pytest.raises(agents.AgentsRefused) as refused:
-        native(client, spend_limit_cents=200)
-    assert refused.value.code == "spend_limit_unsupported_by_sdk"
-    assert sessions.calls == 0  # refused before any request: never a silent no-op
-
-
-def test_the_same_old_sdk_still_runs_without_a_spend_limit() -> None:
-    client, sessions = _client_329()
-    result = native(client)
-    assert result.ok and sessions.calls == 1
-
-
-def test_a_create_whose_signature_cannot_be_read_is_refused_for_a_spend_limit() -> None:
-    def create(**kwargs: object) -> None:  # inspect.signature raises TypeError on this
-        raise AssertionError
-
-    create.__signature__ = "unreadable"  # type: ignore[attr-defined]
-
-    class Opaque:
-        pass
-
-    Opaque.create = staticmethod(create)  # type: ignore[attr-defined]
-
-    client = SimpleNamespace(
-        beta=SimpleNamespace(agents=SimpleNamespace(sessions=Opaque()))
+def test_an_sdk_without_spend_control_runs_the_same_with_a_local_limit() -> None:
+    client, sessions = (
+        _client_329()
+    )  # openai 3.29.0 shape: no spend_control in create()
+    result = native(
+        client, max_calls=5, spend_limit_cents=500, estimated_cents_per_call=10
     )
-    with pytest.raises(agents.AgentsRefused) as refused:
-        native(client, spend_limit_cents=200)
-    assert refused.value.code == "spend_limit_unsupported_by_sdk"
+    assert result.ok and sessions.calls == 1
