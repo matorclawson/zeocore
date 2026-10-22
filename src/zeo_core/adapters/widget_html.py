@@ -81,36 +81,52 @@ _TITLES: Final = {
 }
 
 STYLE: Final = (
-    ".zc-board{font:14px/1.4 system-ui,sans-serif;display:grid;gap:12px;"
-    "grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}"
-    ".zc-card{border:1px solid #c8ccd0;border-radius:8px;padding:12px;background:#fff;"
-    "color:#1b1f23;min-width:0}"
+    # Rasa brand tokens (design system v0.2.0, as in the deck): taupe page and card,
+    # ink text, pink accents. System fallbacks only: no font is fetched.
+    ".zc-board{container-type:inline-size;max-width:1440px;margin:0 auto;"
+    "font:18px/26px Inter,system-ui,-apple-system,'Segoe UI',sans-serif;"
+    "color:#181210;background:#FAF6F0}"
+    ".zc-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}"
+    "@container (min-width:960px){.zc-grid{grid-template-columns:"
+    "repeat(2,minmax(0,1fr));gap:24px}}"
+    ".zc-card{display:flex;flex-direction:column;min-width:0;border:1px solid #C8C0B6;"
+    "border-radius:16px;padding:20px;background:#FFFBF5;color:#181210}"
+    "@container (min-width:600px){.zc-card{padding:28px}}"
+    ".zc-card h3{margin:0 0 6px;font:500 26px/30px Newsreader,Georgia,serif}"
+    ".zc-big{margin:6px 0 10px;font:500 32px/36px Inter,system-ui,sans-serif}"
+    "@container (min-width:600px){.zc-big{font-size:42px;line-height:46px}"
+    ".zc-card h3{font-size:28px;line-height:32px}}"
+    ".zc-prov{margin:8px 0 0;font-size:13px;line-height:18px;color:#524A43;"
+    "overflow-wrap:anywhere}"
+    ".zc-attr{margin:auto 0 0;padding-top:20px;font-size:13px;line-height:18px;"
+    "color:#524A43;overflow-wrap:anywhere}"
+    ".zc-tag{display:inline-block;margin-right:4px;padding:0 8px;border-radius:6px;"
+    "font-size:13px;font-weight:700;background:#EDE8E0;color:#181210}"
+    ".zc-tag-replay{background:#FDFBE5;color:#7A6F1E}"
+    ".zc-tag-delayed{background:#FFEDE4;color:#AA4C1E}"
+    ".zc-tag-assumption{background:#EDE8E0;color:#524A43}"
+    ".zc-tag-superseded{background:#EDE8E0;color:#524A43}"
+    ".zc-tag-provider{background:#C6FEE1;color:#2B5E47}"
+    ".zc-tag-computed{background:#EDE8E0;color:#AA1E54}"
+    ".zc-tag-derived{background:#EDE8E0;color:#AA1E54}"
+    ".zc-fresh{margin:4px 0;font-size:15px;line-height:21px;color:#524A43}"
+    ".zc-note{margin:4px 0;font-size:15px;line-height:21px;color:#524A43}"
+    ".zc-details{margin:6px 0;font-size:13px;line-height:18px;color:#524A43}"
+    ".zc-details p{margin:2px 0;overflow-wrap:anywhere}"
+    ".zc-title{font:500 28px/32px Newsreader,Georgia,serif;color:#181210}"
+    ".zc-unavail{color:#AA4C1E;font-weight:700}"
+    ".zc-late{color:#AA4C1E;font-weight:700}.zc-spare{color:#2B5E47;font-weight:700}"
     ".zc-scroll{overflow-x:auto;max-width:100%}"
-    ".zc-big{margin:6px 0 8px;font-size:22px;font-weight:700;line-height:1.25}"
-    ".zc-note{margin:4px 0;font-size:12px;color:#57606a}"
-    ".zc-details{margin:6px 0;font-size:11px;color:#57606a}"
-    ".zc-details p{margin:2px 0}.zc-chart{max-width:100%;height:auto}"
-    ".zc-card h3{margin:0 0 6px;font-size:15px}"
-    ".zc-prov{margin:8px 0 0;font-size:12px;color:#57606a}"
-    ".zc-tag{display:inline-block;margin-right:4px;padding:0 6px;border-radius:4px;"
-    "font-size:11px;font-weight:700;background:#eef0f2;color:#1b1f23}"
-    ".zc-tag-replay{background:#fff3b0}.zc-tag-delayed{background:#ffd8a8}"
-    ".zc-tag-assumption{background:#d0ebff}.zc-tag-superseded{background:#e9ecef}"
-    ".zc-tag-provider{background:#d3f9d8}.zc-tag-computed{background:#e5dbff}"
-    ".zc-tag-derived{background:#e5dbff}"
-    ".zc-fresh{margin:4px 0;font-size:12px}"
-    ".zc-attr{margin:8px 0 0;font-size:12px}"
-    ".zc-title{font:700 20px system-ui,sans-serif}"
-    ".zc-unavail{color:#a61e1e;font-weight:700}"
-    ".zc-late{color:#a61e1e;font-weight:700}.zc-spare{color:#2b8a3e;font-weight:700}"
     ".zc-card table{border-collapse:collapse;width:100%}"
-    ".zc-card td,.zc-card th{padding:2px 6px;text-align:right;"
-    "border-bottom:1px solid #e1e4e8}"
+    ".zc-card td,.zc-card th{padding:4px 6px;text-align:right;"
+    "border-bottom:1px solid #C8C0B6;font-variant-numeric:tabular-nums}"
     ".zc-card td:first-child,.zc-card th:first-child{text-align:left}"
-    ".zc-temp{fill:none;stroke:#d9480f;stroke-width:2}"
-    ".zc-precip{fill:#74c0fc}.zc-arrival{stroke:#1b1f23;stroke-dasharray:4 3}"
-    ".zc-axis{stroke:#868e96}.zc-dot{fill:#1864ab}.zc-spark{fill:none;stroke:#1864ab}"
-    ".zc-svg text{font-size:10px;fill:#495057}"
+    ".zc-chart{max-width:100%;height:auto;background:#EDE8E0;border-radius:12px}"
+    ".zc-temp{fill:none;stroke:#AA1E54;stroke-width:3}"
+    ".zc-precip{fill:#E85A91;opacity:.35}"
+    ".zc-arrival{stroke:#181210;stroke-dasharray:4 3}"
+    ".zc-axis{stroke:#524A43}.zc-dot{fill:#AA1E54}.zc-spark{fill:none;stroke:#AA1E54}"
+    ".zc-svg text{font-size:16px;fill:#181210}"
 )
 
 
@@ -733,7 +749,10 @@ def render_snapshot_html(
     body = "".join(render_card_html(card, place=place) for card in cards) or (
         "<p>no cards yet</p>"
     )
-    section = f'<section class="zc-board"><style>{STYLE}</style>{body}</section>'
+    section = (
+        f'<section class="zc-board"><style>{STYLE}</style>'
+        f'<div class="zc-grid">{body}</div></section>'
+    )
     if not document:
         return section
     heading = f'<h1 class="zc-title">{_t(title)}</h1>'

@@ -1417,3 +1417,18 @@ def test_t14_without_a_place_the_headline_time_says_utc_never_a_bare_clock() -> 
     assert _big(out).startswith("Landing about 21:35 UTC")  # not read as local time
     weather = _big(render_card_html(snapshot("weather_hourly")[0]))
     assert "UTC" not in weather  # a temperature has no clock; its header names the zone
+
+
+def test_t15_the_board_uses_the_rasa_palette_container_columns_and_no_clipping() -> (
+    None
+):
+    style = widget_html.STYLE
+    for token in ("#FAF6F0", "#FFFBF5", "#181210", "#C8C0B6", "#AA1E54", "#C6FEE1"):
+        assert token in style  # the deck's taupe, ink, pink and mint
+    assert "container-type:inline-size" in style  # columns follow the container
+    assert "@container (min-width:960px)" in style and "minmax(0,1fr)" in style
+    assert "font-size:42px" in style and "font:500 32px/36px" in style  # big fact
+    assert "overflow:hidden" not in style and "text-overflow" not in style
+    assert "@import" not in style and "url(" not in style  # no font or image fetch
+    html = render_snapshot_html(FULL)
+    assert '<div class="zc-grid">' in html and html.count("<article") == 4
