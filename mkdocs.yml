@@ -86,6 +86,7 @@ nav:
       - Runtime host: how-to/runtime-host.md
       - Sign and verify a release: how-to/release-signing.md
       - Release to PyPI: how-to/release-pypi.md
+      - Briefing cards: how-to/briefing-cards.md
       - Convert a newsletter: how-to/newsletter-convert.md
       - Results and errors: tutorials/results-and-errors.md
       - Context and files: tutorials/context-config-files.md
@@ -111,6 +112,8 @@ nav:
       - Supabase: integrations/supabase.md
       - Bluesky: integrations/bluesky.md
       - Language models: integrations/llms.md
+      - OpenAI managed Agents API: integrations/agents-api.md
+      - Briefing sources: integrations/briefing-sources.md
       - Model operation draft: integrations/model-operations.md
       - Gemini images: integrations/gemini-images.md
       - Revolut Business: integrations/revolut-business.md

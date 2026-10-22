@@ -1,6 +1,6 @@
 # AGENTS.md: zeocore for an agent
 
-**What zeocore is.** A typed Python library for capability authoring: contracts, `@capability` tools, and integrations (Google, HubSpot, YouTube, Bluesky, Revolut and more). It also installs the `zeocore` command, which gives callers that don't import Python the same contracts, plus a client for ZEOconnect's Broker. Python 3.14 or later.
+**What zeocore is.** A typed Python library for capability authoring: contracts, `@capability` tools, and integrations (Google, HubSpot, YouTube, Bluesky, Revolut and more). It also installs the `zeocore` command, which gives callers that don't import Python the same contracts, plus a client for ZEOconnect's Broker. Python 3.12 or later.
 
 **Install:** `uv tool install zeocore` gives the command. `uv pip install zeocore` gives the library, and an extra adds an integration, for example `zeocore[google]`. `zeocore release` also needs the `github` extra.
 

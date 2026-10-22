@@ -46,6 +46,7 @@ DEADLINE_SECONDS: Final = 300.0
 CLIENT_TIMEOUT_SECONDS: Final = 60.0
 MAX_ARGUMENT_BYTES: Final = 64 * 1024
 MAX_RESULT_BYTES: Final = 4 * 1024 * 1024
+MAX_SPEND_LIMIT_CENTS: Final = 1_000_000  # USD 10,000: a sanity ceiling, not a budget
 _ENV_NAME: Final = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 _FAILURES: Final = {
     "agent.session.turn.failed": "failed",
@@ -705,6 +706,7 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
     max_events: int = MAX_EVENTS_PER_DRAIN,
     deadline_seconds: float = DEADLINE_SECONDS,
     timeout: float = CLIENT_TIMEOUT_SECONDS,
+    spend_limit_cents: int | None = None,
 ) -> NativeTurn:
     """
     Run one message on a NEW managed session through the SDK's own contract.
@@ -731,8 +733,21 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
     ``AgentTurnResultError`` is mapped from its fixed ``reason``. Every SDK exception
     becomes a code with no provider text. A follow-up is a NEW session whose input
     carries the prior brief: ``tool_handlers`` on a saved session was not verified.
+    ``spend_limit_cents`` is the SDK's ``spend_control``: a hard limit for the session
+    in USD cents, enforced by the provider. Omitted (``None``) the argument is not sent
+    at all (an explicit null would remove a limit a saved template carries).
     Needs ``openai>=3.29.0``; the repository's own lock is older.
     """
+    if spend_limit_cents is not None and (
+        type(spend_limit_cents) is not int
+        or not 1 <= spend_limit_cents <= MAX_SPEND_LIMIT_CENTS
+    ):
+        raise AgentsRefused("spend_limit_invalid")
+    spend = (
+        {}
+        if spend_limit_cents is None
+        else {"spend_control": {"limit": spend_limit_cents}}
+    )
     agents = getattr(getattr(client, "beta", None), "agents", None)
     sessions = getattr(agents, "sessions", None)
     if sessions is None or not hasattr(sessions, "create"):
@@ -752,6 +767,7 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
             stream=True,
             tool_handlers=guarded,
             timeout=timeout,
+            **spend,
         )
         stream = stream.with_result_collection()
         limit = _watch(stream, state, _Boundary(guarded), max_events, deadline)
