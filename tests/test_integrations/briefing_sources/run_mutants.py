@@ -197,6 +197,43 @@ MUTANTS.extend(
 )
 
 
+MUTANTS.extend(
+    [
+        (
+            "Stated destination ignored",
+            "flight.py",
+            (
+                "if stated_destination is not None:\n"
+                "        destination = stated_destination.code"
+            ),
+            "if False:\n        destination = stated_destination.code",
+            "test_flight.py::test_stated_destination_overrides_conflicting_source_route_with_label",
+        ),
+        (
+            "Stated destination label omitted",
+            "flight.py",
+            'label="destination_stated_by_traveller"',
+            'label="unlabelled_destination"',
+            "test_flight.py::test_empty_route_keeps_position_and_only_stated_destination_computes",
+        ),
+        (
+            "Unknown route gets invented arrival",
+            "flight.py",
+            "estimate = None",
+            "estimate = observed",
+            "test_flight.py::test_empty_route_keeps_position_and_only_stated_destination_computes",
+        ),
+        (
+            "Invalid destination latitude accepted",
+            "flight.py",
+            "number(self.latitude, -90, 90)",
+            "number(0, -90, 90)",
+            "test_flight.py::test_invalid_stated_destination_is_refused_before_connection",
+        ),
+    ]
+)
+
+
 def main() -> int:
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)

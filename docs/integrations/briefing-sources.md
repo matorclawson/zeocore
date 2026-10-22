@@ -54,3 +54,19 @@ The ADSB route lookup accepts HTTP 200 or 201 Created for the guarded
 `POST /api/0/routeset` only. GET responses still require HTTP 200; redirects,
 202 Accepted and 204 No Content remain unavailable. Ops observed the 201
 status on a real route lookup; regression payloads remain synthetic.
+
+A caller may pass `StatedDestination(code, latitude, longitude)` resolved from
+its own versioned local airport table to `flight` or `read_briefing`. Core
+validates the code and finite coordinate ranges before access. It does not
+look up a destination or contact a new host. A stated destination overrides a
+conflicting source route, with a visible disagreement and the explicit label
+"destination stated by traveller". The estimate and timeline name this input;
+they remain COMPUTED, never an airline schedule.
+
+An empty or malformed route no longer discards a valid position. The flight
+card keeps its validated altitude, speed and position age in the existing
+provider-facts status string and says "Route not provided by the source".
+Without a destination, route and estimate stay not provided; dependent weather
+and timeline stay unavailable with that fixed reason. Real position failures
+still return an empty unavailable reference. These offline cases use synthetic
+payloads, not a claim that a live journey has been accepted.

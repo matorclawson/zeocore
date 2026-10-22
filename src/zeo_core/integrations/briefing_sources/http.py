@@ -41,6 +41,7 @@ class SourceUnavailableError(ValueError):
             "reference_rates_unavailable": "The reference rates are unavailable",
             "flight_position_or_route_unavailable": "The flight data are unavailable",
             "destination_unavailable": "The destination is unavailable",
+            "route_not_provided": "Route not provided by the source",
         }
         self.code = code if code in reasons else "source_unavailable"
         super().__init__(reasons[self.code])
