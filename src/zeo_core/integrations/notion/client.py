@@ -428,7 +428,7 @@ def _normalize_error(exc: Exception) -> NotionAPIError:
     if headers:
         try:
             retry_after = float(headers.get("retry-after"))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             pass
     retryable = status == 429 or (isinstance(status, int) and status >= 500)
     messages: dict[int | None, str] = {

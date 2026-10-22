@@ -158,7 +158,7 @@ class SupabaseIntegration(BaseIntegrationService, SupabaseIntegrationProtocol):
             return IntegrationResult.error_result(
                 f"{error.code}: Supabase operation failed"
             )
-        except ValueError, KeyError, OSError:
+        except (ValueError, KeyError, OSError):
             return IntegrationResult.error_result("Invalid Supabase operation")
 
     def _call_client(

@@ -185,10 +185,10 @@ def test_python_below_the_floor_fails_and_names_the_install(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(sys, "version_info", (3, 13, 0, "final", 0))
+    monkeypatch.setattr(sys, "version_info", (3, 11, 0, "final", 0))
     status, answer = _doctor(capsys=capsys)
     assert (status, answer["failing"]) == (20, ["python"])
-    assert _by_name(answer)["python"]["next"] == "uv tool install --python 3.14 zeocore"
+    assert _by_name(answer)["python"]["next"] == "uv tool install --python 3.12 zeocore"
 
 
 def test_the_python_floor_is_the_packages(machine: object) -> None:
@@ -206,7 +206,7 @@ def test_every_failing_check_names_a_next_command(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     machine.delete()
-    monkeypatch.setattr(sys, "version_info", (3, 13, 0, "final", 0))
+    monkeypatch.setattr(sys, "version_info", (3, 11, 0, "final", 0))
     monkeypatch.setattr(
         client, "make_transport", lambda store: (_ for _ in ()).throw(ValueError())
     )

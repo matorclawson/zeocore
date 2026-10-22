@@ -198,7 +198,7 @@ class SequenceDraft(Request):
             raise ValueError("Send days must be nonempty and unique")
         try:
             ZoneInfo(self.time_zone)
-        except ZoneInfoNotFoundError, ValueError:
+        except (ZoneInfoNotFoundError, ValueError):
             raise ValueError("Unsupported sequence timezone") from None
         kinds = [item.type for item in self.exclude_subscriber_sources]
         if len(set(kinds)) != len(kinds):

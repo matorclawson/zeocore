@@ -15,7 +15,7 @@ so scripts, services, Zeocreator and Sovereign Agent can call the same capabilit
 uv pip install "zeocore==0.15.1"
 ```
 
-Python **3.14+** · Package `zeocore` · Import `zeo_core`
+Python **3.12+** · Package `zeocore` · Import `zeo_core`
 
 <div class="grid cards" markdown>
 

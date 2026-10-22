@@ -268,7 +268,7 @@ def _send(request: dict[str, str], post: Post) -> Answer:
     try:
         answer = json.loads(body)
         state = answer["status"]
-    except ValueError, KeyError, TypeError:
+    except (ValueError, KeyError, TypeError):
         return EXIT_AMBIGUOUS, {
             "ok": False,
             "outcome": "service_answer_unreadable",

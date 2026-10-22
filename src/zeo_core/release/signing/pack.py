@@ -250,7 +250,7 @@ def _bundle_trees_match(
     for bundle in loaded.signing.bundles:
         try:
             same = tree_sha256(dest / bundle.path) == bundle.unsigned_tree_sha256
-        except TreeError, OSError:
+        except (TreeError, OSError):
             same = False
         if not same:
             raise PackError(
@@ -345,7 +345,7 @@ def create_response(loaded: LoadedManifest, work: WorkDir, out: Path) -> str:
             members.extend(
                 _tree_members(_signed_root(bundle), work.bundle_candidate(bundle))
             )
-        except TreeError, OSError:
+        except (TreeError, OSError):
             raise PackError(
                 "input_mismatch", f"{bundle.name} has not been signed"
             ) from None

@@ -51,7 +51,7 @@ def parse_model_request_json(raw: bytes | str) -> TextCompletionRequest:
             parse_constant=_nonfinite_number,
         )
         return TextCompletionRequest.model_validate(value)
-    except ValueError, UnicodeError, RecursionError:
+    except (ValueError, UnicodeError, RecursionError):
         raise HostedClientError(
             "model request JSON is invalid; use a bounded UTF-8 request with "
             "unique keys and temperature written without an exponent or excess decimals"

@@ -219,6 +219,6 @@ if __name__ == "__main__":
     except ReferenceGateError as exc:
         print(json.dumps({"status": "FAILED", "error": str(exc)}), file=sys.stderr)
         raise SystemExit(1) from None
-    except ValueError, OSError, KeyError, TypeError:
+    except (ValueError, OSError, KeyError, TypeError):
         print('{"status":"FAILED","error":"REFERENCE_GATE_FAILED"}', file=sys.stderr)
         raise SystemExit(1) from None

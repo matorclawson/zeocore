@@ -623,6 +623,6 @@ def _function_data(response: Any) -> Any:
     if isinstance(content, bytes) and len(content) <= DEFAULT_MAX_FUNCTION_BYTES:
         try:
             return json.loads(content)
-        except json.JSONDecodeError, UnicodeDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             return content.decode("utf-8", errors="replace")
     return None
