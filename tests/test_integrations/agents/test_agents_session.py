@@ -1205,6 +1205,65 @@ def test_an_action_that_is_not_a_function_call_stops_at_once() -> None:
     assert sessions.stream is not None and sessions.stream.consumed == 2
 
 
+# --- the provider's own short identifiers, never its text (live check 2026-10-22) ---
+
+
+class _Rejected(Exception):  # noqa: N818 -- shaped like openai.BadRequestError
+    def __init__(self, **fields: object) -> None:
+        super().__init__("SECRET provider message sk-ant-abcdefgh12345678")
+        self.message = "SECRET provider message sk-ant-abcdefgh12345678"
+        for key, value in fields.items():
+            setattr(self, key, value)
+
+
+def _create_raises(error: Exception) -> SimpleNamespace:
+    class Rejecting:
+        def create(self, **kwargs: object) -> None:
+            raise error
+
+    return SimpleNamespace(
+        beta=SimpleNamespace(agents=SimpleNamespace(sessions=Rejecting()))
+    )
+
+
+def test_a_rejected_create_names_status_code_param_and_type_but_not_the_text() -> None:
+    error = _Rejected(
+        status_code=400,
+        code="model_not_found",
+        param="agent.model",
+        type="invalid_request_error",
+    )
+    result = native(_create_raises(error))
+    assert (result.status, result.error_code) == ("failed", "provider_error")
+    assert result.provider_detail == (
+        "http_400 code=model_not_found param=agent.model type=invalid_request_error"
+    )
+    assert "SECRET" not in repr(result) and "sk-ant" not in repr(result)
+
+
+def test_the_detail_keeps_only_short_plain_identifiers() -> None:
+    error = _Rejected(
+        status_code=400,
+        code="see https://x.test/?key=sk-ant-abcdefgh12345678",
+        param="a b",
+        type="x" * 65,
+    )
+    result = native(_create_raises(error))
+    assert result.provider_detail == "http_400"  # nothing else passes the filter
+
+
+@pytest.mark.parametrize("status", [None, True, 99, 600, "400", 400.0])
+def test_a_status_that_is_not_an_http_status_is_dropped(status: object) -> None:
+    result = native(_create_raises(_Rejected(status_code=status)))
+    assert result.provider_detail is None
+
+
+def test_no_detail_without_a_provider_error_or_on_success() -> None:
+    assert native(_create_raises(RuntimeError("SECRET"))).provider_detail is None
+    client, _ = native_client()
+    assert native(client).provider_detail is None
+
+
 # --- a hard spend limit for the session, in USD cents (the SDK's spend_control) ---
 
 
