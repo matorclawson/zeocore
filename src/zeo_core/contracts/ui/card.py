@@ -249,7 +249,7 @@ def _fact_schema(schema: dict[str, Any]) -> None:
     _optional_means_absent(schema)
     plain = {"not": {"anyOf": [{"required": ["currency"]}, {"required": ["scale"]}]}}
     typed: dict[str, dict[str, Any]] = {
-        "text": {"type": "string", "maxLength": CLASS_D},
+        "text": {"type": "string", "maxLength": CLASS_D, "pattern": _PATTERN_D},
         "integer": {"type": "integer", "minimum": -MAX_SAFE, "maximum": MAX_SAFE},
         "boolean": {"type": "boolean"},
         "null": {"type": "null"},

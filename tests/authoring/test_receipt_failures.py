@@ -141,6 +141,15 @@ def test_service_refuses_uninitialized() -> None:
     assert not p.html_to_markdown_with_receipt("a", "b", workspace_root=".").success
 
 
+# zeo.yml (the org canon) has no Pandoc, so its zeo-certify job reports these tests as
+# skipped; zeocore-pandoc.yml is their gate (zeocore-SOW-40).
+_PANDOC_ELSEWHERE = pytest.mark.skipif(
+    os.environ.get("GITHUB_WORKFLOW") == "zeo",
+    reason="pandoc runs in zeocore-pandoc.yml",
+)
+
+
+@_PANDOC_ELSEWHERE
 def test_real_pandoc_receipts(tmp_path: Path) -> None:
     # Actual converter and actual files in a separate Git-rooted process.
     subprocess.run(  # noqa: S603 -- fixed fixture command
