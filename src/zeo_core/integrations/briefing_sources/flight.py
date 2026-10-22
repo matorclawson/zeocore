@@ -300,11 +300,17 @@ class FlightSearch:
     label: str
     error: str | None = None
     source: str = SOURCE
+    partial: bool = False
 
     @property
     def message(self) -> str:
         if self.error is not None:
             return self.error
+        if self.partial:
+            return (
+                "Partial flight search; some aircraft could not be read. "
+                "Search again with the flight number"
+            )
         return self.label if self.candidates else "No flights found"
 
 
@@ -499,9 +505,22 @@ def find_flights(
             routes=checked,
             airport_codes=airport_codes,
         )
-        return FlightSearch(found, position.fetched_at, route_date, label)
+        return FlightSearch(
+            found,
+            position.fetched_at,
+            route_date,
+            label,
+            partial=position.data.get("partial", False) is True,
+        )
     except SourceUnavailableError as exc:
-        return FlightSearch((), fetched_at, route_date, label, str(exc))
+        return FlightSearch(
+            (),
+            fetched_at,
+            route_date,
+            label,
+            str(exc),
+            partial=exc.code == "source_response_too_large",
+        )
     except (ValueError, TypeError, KeyError, AttributeError, OverflowError, OSError):
         return FlightSearch(
             (),

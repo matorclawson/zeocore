@@ -90,8 +90,10 @@ schedule. A partial table limits coverage; never list unmatched aircraft as
 headed to that destination or claim the search covers all flights worldwide.
 
 Only airport-matched routes are retained. Ground, stale, invalid, ambiguous or
-out-of-radius aircraft are excluded. The client projects at most 100 aircraft
-before cache custody, discarding registration and owner fields. Provider cache
+out-of-radius aircraft are excluded. For point searches the client filters every aircraft in the response, bounded
+by the existing 1 MiB response limit. Only six position fields survive before
+cache custody; registration and owner fields are discarded. Other aircraft
+endpoints retain their existing projection limit. Provider cache
 and rolling request budgets are shared with the other briefing readers; cached
 positions are checked again for age at each search. Callsigns use the standing
 data's ICAO leading-zero normalization for lookup while preserving the actual
@@ -102,3 +104,12 @@ An empty successful search has `candidates == ()`, `error is None` and the fixed
 message `No flights found`. A provider or input failure has a plain, value-free
 `error`; it must not be reported as a successful empty search. Route data are
 supplied by the application and are not downloaded or bundled by Core.
+
+
+`partial` is true when the provider reports `truncated: true`, `partial: true`,
+or a `total` greater than its returned aircraft count. Such results may contain
+candidates, but their message warns that the search is partial, even when no
+matching candidates survive. A response exceeding 1 MiB is refused with both
+`partial == True` and a fixed error; no incomplete JSON is parsed. Absence of a
+provider truncation signal cannot establish global completeness. Always show
+the caller-owned route table's date and limited coverage too.

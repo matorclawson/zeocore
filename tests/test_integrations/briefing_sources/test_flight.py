@@ -618,3 +618,83 @@ def test_discovery_rechecks_position_age_on_a_cached_read() -> None:
         assert len(calls) == 1
     finally:
         http.close()
+
+
+@pytest.mark.parametrize(
+    "metadata", [{}, {"truncated": True}, {"partial": True}, {"total": 301}]
+)
+def test_discovery_reads_match_at_250_and_marks_partial(
+    metadata: dict[str, Any],
+) -> None:
+    from zeo_core.integrations.briefing_sources.flight import (
+        PublishedRoute,
+        find_flights,
+    )
+
+    rows = [
+        {
+            "flight": "UNKNOWN",
+            "lat": 40.7,
+            "lon": -73.8,
+            "gs": 350,
+            "seen_pos": 5,
+            "alt_baro": 25000,
+            "owner": "PRIVATE",
+        }
+        for _ in range(300)
+    ]
+    rows[249] = {**rows[249], "flight": "TST1"}
+    http, _ = client(
+        response_handler(
+            httpx.Response(200, json={"now": NOW.timestamp(), "ac": rows, **metadata})
+        )
+    )
+    try:
+        args: dict[str, Any] = {
+            "latitude": 40.7,
+            "longitude": -73.8,
+            "airport_codes": ("KJFK",),
+            "route_date": "2026-10-21",
+            "fetched_at": NOW,
+        }
+        found = find_flights(
+            http,
+            "New York",
+            routes={"TST1": PublishedRoute("Test", "EGLL", "KJFK")},
+            **args,
+        )
+        assert [item.callsign for item in found.candidates] == ["TST1"]
+        assert found.partial is bool(metadata)
+        assert found.error is None
+        assert "PRIVATE" not in repr(found)
+        empty = find_flights(http, "New York", routes={}, **args)
+        assert empty.partial is bool(metadata)
+        assert (empty.message == "No flights found") is not bool(metadata)
+    finally:
+        http.close()
+
+
+def test_discovery_marks_oversized_response_partial_without_inventing_absence() -> None:
+    from zeo_core.integrations.briefing_sources.flight import find_flights
+    from zeo_core.integrations.briefing_sources.http import MAX_BYTES
+
+    http, _ = client(
+        response_handler(httpx.Response(200, content=b" " * (MAX_BYTES + 1)))
+    )
+    try:
+        found = find_flights(
+            http,
+            "New York",
+            latitude=40.7,
+            longitude=-73.8,
+            airport_codes=("KJFK",),
+            routes={},
+            route_date="2026-10-21",
+            fetched_at=NOW,
+        )
+        assert found.partial is True
+        assert found.error == "The public source response was too large"
+        assert found.candidates == ()
+        assert found.message != "No flights found"
+    finally:
+        http.close()

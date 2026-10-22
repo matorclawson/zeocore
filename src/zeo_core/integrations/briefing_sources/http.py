@@ -66,13 +66,24 @@ def _project_json(
             raise ValueError
         return {
             "now": value.get("now"),
+            "partial": path.startswith("/v2/point/")
+            and (
+                value.get("truncated") is True
+                or value.get("partial") is True
+                or (
+                    isinstance(value.get("total"), int)
+                    and value["total"] > len(value["ac"])
+                )
+            ),
             "ac": [
                 {
                     k: a[k]
                     for k in ("flight", "lat", "lon", "gs", "seen_pos", "alt_baro")
                     if k in a
                 }
-                for a in value.get("ac", [])[:100]
+                for a in (
+                    value["ac"] if path.startswith("/v2/point/") else value["ac"][:100]
+                )
                 if isinstance(a, dict)
             ],
         }

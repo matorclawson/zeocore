@@ -403,7 +403,7 @@ def test_point_get_is_cached_projected_and_bounded() -> None:
         clock.t = 59
         assert http.fetch("GET", url) == first
         assert len(calls) == 1
-        assert len(first.data["ac"]) == 100
+        assert len(first.data["ac"]) == 101
         assert set(first.data["ac"][0]) == {
             "flight",
             "lat",
