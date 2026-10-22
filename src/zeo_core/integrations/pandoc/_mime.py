@@ -98,7 +98,7 @@ class DecodedMessage:
 def _header(message: Any, name: str) -> str:  # noqa: ANN401 -- an email Message
     try:
         value = str(message.get(name, "") or "")
-    except ValueError, LookupError, TypeError, AttributeError:
+    except (ValueError, LookupError, TypeError, AttributeError):
         return ""
     return _CONTROL.sub(" ", value).strip()[:1000]
 
@@ -118,7 +118,7 @@ def _body(message: Any, kind: str, warnings: list[str]) -> str | None:  # noqa: 
         if part is None:
             return None
         content = part.get_content()
-    except LookupError, ValueError, UnicodeError, KeyError, AttributeError:
+    except (LookupError, ValueError, UnicodeError, KeyError, AttributeError):
         warnings.append(f"the {kind} body could not be decoded and was skipped")
         return None
     return content if isinstance(content, str) else None
@@ -129,7 +129,7 @@ def _date_text(raw: str, warnings: list[str]) -> str:
         return ""
     try:
         return email.utils.parsedate_to_datetime(raw).isoformat()
-    except TypeError, ValueError, IndexError:
+    except (TypeError, ValueError, IndexError):
         warnings.append("the Date header is not a valid date and was kept as written")
         return raw
 
@@ -300,7 +300,7 @@ def _top_authentication(message: Any) -> str:  # noqa: ANN401 -- an email Messag
         for name, value in message.raw_items():
             if str(name).lower() == "authentication-results":
                 return _CONTROL.sub(" ", str(value))
-    except ValueError, LookupError, TypeError, AttributeError:
+    except (ValueError, LookupError, TypeError, AttributeError):
         return ""
     return ""
 

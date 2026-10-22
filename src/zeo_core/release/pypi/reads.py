@@ -471,7 +471,7 @@ class PyPIHttp:
                 )
                 for item in answer["urls"]
             )
-        except KeyError, TypeError:
+        except (KeyError, TypeError):
             raise TargetUnreadableError("PyPI's release answer is unreadable") from None
 
     def provenance(
@@ -499,7 +499,7 @@ class PyPIHttp:
                         raise TypeError
                     found.append(Provenance(publisher, subjects))
             return tuple(found)
-        except KeyError, TypeError, ValueError:
+        except (KeyError, TypeError, ValueError):
             raise TargetUnreadableError(
                 "PyPI's provenance answer is unreadable"
             ) from None

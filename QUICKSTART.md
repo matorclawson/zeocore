@@ -17,7 +17,7 @@ problems are on that list.
 
 1. [Step 0: Install uv](#step-0-install-uv)
 2. [Step 1: Check your Python version](#step-1-check-your-python-version)
-3. [Step 2: Install Python 3.14 (only if you need it)](#step-2-install-python-314-only-if-you-need-it)
+3. [Step 2: Install Python 3.12 (only if you need it)](#step-2-install-python-312-only-if-you-need-it)
 4. [Step 3: Make a project folder and a virtual environment](#step-3-make-a-project-folder-and-a-virtual-environment)
 5. [Step 4: Install ZeoCore](#step-4-install-zeocore)
 6. [Step 5: Write your first capability](#step-5-write-your-first-capability)
@@ -53,7 +53,7 @@ uv --version
 
 ## Step 1: Check your Python version
 
-ZeoCore requires **Python 3.14 or newer**. Older versions will refuse to
+ZeoCore requires **Python 3.12 or newer**. Older versions will refuse to
 install it. Check what you have:
 
 **macOS / Linux**
@@ -68,32 +68,32 @@ python3 --version
 py --version
 ```
 
-If you see `Python 3.14.x` (or higher, like `3.15.x`), skip ahead to
+If you see `Python 3.12.x` (or higher, like `3.13.x`), skip ahead to
 [Step 3](#step-3-make-a-project-folder-and-a-virtual-environment).
 
 If you see an older version such as `Python 3.11.9`, or a
 "command not found" error, do Step 2 first.
 
-## Step 2: Install Python 3.14 (only if you need it)
+## Step 2: Install Python 3.12 (only if you need it)
 
 **Any platform, recommended** — since you already have `uv` from
 [Step 0](#step-0-install-uv), let it fetch an interpreter for you without
 touching your system Python:
 
 ```bash
-uv python install 3.14
+uv python install 3.12
 ```
 
-Re-run the check from Step 1. You should see `Python 3.14.x`.
+Re-run the check from Step 1. You should see `Python 3.12.x`.
 
-**Alternative: install Python 3.14 yourself**, if you'd rather manage the
+**Alternative: install Python 3.12 yourself**, if you'd rather manage the
 interpreter outside uv. Choose **one** of the options for your platform.
 
 **macOS**
 
 ```bash
 # Option A: Homebrew (https://brew.sh)
-brew install python@3.14
+brew install python@3.12
 
 # Option B: download the official installer from python.org
 open https://www.python.org/downloads/
@@ -104,15 +104,15 @@ open https://www.python.org/downloads/
 ```bash
 sudo add-apt-repository ppa:deadsnakes/ppa
 sudo apt update
-sudo apt install python3.14 python3.14-venv
+sudo apt install python3.12 python3.12-venv
 ```
 
-On Fedora: `sudo dnf install python3.14`. On Arch: `sudo pacman -S python`.
+On Fedora: `sudo dnf install python3.12`. On Arch: `sudo pacman -S python`.
 
 **Windows (PowerShell)**
 
 ```powershell
-winget install Python.Python.3.14
+winget install Python.Python.3.12
 ```
 
 Or download the installer from
@@ -121,7 +121,7 @@ matters — tick **"Add python.exe to PATH"** on the first screen of the
 installer.
 
 Now close and reopen your terminal, then re-run the check from Step 1. You
-should see `Python 3.14.x`.
+should see `Python 3.12.x`.
 
 ## Step 3: Make a project folder and a virtual environment
 
@@ -135,7 +135,7 @@ per project and "activate" it in each new terminal session.
 ```bash
 mkdir zeocore-quickstart
 cd zeocore-quickstart
-uv venv --python 3.14
+uv venv --python 3.12
 source .venv/bin/activate
 ```
 
@@ -144,7 +144,7 @@ source .venv/bin/activate
 ```powershell
 mkdir zeocore-quickstart
 cd zeocore-quickstart
-uv venv --python 3.14
+uv venv --python 3.12
 .venv\Scripts\Activate.ps1
 ```
 
@@ -153,15 +153,15 @@ uv venv --python 3.14
 ```cmd
 mkdir zeocore-quickstart
 cd zeocore-quickstart
-uv venv --python 3.14
+uv venv --python 3.12
 .venv\Scripts\activate.bat
 ```
 
-If you installed Python 3.14 yourself in Step 2 instead of letting uv fetch
+If you installed Python 3.12 yourself in Step 2 instead of letting uv fetch
 it, the system interpreter also works:
 
 ```bash
-python3.14 -m venv .venv          # Windows: py -3.14 -m venv .venv
+python3.12 -m venv .venv          # Windows: py -3.12 -m venv .venv
 source .venv/bin/activate         # Windows PowerShell: .venv\Scripts\Activate.ps1
 ```
 
@@ -175,7 +175,7 @@ python --version
 Expected output:
 
 ```
-Python 3.14.x
+Python 3.12.x
 ```
 
 > **PowerShell blocked the activation script?** Run
@@ -398,7 +398,7 @@ Small experiments, in increasing order of interest:
 
 | What you see | What it means | Fix |
 |---|---|---|
-| `ERROR: Package 'zeocore' requires a different Python` | Your interpreter is older than 3.14. | Redo [Step 2](#step-2-install-python-314-only-if-you-need-it), then rebuild the venv with the 3.14 interpreter. |
+| `ERROR: Package 'zeocore' requires a different Python` | Your interpreter is older than 3.12. | Redo [Step 2](#step-2-install-python-312-only-if-you-need-it), then rebuild the venv with the 3.12 interpreter. |
 | `ModuleNotFoundError: No module named 'zeo_core'` | Either the venv isn't active, or you installed into a different Python. | Re-activate the venv ([Step 3](#step-3-make-a-project-folder-and-a-virtual-environment)) and re-run `uv pip install zeocore`. |
 | `ModuleNotFoundError: No module named 'zeocore'` | You imported the package name instead of the module name. | Import `zeo_core`, with the underscore. |
 | `.venv\Scripts\Activate.ps1 cannot be loaded because running scripts is disabled` | PowerShell's execution policy. | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`, then activate again. |

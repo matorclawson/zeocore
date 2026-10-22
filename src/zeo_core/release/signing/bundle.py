@@ -66,7 +66,7 @@ def _info_plist(root: Path, bundle: str) -> dict[str, object] | None:
     ):
         try:
             value = plistlib.loads(candidate.read_bytes())
-        except FileNotFoundError, NotADirectoryError:
+        except (FileNotFoundError, NotADirectoryError):
             continue
         except Exception:  # plistlib raises several unrelated types
             return None
@@ -99,7 +99,7 @@ def info_executable(root: Path, bundle: str) -> tuple[bool, str | None]:
     candidate = base / name if framework else base / "Contents" / "MacOS" / name
     try:
         real = candidate.resolve(strict=True)
-    except OSError, RuntimeError:
+    except (OSError, RuntimeError):
         return True, None
     real_base = base.resolve()
     if not real.is_relative_to(real_base) or not real.is_file() or not is_macho(real):

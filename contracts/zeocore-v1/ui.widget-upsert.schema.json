@@ -1,0 +1,56 @@
+{
+  "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/ui.widget-upsert.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "``widget.upsert``: put the referenced data on one card.",
+  "properties": {
+    "component": {
+      "enum": [
+        "flight_status",
+        "weather_hourly",
+        "arrival_timeline",
+        "market_watchlist"
+      ],
+      "title": "Component",
+      "type": "string"
+    },
+    "data_ref": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Data Ref",
+      "type": "string"
+    },
+    "request_id": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "revision": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "type": {
+      "const": "widget.upsert",
+      "title": "Type",
+      "type": "string"
+    },
+    "widget_id": {
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "title": "Widget Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "request_id",
+    "widget_id",
+    "component",
+    "data_ref",
+    "revision"
+  ],
+  "title": "WidgetUpsert",
+  "type": "object"
+}

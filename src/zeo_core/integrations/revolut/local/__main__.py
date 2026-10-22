@@ -133,7 +133,7 @@ def _first_line() -> str:
     """The first line of stdin, which must fit in ``MAX_URL_BYTES`` before any strip."""
     try:
         descriptor = sys.stdin.fileno()
-    except AttributeError, OSError, ValueError:
+    except (AttributeError, OSError, ValueError):
         body = _from_stream()
     else:
         body = _from_descriptor(descriptor)
@@ -155,7 +155,7 @@ def _redirect_url() -> str:
             line.encode("utf-8")
         else:
             line = _first_line()
-    except EOFError, KeyboardInterrupt, UnicodeError, OSError:
+    except (EOFError, KeyboardInterrupt, UnicodeError, OSError):
         raise _NoRedirectUrlError(
             f"no redirect URL could be read; {_ONE_LINE}"
         ) from None

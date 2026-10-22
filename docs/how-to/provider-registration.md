@@ -39,7 +39,7 @@ python examples/runtime_host_catalogue_v1.py
 
 The example constructs real manifests and validates/default-materializes a
 request before hashing it. `name` becomes `World` before the digest is computed.
-It performs no admission or invocation. Python 3.14+ is required; the supervised
+It performs no admission or invocation. Python 3.12+ is required; the supervised
 host protocol uses inherited Unix descriptors on macOS/Linux.
 
 The trusted Runtime launcher selects the installed provider version, interpreter,
