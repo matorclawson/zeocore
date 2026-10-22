@@ -18,7 +18,7 @@ file under examples/ — every one of them is runnable as printed
 
 - [README.md](README.md): Quick start, install/extras table, module
   overview, quality bar (mypy --strict, 90%+ coverage, tests on Python
-  3.14 — the package's own floor, requires Python >=3.14).
+  3.12 and 3.14; requires Python >=3.12).
 - [GET-STARTED.md](GET-STARTED.md): The full walkthrough — configuration,
   path resolution, filesystem operations, typed error handling, writing a
   capability (`@capability` / `BaseZeoTool`), integrations (Google
@@ -31,8 +31,8 @@ file under examples/ — every one of them is runnable as printed
 - [docs/tutorials/](docs/tutorials/): MCP with Claude Code/Cursor, Notion,
   Google Calendar.
 - [CHANGELOG.md](CHANGELOG.md): Version history (Keep a Changelog).
-  RELEASE_NOTES.md describes the current 0.12.0 release; CHANGELOG.md is the
-  full history.
+  RELEASE_NOTES.md lists recent milestones; each release's notes are on its
+  GitHub Release; CHANGELOG.md is the history up to 0.15.1.
 - [CONTRIBUTING.md](CONTRIBUTING.md): Dev setup, the gate
   (`make verify` / `make verify-full`), code style, canonical import
   paths.
@@ -121,6 +121,19 @@ file under examples/ — every one of them is runnable as printed
 - `zeo_core.tools.catalog`: in-tree **reference** capabilities, not a
   public API. `zeo_core.tools.compat.sovereign_style_capability` is
   transitional, not canonical.
+
+## Briefing cards and the managed Agents API
+
+- `zeo_core.contracts.ui`: `DataRef`, `WidgetUpsert`, `WidgetBoard` (widget
+  contracts with the honesty rules checked in code).
+- `zeo_core.adapters.widget_html`: `render_snapshot_html`, `render_card_html`
+  (cards to self-contained HTML: inline style only, no JavaScript).
+- `zeo_core.integrations.briefing_sources`: `PublicBriefingSources`,
+  `StatedDestination` (keyless MET Norway, ADSB.lol and ECB sources).
+  [Guide](docs/how-to/briefing-cards.md).
+- `zeo_core.integrations.agents`: `run_native`, `run`, `function_tool`
+  (OpenAI managed Agents API; needs `openai>=3.29`).
+  [Guide](docs/integrations/agents-api.md).
 
 ## 0.10.0 integration and authoring additions
 
