@@ -349,3 +349,88 @@ def test_created_is_only_allowed_for_routeset_post(method: str, status: int) -> 
         assert not http._cache
     finally:
         http.close()
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "91/0/250",
+        "0/-181/250",
+        "nan/0/10",
+        "0/inf/10",
+        "0/0/251",
+        "0/0/0",
+        "0/0/001",
+        "0/0/2.5",
+        "0/0/250?key=CANARY",
+        "0/0/250?ignored",
+        "0/0/250/extra",
+        "0/%2e%2e/250",
+        "0/0/250#private",
+    ],
+)
+def test_point_guard_refuses_before_connection(suffix: str) -> None:
+    calls: list[httpx.Request] = []
+    http, _ = client(response_handler(httpx.Response(200, json={"ac": []}), calls))
+    try:
+        with pytest.raises(SourceUnavailableError):
+            http.fetch("GET", "https://api.adsb.lol/v2/point/" + suffix)
+        assert calls == []
+    finally:
+        http.close()
+
+
+def test_point_get_is_cached_projected_and_bounded() -> None:
+    calls: list[httpx.Request] = []
+    row = {
+        "flight": "TEST123",
+        "lat": 40.7,
+        "lon": -73.8,
+        "gs": 350,
+        "seen_pos": 2,
+        "alt_baro": 25000,
+        "r": "PRIVATE REGISTRATION",
+        "registered_owner": "PRIVATE OWNER",
+    }
+    http, clock = client(
+        response_handler(
+            httpx.Response(200, json={"now": NOW.timestamp(), "ac": [row] * 101}), calls
+        )
+    )
+    try:
+        url = "https://api.adsb.lol/v2/point/40.7/-73.8/250"
+        first = http.fetch("GET", url)
+        clock.t = 59
+        assert http.fetch("GET", url) == first
+        assert len(calls) == 1
+        assert len(first.data["ac"]) == 101
+        assert set(first.data["ac"][0]) == {
+            "flight",
+            "lat",
+            "lon",
+            "gs",
+            "seen_pos",
+            "alt_baro",
+        }
+        assert "PRIVATE" not in repr(first)
+        with pytest.raises(SourceUnavailableError):
+            http.fetch("POST", url, body={"planes": []})
+        assert len(calls) == 1
+    finally:
+        http.close()
+
+
+def test_point_redirect_and_malformed_aircraft_never_become_empty_success() -> None:
+    for response in (
+        httpx.Response(302, headers={"Location": "https://evil.invalid/"}),
+        httpx.Response(200, json={"ac": "not an aircraft array"}),
+    ):
+        calls: list[httpx.Request] = []
+        http, _ = client(response_handler(response, calls))
+        try:
+            with pytest.raises(SourceUnavailableError):
+                http.fetch("GET", "https://api.adsb.lol/v2/point/40.7/-73.8/250")
+            assert len(calls) == 1
+            assert not http._cache
+        finally:
+            http.close()
