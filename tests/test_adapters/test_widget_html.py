@@ -980,7 +980,7 @@ def test_f1_a_live_timeline_is_computed_with_its_inputs_named_not_provider_data(
     assert _provenance_labels(out) == ["derived"]
     assert "COMPUTED from the flight estimate, the stated transfer time" in out
     assert "the meeting time" in out and "PROVIDER DATA" not in out
-    assert _fresh_lines(out) == ["live"]
+    assert _fresh_lines(out) == [FRESH_COMPUTED]
 
 
 def test_f1_a_replay_timeline_is_replay_only_never_computed() -> None:
@@ -1203,3 +1203,57 @@ def test_c5_the_input_source_is_withheld_when_it_is_not_a_plain_name() -> None:
 def test_c6_the_computed_line_is_not_a_second_freshness_line() -> None:
     out = _ecb_computed()
     assert _fresh_lines(out) == ["daily reference rate, not a live quote"]
+
+
+# --- a forecast and a computed timeline are not "live"; tables stay in their card ---
+
+FRESH_COMPUTED = "computed from its inputs, not a live reading"
+FRESH_FORECAST = "forecast, not a live reading"
+
+
+def test_fr1_each_component_gets_the_freshness_line_that_is_true_of_it() -> None:
+    lines = {
+        c: _fresh_lines(render_card_html(snapshot(c)[0]))
+        for c in ("flight_status", "weather_hourly", "arrival_timeline")
+    }
+    assert lines == {
+        "flight_status": ["live"],  # the position is read now
+        "weather_hourly": [FRESH_FORECAST],
+        "arrival_timeline": [FRESH_COMPUTED],
+    }
+
+
+def test_fr2_a_replay_still_has_no_freshness_line_whatever_the_component() -> None:
+    for component in ("weather_hourly", "arrival_timeline"):
+        out = render_card_html(snapshot(component, replay=True)[0])
+        assert _fresh_lines(out) == [] and _provenance_labels(out) == ["replay"]
+
+
+def test_fr3_only_the_flight_card_says_live_and_the_daily_rule_still_wins() -> None:
+    for component in ("weather_hourly", "arrival_timeline"):
+        assert "live" not in " ".join(
+            _fresh_lines(render_card_html(snapshot(component)[0]))
+        ).replace("not a live reading", "")
+    daily = render_card_html(
+        snapshot("market_watchlist", payload=_ecb(), delayed=False)[0]
+    )
+    assert _fresh_lines(daily) == ["daily reference rate, not a live quote"]
+
+
+def test_fr4_tables_scroll_inside_their_card_instead_of_overflowing_it() -> None:
+    style = widget_html.STYLE
+    assert (
+        ".zc-card{" in style
+        and "min-width:0" in style.split(".zc-card{")[1].split("}")[0]
+    )
+    assert ".zc-scroll{overflow-x:auto;max-width:100%}" in style
+    for article in _articles(render_snapshot_html(FULL)):
+        for table in re.findall(r"<table.*?</table>", article, flags=re.S):
+            assert f'<div class="zc-scroll">{table}</div>' in article  # every table
+    assert 'class="zc-scroll"' in render_card_html(snapshot("market_watchlist")[0])
+    assert 'class="zc-scroll"' in render_card_html(snapshot("weather_hourly")[0])
+
+
+def test_fr5_no_value_is_clipped_or_hidden_by_the_layout() -> None:
+    style = widget_html.STYLE
+    assert "overflow:hidden" not in style and "text-overflow" not in style

@@ -32,6 +32,8 @@ from pydantic import ValidationError
 from zeo_core.contracts.ui.widgets import REGISTRY, CardState
 
 WITHHELD: Final = "[withheld]"
+FRESH_FORECAST: Final = "forecast, not a live reading"
+FRESH_COMPUTED: Final = "computed from its inputs, not a live reading"
 _DERIVED: Final = (
     "COMPUTED from the flight estimate, the stated transfer time and the meeting time"
 )
@@ -81,7 +83,8 @@ STYLE: Final = (
     ".zc-board{font:14px/1.4 system-ui,sans-serif;display:grid;gap:12px;"
     "grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}"
     ".zc-card{border:1px solid #c8ccd0;border-radius:8px;padding:12px;background:#fff;"
-    "color:#1b1f23}"
+    "color:#1b1f23;min-width:0}"
+    ".zc-scroll{overflow-x:auto;max-width:100%}"
     ".zc-card h3{margin:0 0 6px;font-size:15px}"
     ".zc-prov{margin:8px 0 0;font-size:12px;color:#57606a}"
     ".zc-tag{display:inline-block;margin-right:4px;padding:0 6px;border-radius:4px;"
@@ -214,7 +217,12 @@ def _article(
 
 
 def _fresh(card: CardState, payload: Any) -> str:  # noqa: ANN401
-    """EXACTLY ONE freshness line, none for a REPLAY: daily, else delayed, else live."""
+    """
+    EXACTLY ONE freshness line, none for a REPLAY.
+
+    Daily and delayed come first; then what is true of the component: a forecast is not
+    a live reading, a timeline is computed from its inputs, and only a position is live.
+    """
     data = card.data_ref
     if _get(data, "replay") is True:
         return ""
@@ -222,6 +230,10 @@ def _fresh(card: CardState, payload: Any) -> str:  # noqa: ANN401
         text = "daily reference rate, not a live quote"
     elif _get(data, "delayed") is True or getattr(payload, "delayed", False) is True:
         text = "DELAYED, not real time"
+    elif str(card.component) == "weather_hourly":
+        text = FRESH_FORECAST
+    elif str(card.component) == "arrival_timeline":
+        text = FRESH_COMPUTED
     else:
         text = "live"
     return f'<p class="zc-fresh"><strong>{text}</strong></p>'
@@ -336,7 +348,8 @@ def _weather(payload: Any) -> str:  # noqa: ANN401
     )
     return (
         f"<p>{_t(payload.location)} &middot; {_t(payload.timezone)}</p>{chart}"
-        f"<table><tr><th>time</th><th>temp</th><th>rain</th><th>precip</th></tr>{rows}</table>"
+        '<div class="zc-scroll"><table><tr><th>time</th><th>temp</th><th>rain</th>'
+        f"<th>precip</th></tr>{rows}</table></div>"
     )
 
 
@@ -439,9 +452,9 @@ def _market(
             if computed and any(q.change is not None for q in payload.symbols)
             else ""
         )
-        + "<table><tr><th>symbol</th><th>price</th><th>change</th>"
-        + "<th>change %</th><th></th></tr>"
-        + f"{rows}</table>"
+        + '<div class="zc-scroll"><table><tr><th>symbol</th><th>price</th>'
+        + "<th>change</th><th>change %</th><th></th></tr>"
+        + f"{rows}</table></div>"
     )
 
 
