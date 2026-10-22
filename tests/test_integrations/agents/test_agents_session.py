@@ -776,6 +776,9 @@ class _RealShapedStream:
         self.closed = True
 
 
+_UNSET = object()  # the real create() omits spend_control unless it is given
+
+
 class _RealShapedSessions:
     def __init__(
         self, events: Sequence[SimpleNamespace], final: Callable[[], Any]
@@ -795,6 +798,7 @@ class _RealShapedSessions:
         agent_id: str | None = None,
         input: object = None,  # noqa: A002
         metadata: object = None,
+        spend_control: object = _UNSET,
         vault_ids: object = None,
         extra_headers: object = None,
         extra_query: object = None,
@@ -809,6 +813,8 @@ class _RealShapedSessions:
             "handlers": sorted(tool_handlers or {}),
             "timeout": timeout,
         }
+        if spend_control is not _UNSET:
+            self.seen["spend_control"] = spend_control
         self.stream = _RealShapedStream(tool_handlers or {}, self._events, self._final)
         return self.stream
 
@@ -1197,3 +1203,27 @@ def test_an_action_that_is_not_a_function_call_stops_at_once() -> None:
     result = native(client, handlers={"known": lambda a: "1"})
     assert (result.status, result.error_code) == ("incomplete", "requires_action")
     assert sessions.stream is not None and sessions.stream.consumed == 2
+
+
+# --- a hard spend limit for the session, in USD cents (the SDK's spend_control) ---
+
+
+def test_no_spend_limit_means_the_argument_is_omitted_not_null() -> None:
+    client, sessions = native_client()
+    native(client)
+    assert "spend_control" not in sessions.seen  # null would REMOVE a template limit
+
+
+def test_a_spend_limit_is_passed_as_the_sdks_spend_control() -> None:
+    client, sessions = native_client()
+    result = native(client, spend_limit_cents=250)
+    assert result.ok and sessions.seen["spend_control"] == {"limit": 250}
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, "5", 1_000_001])
+def test_an_invalid_spend_limit_is_refused_before_any_call(value: object) -> None:
+    client, sessions = native_client()
+    with pytest.raises(agents.AgentsRefused) as refused:
+        native(client, spend_limit_cents=value)
+    assert refused.value.code == "spend_limit_invalid"
+    assert sessions.seen == {}  # create() was never reached
