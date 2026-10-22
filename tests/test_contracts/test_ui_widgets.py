@@ -670,6 +670,8 @@ def test_a_daily_reference_rate_carries_its_date_and_its_basis() -> None:
 def test_a_quote_date_must_be_a_real_calendar_day(day: str) -> None:
     payload = copy.deepcopy(PAYLOADS["market_watchlist"])
     payload["quote_date"] = day
+    payload["rate_basis"] = "daily_reference"  # so only the day itself is wrong
+    payload["delayed"] = False
     with pytest.raises(WidgetRefused):
         ref("market_watchlist", payload=payload).check("market_watchlist")
 
@@ -717,3 +719,54 @@ def test_a_price_is_still_required() -> None:
     del payload["symbols"][0]["price"]
     with pytest.raises(WidgetRefused):
         ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+# --- one freshness per market card (Council, PR162) ---------------------------
+
+
+def _market(**over: object) -> dict[str, Any]:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload.update(over)
+    return payload
+
+
+def test_a_daily_rate_with_its_day_and_not_delayed_is_accepted() -> None:
+    payload = _market(
+        quote_time=None,
+        quote_date="2026-10-21",
+        rate_basis="daily_reference",
+        delayed=False,
+    )
+    ref("market_watchlist", payload=payload, delayed=False).check("market_watchlist")
+
+
+def test_a_live_or_delayed_quote_with_a_quote_time_is_accepted() -> None:
+    ref(
+        "market_watchlist",
+        payload=_market(rate_basis="live", delayed=False),
+        delayed=False,
+    ).check("market_watchlist")
+    ref("market_watchlist", payload=_market()).check(
+        "market_watchlist"
+    )  # delayed, no basis
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"rate_basis": "daily_reference", "quote_date": "2026-10-21", "delayed": True},
+        {"rate_basis": "daily_reference", "quote_date": None, "delayed": False},
+        {"rate_basis": "daily_reference", "delayed": False},
+        {"quote_date": "2026-10-21", "rate_basis": "live", "delayed": False},
+        {"quote_date": "2026-10-21", "rate_basis": None, "delayed": False},
+    ],
+)
+def test_the_combinations_that_would_show_two_freshness_lines_or_none_are_refused(
+    over: dict[str, Any],
+) -> None:
+    with pytest.raises(WidgetRefused):
+        ref(
+            "market_watchlist",
+            payload=_market(**over),
+            delayed=bool(over.get("delayed")),
+        ).check("market_watchlist")

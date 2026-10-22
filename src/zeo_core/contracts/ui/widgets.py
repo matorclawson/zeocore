@@ -164,6 +164,8 @@ Symbol = Annotated[str, Field(pattern=r"^[A-Z0-9.\-]{1,12}$")]
 
 
 class Quote(_Closed):
+    """One symbol. A null change means "change unavailable" on the card, never 0."""
+
     symbol: Symbol
     price: Number
     #: Null when there is no previous value to compare with: never filled with 0.
@@ -190,6 +192,19 @@ class MarketWatchlistPayload(_Closed):
         dict[Symbol, Annotated[list[SeriesPoint], Field(max_length=500)]],
         Field(max_length=20),
     ]
+
+    @model_validator(mode="after")
+    def _one_freshness(self) -> MarketWatchlistPayload:
+        """A card carries ONE freshness line: daily, delayed or live, never two."""
+        if self.rate_basis == "daily_reference" and (
+            self.quote_date is None or self.delayed
+        ):
+            msg = "a daily reference rate needs its quote_date and is not delayed"
+            raise ValueError(msg)
+        if self.quote_date is not None and self.rate_basis != "daily_reference":
+            msg = "a quote_date belongs to a daily reference rate"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _series_belong_to_symbols(self) -> MarketWatchlistPayload:
