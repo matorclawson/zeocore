@@ -1,7 +1,7 @@
 """The port is held to ZEO-LEDGER's language-neutral parity fixtures.
 
-``contracts/merger-v1/`` is committed byte for byte from records/zeo-ledger
-(b04327d2, pass v4 added), with its SHA256SUMS. Each decide case is one
+``tests/fixtures/merger-v1/`` is committed byte for byte from the merger's own
+export, with its SHA256SUMS. Each decide case is one
 candidate against GitHub's state; each pass case is one whole run over PR #85
 at the decide fixture's healthy state ('allowed').
 """
@@ -34,7 +34,7 @@ from zeo_core.merger import (
 )
 from zeo_core.merger.run import PassError
 
-FIXTURES = Path(__file__).resolve().parents[2] / "contracts" / "merger-v1"
+FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "merger-v1"
 OTHER_SHA = "1" * 40
 
 

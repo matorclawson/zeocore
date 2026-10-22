@@ -3,8 +3,8 @@
  "note": "Conformance fixtures for 1.4.0 annex A: each instance must or must not validate against the named schema. zeocore's parity fixtures follow the freeze (ZEOCORE-SOW-27).",
  "digest": {
   "request": "annex A.2.1",
-  "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
-  "canonical_bytes": 459
+  "request_sha256": "770f24c5918c68f1eae2b6d5437eea02313afd631bff64e59364ee46ebab9525",
+  "canonical_bytes": 455
  },
  "cases": [
   {
@@ -15,7 +15,7 @@
     "connection_id": "role_zeonewsroom_publish",
     "operation_id": "github.pr.open",
     "arguments": {
-     "repository": "rodriveracom/zeonewsroom",
+     "repository": "example-org/newsroom",
      "head": "zeonewsroom/example",
      "head_sha": "0123456789abcdef0123456789abcdef01234567",
      "title": "Example",
@@ -44,7 +44,7 @@
     "connection_id": "role_zeonewsroom_publish",
     "operation_id": "github.pr.open",
     "arguments": {
-     "repository": "rodriveracom/zeonewsroom",
+     "repository": "example-org/newsroom",
      "head": "zeonewsroom/example",
      "head_sha": "0123456789abcdef0123456789abcdef01234567",
      "title": "Example",
@@ -74,7 +74,7 @@
     "connection_id": "role_zeonewsroom_publish",
     "operation_id": "github.pr.open",
     "arguments": {
-     "repository": "rodriveracom/zeonewsroom",
+     "repository": "example-org/newsroom",
      "head": "zeonewsroom/example",
      "head_sha": "0123456789abcdef0123456789abcdef01234567",
      "title": "Example",
@@ -104,13 +104,13 @@
     "execution_id": "exe_1",
     "result": {
      "number": 12,
-     "url": "https://github.com/rodriveracom/zeonewsroom/pull/12",
+     "url": "https://github.com/example-org/newsroom/pull/12",
      "head_sha": "0123456789abcdef0123456789abcdef01234567",
      "base": "main"
     },
     "receipt": {
      "operation_id": "github.pr.open",
-     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "request_sha256": "770f24c5918c68f1eae2b6d5437eea02313afd631bff64e59364ee46ebab9525",
      "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
      "door": {
       "principal_id": "prn_door",
@@ -156,7 +156,7 @@
     },
     "receipt": {
      "operation_id": "github.pr.open",
-     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "request_sha256": "770f24c5918c68f1eae2b6d5437eea02313afd631bff64e59364ee46ebab9525",
      "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
      "door": {
       "principal_id": "prn_door",
@@ -200,7 +200,7 @@
     },
     "receipt": {
      "operation_id": "github.pr.open",
-     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "request_sha256": "770f24c5918c68f1eae2b6d5437eea02313afd631bff64e59364ee46ebab9525",
      "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
      "door": {
       "principal_id": "prn_door",
@@ -245,7 +245,7 @@
     },
     "receipt": {
      "operation_id": "github.pr.open",
-     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "request_sha256": "770f24c5918c68f1eae2b6d5437eea02313afd631bff64e59364ee46ebab9525",
      "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
      "door": {
       "principal_id": "prn_door",
@@ -286,7 +286,7 @@
     "execution_id": "exe_3",
     "receipt": {
      "operation_id": "github.pr.open",
-     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "request_sha256": "770f24c5918c68f1eae2b6d5437eea02313afd631bff64e59364ee46ebab9525",
      "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
      "door": {
       "principal_id": "prn_door",
@@ -328,13 +328,13 @@
     "execution_id": "exe_1",
     "result": {
      "number": 12,
-     "url": "https://github.com/rodriveracom/zeonewsroom/pull/12",
+     "url": "https://github.com/example-org/newsroom/pull/12",
      "head_sha": "0123456789abcdef0123456789abcdef01234567",
      "base": "main"
     },
     "receipt": {
      "operation_id": "github.pr.open",
-     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "request_sha256": "770f24c5918c68f1eae2b6d5437eea02313afd631bff64e59364ee46ebab9525",
      "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
      "door": {
       "principal_id": "prn_door",
@@ -375,13 +375,13 @@
     "execution_id": "exe_1",
     "result": {
      "number": 12,
-     "url": "https://github.com/rodriveracom/zeonewsroom/pull/12",
+     "url": "https://github.com/example-org/newsroom/pull/12",
      "head_sha": "0123456789abcdef0123456789abcdef01234567",
      "base": "main"
     },
     "receipt": {
      "operation_id": "github.pr.open",
-     "request_sha256": "3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f",
+     "request_sha256": "770f24c5918c68f1eae2b6d5437eea02313afd631bff64e59364ee46ebab9525",
      "idempotency_key": "fixture-0001-abcdef-0123456789abcdef",
      "door": {
       "principal_id": "prn_door",

@@ -14,7 +14,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -89,6 +89,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "would-merge",
       "expect_reason_contains": ""
     },
@@ -106,7 +112,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -181,6 +187,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "draft"
     },
@@ -198,7 +210,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -273,6 +285,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "closed"
     },
@@ -290,7 +308,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -365,6 +383,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "live head"
     },
@@ -382,7 +406,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -457,6 +481,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "live base"
     },
@@ -474,7 +504,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -549,6 +579,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "repository id"
     },
@@ -566,7 +602,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -641,6 +677,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "base moved"
     },
@@ -658,7 +700,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -733,6 +775,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "base policy"
     },
@@ -750,7 +798,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -818,6 +866,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "architect/approve"
     },
@@ -835,7 +889,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -910,6 +964,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "architect/approve"
     },
@@ -927,7 +987,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1002,6 +1062,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "architect/approve"
     },
@@ -1019,7 +1085,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1094,6 +1160,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "architect/approve"
     },
@@ -1111,7 +1183,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1186,6 +1258,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "mergeable_state"
     },
@@ -1203,7 +1281,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1280,6 +1358,12 @@
       "vetoes": [
         "zeroemployeeorg/zeocore#85"
       ],
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "veto"
     },
@@ -1297,7 +1381,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1373,6 +1457,12 @@
       },
       "vetoes": null,
       "veto_error": "404",
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "held",
       "expect_reason_contains": "veto list"
     },
@@ -1390,7 +1480,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1465,6 +1555,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "own work"
     },
@@ -1482,7 +1578,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1557,6 +1653,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "held",
       "expect_reason_contains": "role App"
     },
@@ -1574,7 +1676,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1649,6 +1751,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "held",
       "expect_reason_contains": "role App"
     },
@@ -1666,7 +1774,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1735,6 +1843,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "held",
       "expect_reason_contains": "no commits"
     },
@@ -1752,7 +1866,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1827,6 +1941,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "opened by the merger"
     },
@@ -1844,7 +1964,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -1919,6 +2039,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "configuration"
     },
@@ -1931,7 +2057,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -2006,6 +2132,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "not in scope"
     },
@@ -2023,7 +2155,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -2098,6 +2230,12 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "refused",
       "expect_reason_contains": "repo_id"
     },
@@ -2115,7 +2253,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -2175,8 +2313,407 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "held",
       "expect_reason_contains": "reading the PR"
+    },
+    {
+      "name": "no required checks on the base branch",
+      "config": {
+        "repos": {
+          "zeroemployeeorg/zeocore": {
+            "ID": 1337139177,
+            "BasePolicy": "checks-on-current-base"
+          }
+        },
+        "architect_user_id": 5001,
+        "role_apps": {
+          "zeocore": 9001
+        },
+        "merger_user_id": 7001,
+        "merger_repo": "example-org/merger",
+        "protected_paths": [
+          ".zeomerger/"
+        ]
+      },
+      "register_lines": [
+        "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+      ],
+      "prs": {
+        "85": {
+          "State": "open",
+          "Merged": false,
+          "MergeCommit": "",
+          "Draft": false,
+          "HeadSHA": "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+          "BaseRef": "main",
+          "BaseSHA": "3a06f60de5316d29c581d651ef06b1c966374ae8",
+          "BaseRepoID": 1337139177,
+          "AuthorID": 9001,
+          "MergeableState": "clean",
+          "Files": [
+            "internal/x.go"
+          ]
+        },
+        "86": {
+          "State": "open",
+          "Merged": false,
+          "MergeCommit": "",
+          "Draft": false,
+          "HeadSHA": "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+          "BaseRef": "main",
+          "BaseSHA": "3a06f60de5316d29c581d651ef06b1c966374ae8",
+          "BaseRepoID": 1337139177,
+          "AuthorID": 9001,
+          "MergeableState": "clean",
+          "Files": [
+            "internal/x.go"
+          ]
+        }
+      },
+      "statuses": {
+        "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9": [
+          {
+            "Context": "architect/approve",
+            "State": "success",
+            "Description": "approved apr1-1337139177-86-2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+            "CreatorID": 5001
+          }
+        ],
+        "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0": [
+          {
+            "Context": "architect/approve",
+            "State": "success",
+            "Description": "approved apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+            "CreatorID": 5001
+          }
+        ]
+      },
+      "commits": {
+        "85": [
+          {
+            "SHA": "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+            "AuthorID": 9001,
+            "CommitterID": 9001
+          }
+        ],
+        "86": [
+          {
+            "SHA": "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+            "AuthorID": 9001,
+            "CommitterID": 9001
+          }
+        ]
+      },
+      "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": false,
+          "strict_or_merge_queue": false
+        }
+      },
+      "expect_action": "refused",
+      "expect_reason_contains": "requires no status checks"
+    },
+    {
+      "name": "checks not strict and no merge queue",
+      "config": {
+        "repos": {
+          "zeroemployeeorg/zeocore": {
+            "ID": 1337139177,
+            "BasePolicy": "checks-on-current-base"
+          }
+        },
+        "architect_user_id": 5001,
+        "role_apps": {
+          "zeocore": 9001
+        },
+        "merger_user_id": 7001,
+        "merger_repo": "example-org/merger",
+        "protected_paths": [
+          ".zeomerger/"
+        ]
+      },
+      "register_lines": [
+        "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+      ],
+      "prs": {
+        "85": {
+          "State": "open",
+          "Merged": false,
+          "MergeCommit": "",
+          "Draft": false,
+          "HeadSHA": "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+          "BaseRef": "main",
+          "BaseSHA": "3a06f60de5316d29c581d651ef06b1c966374ae8",
+          "BaseRepoID": 1337139177,
+          "AuthorID": 9001,
+          "MergeableState": "clean",
+          "Files": [
+            "internal/x.go"
+          ]
+        },
+        "86": {
+          "State": "open",
+          "Merged": false,
+          "MergeCommit": "",
+          "Draft": false,
+          "HeadSHA": "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+          "BaseRef": "main",
+          "BaseSHA": "3a06f60de5316d29c581d651ef06b1c966374ae8",
+          "BaseRepoID": 1337139177,
+          "AuthorID": 9001,
+          "MergeableState": "clean",
+          "Files": [
+            "internal/x.go"
+          ]
+        }
+      },
+      "statuses": {
+        "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9": [
+          {
+            "Context": "architect/approve",
+            "State": "success",
+            "Description": "approved apr1-1337139177-86-2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+            "CreatorID": 5001
+          }
+        ],
+        "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0": [
+          {
+            "Context": "architect/approve",
+            "State": "success",
+            "Description": "approved apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+            "CreatorID": 5001
+          }
+        ]
+      },
+      "commits": {
+        "85": [
+          {
+            "SHA": "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+            "AuthorID": 9001,
+            "CommitterID": 9001
+          }
+        ],
+        "86": [
+          {
+            "SHA": "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+            "AuthorID": 9001,
+            "CommitterID": 9001
+          }
+        ]
+      },
+      "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": false
+        }
+      },
+      "expect_action": "refused",
+      "expect_reason_contains": "neither requires up-to-date"
+    },
+    {
+      "name": "base branch rules unreadable",
+      "config": {
+        "repos": {
+          "zeroemployeeorg/zeocore": {
+            "ID": 1337139177,
+            "BasePolicy": "checks-on-current-base"
+          }
+        },
+        "architect_user_id": 5001,
+        "role_apps": {
+          "zeocore": 9001
+        },
+        "merger_user_id": 7001,
+        "merger_repo": "example-org/merger",
+        "protected_paths": [
+          ".zeomerger/"
+        ]
+      },
+      "register_lines": [
+        "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+      ],
+      "prs": {
+        "85": {
+          "State": "open",
+          "Merged": false,
+          "MergeCommit": "",
+          "Draft": false,
+          "HeadSHA": "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+          "BaseRef": "main",
+          "BaseSHA": "3a06f60de5316d29c581d651ef06b1c966374ae8",
+          "BaseRepoID": 1337139177,
+          "AuthorID": 9001,
+          "MergeableState": "clean",
+          "Files": [
+            "internal/x.go"
+          ]
+        },
+        "86": {
+          "State": "open",
+          "Merged": false,
+          "MergeCommit": "",
+          "Draft": false,
+          "HeadSHA": "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+          "BaseRef": "main",
+          "BaseSHA": "3a06f60de5316d29c581d651ef06b1c966374ae8",
+          "BaseRepoID": 1337139177,
+          "AuthorID": 9001,
+          "MergeableState": "clean",
+          "Files": [
+            "internal/x.go"
+          ]
+        }
+      },
+      "statuses": {
+        "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9": [
+          {
+            "Context": "architect/approve",
+            "State": "success",
+            "Description": "approved apr1-1337139177-86-2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+            "CreatorID": 5001
+          }
+        ],
+        "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0": [
+          {
+            "Context": "architect/approve",
+            "State": "success",
+            "Description": "approved apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+            "CreatorID": 5001
+          }
+        ]
+      },
+      "commits": {
+        "85": [
+          {
+            "SHA": "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+            "AuthorID": 9001,
+            "CommitterID": 9001
+          }
+        ],
+        "86": [
+          {
+            "SHA": "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+            "AuthorID": 9001,
+            "CommitterID": 9001
+          }
+        ]
+      },
+      "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
+      "base_rules_error": "403",
+      "expect_action": "held",
+      "expect_reason_contains": "base branch rules"
+    },
+    {
+      "name": "unchanged-base policy with non-strict checks",
+      "config": {
+        "repos": {
+          "zeroemployeeorg/zeocore": {
+            "ID": 1337139177,
+            "BasePolicy": "unchanged-base"
+          }
+        },
+        "architect_user_id": 5001,
+        "role_apps": {
+          "zeocore": 9001
+        },
+        "merger_user_id": 7001,
+        "merger_repo": "example-org/merger",
+        "protected_paths": [
+          ".zeomerger/"
+        ]
+      },
+      "register_lines": [
+        "{\"v\":1,\"event\":\"ready\",\"time\":\"2026-10-10T15:40:55Z\",\"repo\":\"zeroemployeeorg/zeocore\",\"repo_id\":1337139177,\"pr\":85,\"head\":\"c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"head_ref\":\"b\",\"base_ref\":\"main\",\"base_sha_at_review\":\"3a06f60de5316d29c581d651ef06b1c966374ae8\",\"author_seat\":\"zeocore\",\"after\":[],\"receipt_id\":\"apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0\",\"approved_by\":\"architect\",\"evidence\":null,\"note\":null}"
+      ],
+      "prs": {
+        "85": {
+          "State": "open",
+          "Merged": false,
+          "MergeCommit": "",
+          "Draft": false,
+          "HeadSHA": "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+          "BaseRef": "main",
+          "BaseSHA": "3a06f60de5316d29c581d651ef06b1c966374ae8",
+          "BaseRepoID": 1337139177,
+          "AuthorID": 9001,
+          "MergeableState": "clean",
+          "Files": [
+            "internal/x.go"
+          ]
+        },
+        "86": {
+          "State": "open",
+          "Merged": false,
+          "MergeCommit": "",
+          "Draft": false,
+          "HeadSHA": "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+          "BaseRef": "main",
+          "BaseSHA": "3a06f60de5316d29c581d651ef06b1c966374ae8",
+          "BaseRepoID": 1337139177,
+          "AuthorID": 9001,
+          "MergeableState": "clean",
+          "Files": [
+            "internal/x.go"
+          ]
+        }
+      },
+      "statuses": {
+        "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9": [
+          {
+            "Context": "architect/approve",
+            "State": "success",
+            "Description": "approved apr1-1337139177-86-2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+            "CreatorID": 5001
+          }
+        ],
+        "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0": [
+          {
+            "Context": "architect/approve",
+            "State": "success",
+            "Description": "approved apr1-1337139177-85-c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+            "CreatorID": 5001
+          }
+        ]
+      },
+      "commits": {
+        "85": [
+          {
+            "SHA": "c6a0b8cb1e9ad9aa6b3115bbf49f2fdc135568b0",
+            "AuthorID": 9001,
+            "CommitterID": 9001
+          }
+        ],
+        "86": [
+          {
+            "SHA": "2e9cefbea63abd789f0ee8230a104d8ddc1a8fb9",
+            "AuthorID": 9001,
+            "CommitterID": 9001
+          }
+        ]
+      },
+      "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": false
+        }
+      },
+      "expect_action": "would-merge",
+      "expect_reason_contains": ""
     },
     {
       "name": "base moved with checks on the current base",
@@ -2192,7 +2729,7 @@
           "zeocore": 9001
         },
         "merger_user_id": 7001,
-        "merger_repo": "rodriveracom/zeomerger",
+        "merger_repo": "example-org/merger",
         "protected_paths": [
           ".zeomerger/"
         ]
@@ -2267,10 +2804,16 @@
         ]
       },
       "vetoes": null,
+      "base_rules": {
+        "zeroemployeeorg/zeocore@main": {
+          "required_checks_present": true,
+          "strict_or_merge_queue": true
+        }
+      },
       "expect_action": "would-merge",
       "expect_reason_contains": ""
     }
   ],
-  "note": "Each case: given config, register_lines and GitHub state, a merger must decide expect_action, with a reason containing expect_reason_contains. Pass-level cases (journal, recheck, reconciliation) are in the Go tests and follow.",
-  "spec": "zeomerger-parity/v1"
+  "note": "v2 adds base_rules, the base branch's live rules keyed repo@branch, and base_rules_error. Each case: given config, register_lines and GitHub state, a merger must decide expect_action, with a reason containing expect_reason_contains.",
+  "spec": "zeomerger-parity/v2"
 }

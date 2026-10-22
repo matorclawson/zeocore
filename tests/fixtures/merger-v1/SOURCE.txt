@@ -1,0 +1,1 @@
+Parity vectors for the merge-decision core, exported from its reference implementation; repository names are replaced by example names.

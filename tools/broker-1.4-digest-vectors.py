@@ -1,4 +1,4 @@
-"""Write contracts/broker-1.4/digest-vectors.json: zeocore's parity fixtures.
+"""Write tests/fixtures/broker-1.4/digest-vectors.json: zeocore's parity fixtures.
 
 ZEOCORE-SOW-27 §3: zeocore supplies the language-neutral part of the Broker
 client that ZEO-RT's Go door implements, so the two can't drift. For one
@@ -27,10 +27,10 @@ from referencing.jsonschema import DRAFT202012
 
 from zeo_core.adapters.runtime_host.canonical import canonical_bytes
 
-ROOT = Path(__file__).resolve().parent.parent / "contracts" / "broker-1.4"
+ROOT = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "broker-1.4"
 DIGESTED = ("connection_id", "operation_id", "arguments", "on_behalf_of")
 SHA = "0123456789abcdef0123456789abcdef01234567"
-REPO = "rodriveracom/zeonewsroom"
+REPO = "example-org/newsroom"
 SEAT: dict[str, Any] = {
     "principal_id": "prn_zeonewsroom",
     "incarnation": 3,
@@ -150,15 +150,13 @@ def main() -> None:
     if len(set(digests)) != len(digests):
         raise SystemExit("two vectors share a digest")
     document = {
-        "contract": (
-            "zeoconnect Broker contract 1.4.0, merged in zeoconnect #73 at c134661e"
-        ),
+        "contract": "Broker contract 1.4.0",
         "digest": (
             "sha256 over RFC 8785 of connection_id, operation_id, arguments"
             " and on_behalf_of"
         ),
         "excluded": ["door_request_id", "idempotency_key"],
-        "producer": "zeocore, tools/broker-1.4-digest-vectors.py (ZEOCORE-SOW-27 §3)",
+        "producer": "zeocore, tools/broker-1.4-digest-vectors.py",
         "vectors": vectors,
     }
     text = json.dumps(document, indent=1, ensure_ascii=False) + "\n"

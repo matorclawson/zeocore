@@ -12,7 +12,9 @@ from zeo_core.adapters.runtime_host import canonical, catalogue, channel, host
 from zeo_core.contracts import runtime
 from zeo_core.contracts.runtime import RUNTIME_HOST_PROTOCOL_VERSION
 
-CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "runtime-host-v1"
+CONTRACT = (
+    Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime-host-v1"
+)
 
 SURFACE = {
     canonical: {

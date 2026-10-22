@@ -629,7 +629,7 @@ def test_managed_mode_blocks_member_fallback_before_transport() -> None:
 def test_committed_cross_language_vectors() -> None:
     root = Path(__file__).resolve().parents[2]
     vectors = json.loads(
-        (root / "contracts/runtime-host-v1/canonical-vectors.json").read_text()
+        (root / "tests/fixtures/runtime-host-v1/canonical-vectors.json").read_text()
     )
     for vector in vectors["valid"]:
         assert canonical_bytes(vector["input"]) == vector["canonical"].encode("utf-8")

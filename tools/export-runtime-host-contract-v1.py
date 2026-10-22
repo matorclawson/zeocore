@@ -20,7 +20,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1] / "contracts" / "runtime-host-v1"
+    root = (
+        Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "runtime-host-v1"
+    )
     models = {
         "provider-binding": ProviderBinding,
         "launch-context": LaunchContext,
