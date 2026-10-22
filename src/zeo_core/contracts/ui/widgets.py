@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Iterator, Mapping
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Final, Literal
 
 from pydantic import (
@@ -78,7 +78,22 @@ def _plain(value: str) -> str:
     return value
 
 
+def _day(value: str) -> str:
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        msg = "not a YYYY-MM-DD date"
+        raise ValueError(msg)
+    try:
+        date.fromisoformat(value)  # a real calendar day
+    except ValueError:
+        msg = "not a real date"
+        raise ValueError(msg) from None
+    return value
+
+
 DateTime = Annotated[str, Field(max_length=40), AfterValidator(_date_time)]
+#: A calendar day, for a source that publishes a DATE and no time of day; a midnight
+#: time must never be invented for it.
+Day = Annotated[str, Field(max_length=10), AfterValidator(_day)]
 Text = Annotated[str, Field(min_length=1, max_length=200), AfterValidator(_plain)]
 Number = Annotated[float, Field(allow_inf_nan=False)]
 
@@ -97,9 +112,10 @@ class Route(_Closed):
 class FlightStatusPayload(_Closed):
     flight_number: Text
     route: Route
-    scheduled_departure: DateTime
+    #: Null when the source gives no schedule (keyless ADS-B): shown as not provided.
+    scheduled_departure: DateTime | None = None
     estimated_departure: DateTime | None
-    scheduled_arrival: DateTime
+    scheduled_arrival: DateTime | None = None
     estimated_arrival: DateTime | None
     terminal: Text | None
     #: The provider's own string. "Delayed" is repeated from it, never computed here.
@@ -110,7 +126,8 @@ class FlightStatusPayload(_Closed):
 class WeatherHour(_Closed):
     time: DateTime
     temp_c: Number
-    precip_prob: Number
+    #: Null when the forecast gives no probability: never filled with 0.
+    precip_prob: Number | None = None
     precip_mm: Number
 
 
@@ -154,7 +171,7 @@ class Quote(_Closed):
 
 
 class SeriesPoint(_Closed):
-    time: DateTime
+    time: DateTime | Day
     value: Number
 
 
@@ -162,6 +179,10 @@ class MarketWatchlistPayload(_Closed):
     symbols: Annotated[list[Quote], Field(min_length=1, max_length=20)]
     market_status: Text
     quote_time: DateTime | None
+    #: The day a daily reference rate was published, when the source gives a date only.
+    quote_date: Day | None = None
+    #: "daily_reference": a rate published once a day (ECB-style), not a live quote.
+    rate_basis: Literal["live", "daily_reference"] | None = None
     #: True when the provider says the quotes are delayed.
     delayed: StrictBool
     series: Annotated[

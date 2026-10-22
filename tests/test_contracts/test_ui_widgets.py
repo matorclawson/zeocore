@@ -610,3 +610,84 @@ def test_an_empty_replaces_replaces_nothing() -> None:
         upsert(request_id="r1", widget_id="weather", data_ref="w2", revision=2),
         ref(ref_id="w2"),
     )
+
+
+# --- real sources never invent a value (rasa, 2026-10-22) -----------------------------
+
+
+def test_a_flight_without_schedules_is_valid_and_keeps_them_absent() -> None:
+    payload = copy.deepcopy(PAYLOADS["flight_status"])
+    payload["scheduled_departure"] = None
+    payload["scheduled_arrival"] = None
+    ref("flight_status", payload=payload).check("flight_status")
+    omitted = {k: v for k, v in payload.items() if not k.startswith("scheduled_")}
+    ref("flight_status", payload=omitted).check("flight_status")  # keyless ADS-B
+
+
+@pytest.mark.parametrize("value", ["tomorrow", "2026-13-45T99:99:99Z", 5, ""])
+def test_a_schedule_that_is_given_must_still_be_a_real_time(value: object) -> None:
+    payload = copy.deepcopy(PAYLOADS["flight_status"])
+    payload["scheduled_arrival"] = value
+    with pytest.raises(WidgetRefused):
+        ref("flight_status", payload=payload).check("flight_status")
+
+
+def test_a_forecast_without_a_probability_is_valid_and_is_not_zero() -> None:
+    payload = copy.deepcopy(PAYLOADS["weather_hourly"])
+    payload["hourly"][0]["precip_prob"] = None
+    checked = ref(payload=payload).check("weather_hourly")
+    model = REGISTRY["weather_hourly"].model_validate(checked.payload)
+    assert model.hourly[0].precip_prob is None  # type: ignore[attr-defined]
+    del payload["hourly"][0]["precip_prob"]
+    ref(payload=payload).check("weather_hourly")
+
+
+def test_a_probability_that_is_given_must_be_a_number() -> None:
+    payload = copy.deepcopy(PAYLOADS["weather_hourly"])
+    payload["hourly"][0]["precip_prob"] = "30%"
+    with pytest.raises(WidgetRefused):
+        ref(payload=payload).check("weather_hourly")
+
+
+def test_a_daily_reference_rate_carries_its_date_and_its_basis() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["quote_time"] = None  # the source publishes a DATE, no midnight is invented
+    payload["quote_date"] = "2026-10-21"
+    payload["rate_basis"] = "daily_reference"
+    payload["delayed"] = False
+    payload["series"] = {
+        "AAPL": [
+            {"time": "2026-10-20", "value": 1.16},
+            {"time": "2026-10-21", "value": 1.17},
+        ]
+    }
+    ref("market_watchlist", payload=payload, delayed=False).check("market_watchlist")
+
+
+@pytest.mark.parametrize(
+    "day", ["2026-02-30", "21-10-2026", "2026-10-21T00:00:00Z", "", "2026-13-01"]
+)
+def test_a_quote_date_must_be_a_real_calendar_day(day: str) -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["quote_date"] = day
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_the_rate_basis_is_one_of_two_values() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["rate_basis"] = "realtime"
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_a_series_day_must_be_real_too() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["series"] = {"AAPL": [{"time": "2026-02-30", "value": 1.0}]}
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_the_old_payloads_are_still_valid() -> None:
+    for component, payload in PAYLOADS.items():
+        ref(component, payload=copy.deepcopy(payload)).check(component)
