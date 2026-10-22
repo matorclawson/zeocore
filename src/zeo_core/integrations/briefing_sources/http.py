@@ -297,7 +297,13 @@ class PublicSourceHTTP:
                 fetched_at = self._clock()
                 if response.status_code == 429:
                     self._rate_limit(host, response, fetched_at)
-                if response.status_code != 200:
+                created_routeset = (
+                    response.status_code == 201
+                    and method == "POST"
+                    and host == "api.adsb.lol"
+                    and path == "/api/0/routeset"
+                )
+                if response.status_code != 200 and not created_routeset:
                     if 300 <= response.status_code < 400:
                         self.refused += 1
                     raise SourceUnavailableError("source_unavailable")

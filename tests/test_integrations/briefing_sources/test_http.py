@@ -319,3 +319,33 @@ def test_rolling_window_burst_refused_then_recovers_without_a_new_client() -> No
         assert len(calls) == 21
     finally:
         http.close()
+
+
+@pytest.mark.parametrize(
+    "method,status",
+    [
+        ("GET", 201),
+        ("GET", 202),
+        ("GET", 204),
+        ("POST", 202),
+        ("POST", 204),
+        ("POST", 302),
+    ],
+)
+def test_created_is_only_allowed_for_routeset_post(method: str, status: int) -> None:
+    calls: list[httpx.Request] = []
+    payload = {"now": NOW.timestamp() * 1000, "ac": []} if method == "GET" else []
+    http, _ = client(response_handler(httpx.Response(status, json=payload), calls))
+    try:
+        url = POSITION_URL if method == "GET" else "https://api.adsb.lol/api/0/routeset"
+        body = (
+            None
+            if method == "GET"
+            else {"planes": [{"callsign": "TEST123", "lat": 50.0, "lng": 0.0}]}
+        )
+        with pytest.raises(SourceUnavailableError):
+            http.fetch(method, url, body=body)
+        assert len(calls) == 1
+        assert not http._cache
+    finally:
+        http.close()

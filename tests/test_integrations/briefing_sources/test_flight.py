@@ -149,3 +149,22 @@ def test_all_adapter_attributions_survive_the_actual_shared_renderer() -> None:
         assert "CC BY 4.0" in refs["weather_hourly"].source
     finally:
         source.close()
+
+
+@pytest.mark.parametrize("route_status", [200, 201])
+def test_routeset_created_status_keeps_valid_flight(route_status: int) -> None:
+    """Ops observed HTTP 201; payload remains a synthetic controlled vector."""
+
+    def created(request: httpx.Request) -> httpx.Response:
+        response = handler(request)
+        status = route_status if request.method == "POST" else 200
+        return httpx.Response(status, json=response.json())
+
+    http, _ = client(created)
+    try:
+        result = flight(http, "TEST123", fetched_at=NOW)
+        assert result.reference.error is None
+        assert result.destination == "EGLL"
+        assert result.reference.payload["estimated_arrival"] is not None
+    finally:
+        http.close()
