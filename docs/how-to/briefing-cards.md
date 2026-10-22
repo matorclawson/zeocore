@@ -31,8 +31,9 @@ The contract refuses to show what it cannot back up:
 
 - Every card shows **one provenance label** (`PROVIDER DATA`, `COMPUTED` or
   `REPLAY`) and, unless it is a replay, **one freshness line** (`live` for a
-  position, `forecast, not a live reading`, `computed from its inputs, not a live
-  reading`, `delayed, not real time`, or `daily reference rate, not a live quote`).
+  position, `forecast, issued <time>` from the provider's own issue time,
+  `computed from a live position <age> old`, `delayed, not real time`, or `daily
+  reference rate, not a live quote`).
 - A failed source gives an **empty `DataRef` with a short reason**, shown as
   "unavailable". A previous value is never shown as current.
 - Missing data stays missing: no schedule, no rain probability and no previous
@@ -47,7 +48,7 @@ The contract refuses to show what it cannot back up:
 ```python
 from datetime import UTC, datetime, timedelta
 
-from zeo_core.adapters.widget_html import render_snapshot_html
+from zeo_core.adapters.widget_html import Place, render_snapshot_html
 from zeo_core.contracts.ui import WidgetBoard, WidgetUpsert
 from zeo_core.integrations.briefing_sources import (
     PublicBriefingSources,
@@ -83,7 +84,12 @@ for component, ref in refs.items():
         ref,
     )
 
-html = render_snapshot_html(board.snapshot(), document=True, title="My briefing")
+# Where you are going: the only authority for local times on the cards. Without it the
+# times are UTC and say so.
+place = Place("EDDF", "Frankfurt", "Europe/Berlin")
+html = render_snapshot_html(
+    board.snapshot(), document=True, title="My briefing", place=place
+)
 open("briefing.html", "w", encoding="utf-8").write(html)
 ```
 
