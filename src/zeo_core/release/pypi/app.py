@@ -116,7 +116,7 @@ class ReleaseApp:
                 json={"ref": f"refs/tags/{tag}", "sha": commit},
                 headers=_headers("token", minted.token.get_secret_value()),
             )
-        except httpx.ConnectError, httpx.ConnectTimeout:
+        except (httpx.ConnectError, httpx.ConnectTimeout):
             return "not_sent"
         except httpx.TransportError:
             raise TagAnswerLostError("GitHub did not answer the tag request") from None

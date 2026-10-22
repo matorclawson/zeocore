@@ -29,7 +29,7 @@ RED    := $(shell tput -Txterm setaf 1)
 SHELL := /bin/bash
 
 # Project settings
-PYTHON_VERSION := 3.14
+PYTHON_VERSION := 3.12
 VENV_NAME := .venv
 PROJECT_NAME := zeocore
 REPO_ROOT := $(shell pwd)

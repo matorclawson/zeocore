@@ -138,7 +138,7 @@ class FileAppKeySource:
             )
         try:
             text = self.path.read_text(encoding="utf-8").strip()
-        except OSError, UnicodeError:
+        except (OSError, UnicodeError):
             raise AppTokenError("refused", "the App key file is unreadable") from None
         return SecretStr(_pem(text))
 
@@ -226,7 +226,7 @@ class InstallationTokens:
                 },
                 headers=_headers(jwt),
             )
-        except httpx.ConnectError, httpx.ConnectTimeout:
+        except (httpx.ConnectError, httpx.ConnectTimeout):
             raise AppTokenError("unavailable", "GitHub could not be reached") from None
         except httpx.TransportError:
             raise AppTokenError(
@@ -258,7 +258,7 @@ class InstallationTokens:
             )
             granted = dict(payload.get("permissions") or {})
             repositories = [item["full_name"] for item in payload["repositories"]]
-        except ValueError, KeyError, TypeError:
+        except (ValueError, KeyError, TypeError):
             raise AppTokenError(
                 "refused", "GitHub's token answer is malformed"
             ) from None

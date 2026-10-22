@@ -166,7 +166,7 @@ class GitHubClient:
                 mergeable_state=g.get("mergeable_state") or "",
                 files=tuple(files),
             )
-        except KeyError, TypeError, ValueError:
+        except (KeyError, TypeError, ValueError):
             raise GitHubError("the PR answer is malformed") from None
 
     def statuses(self, repo: str, sha: str) -> list[Status]:

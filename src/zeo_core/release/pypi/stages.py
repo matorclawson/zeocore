@@ -121,7 +121,7 @@ def _held_unreadable(error: TargetUnreadableError) -> Outcome:
 def _pyproject_version(content: bytes) -> str | None:
     try:
         value = tomllib.loads(content.decode("utf-8"))["project"]["version"]
-    except UnicodeDecodeError, tomllib.TOMLDecodeError, KeyError, TypeError:
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError, KeyError, TypeError):
         return None
     return value if isinstance(value, str) else None
 
@@ -137,7 +137,7 @@ def _committed_manifest(content: bytes, commit: str) -> PyPIManifest | None:
         if "commit" in section:
             return None
         return PyPIManifest.model_validate({**section, "commit": commit})
-    except ManifestError, ValidationError:
+    except (ManifestError, ValidationError):
         return None
 
 

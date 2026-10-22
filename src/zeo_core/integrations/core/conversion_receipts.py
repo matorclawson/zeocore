@@ -56,7 +56,7 @@ def convert_with_receipt(
         )
         if not source_fact.size_bytes or not source.read_bytes().strip():
             return IntegrationResult.error_result("EMPTY_INPUT")
-    except OSError, ValueError:
+    except (OSError, ValueError):
         return IntegrationResult.error_result("INVALID_PATH_OR_COLLISION")
     receipt = ConversionReceipt(
         integration_id=integration_id,

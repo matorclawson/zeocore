@@ -45,7 +45,7 @@ from .protocol import (
 )
 
 #: The Python the package supports; a test holds it to ``requires-python``.
-PYTHON_FLOOR: Final = (3, 14)
+PYTHON_FLOOR: Final = (3, 12)
 #: The commands that need an extra: the command, the module it loads, the extra
 #: and the third-party packages that extra installs.
 EXTRAS: Final = (("release", "zeo_core.cli.release", "github", ("requests",)),)
@@ -140,7 +140,7 @@ def _validate_profile(profile: str | None) -> None:
     except SecureStoreError as error:
         if "profile" in str(error):
             raise ArgumentsError(str(error)) from None
-    except subprocess.TimeoutExpired, ValueError, OSError:
+    except (subprocess.TimeoutExpired, ValueError, OSError):
         pass  # a store problem: the session_store check reports it
 
 
@@ -176,7 +176,7 @@ def _session(profile: str | None) -> tuple[Check, DeviceSession | None, bool]:
         return _store_failed(
             kind, "the Keychain did not answer in time", _keychain_fix()
         )
-    except ValueError, OSError:
+    except (ValueError, OSError):
         return _store_failed(kind, "the session store could not be read", fix)
     return (
         _check("session_store", True, "the session store is readable", store=kind),

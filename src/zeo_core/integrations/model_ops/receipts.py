@@ -641,7 +641,7 @@ def parse_model_response(
             completion=response.artifact,
             expired=expired,
         )
-    except ValidationError, ValueError, TypeError, KeyError, AttributeError:
+    except (ValidationError, ValueError, TypeError, KeyError, AttributeError):
         raise AmbiguousModelReceiptError(
             "model operation receipt is invalid; "
             "the call may have been dispatched; "

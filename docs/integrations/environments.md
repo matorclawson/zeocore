@@ -38,7 +38,7 @@ another provider or a mock. Production is an explicit launch decision each time.
 
 ## Install and prepare
 
-Follow the repository [quickstart](../../QUICKSTART.md) to use final Python 3.14
+Follow the repository [quickstart](../../QUICKSTART.md) to use final Python 3.12
 and an activated environment. Install only the optional extras named in your
 provider's guide. The base package includes the launcher, HubSpot and Kit clients.
 From a source checkout, `uv pip install -e .` installs the current code.

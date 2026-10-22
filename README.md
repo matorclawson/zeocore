@@ -46,13 +46,14 @@ need prior experience with Pydantic, MCP, or agent frameworks.
 
 ## Requirements
 
-**Python 3.14 or newer.** That's the only hard requirement. (The floor moved
-to `>=3.14` in 0.6.0, matching sovereign-agent; if you're pinned to an older
-interpreter, stay on 0.5.0, which requires `>=3.13`.)
+**Python 3.12 or newer.** That's the only hard requirement, and it is the
+interpreter Google Colab provides, so ZeoCore runs there without a custom
+Python. (The floor moved to `>=3.14` in 0.6.0 and back to `>=3.12` in 0.29.0; if
+you are pinned to an older interpreter, stay on 0.5.0, which requires `>=3.13`.)
 
 Not sure what you have? Run `python3 --version` on macOS/Linux or
 `py --version` on Windows. The [Quickstart](QUICKSTART.md#step-1-check-your-python-version)
-walks through installing 3.14 if you need it.
+walks through installing 3.12 if you need it.
 
 ## Install
 
@@ -169,7 +170,7 @@ mypy checks all of it end to end.
 
 | Start here | What it gives you |
 |---|---|
-| [QUICKSTART.md](QUICKSTART.md) | Install Python 3.14, make a venv, write and run your first capability. No prior knowledge assumed. |
+| [QUICKSTART.md](QUICKSTART.md) | Install Python 3.12, make a venv, write and run your first capability. No prior knowledge assumed. |
 | [docs/README.md](docs/README.md) | The learning hub: tutorials, a guided path through the examples, and reference material. |
 | [docs/tutorials/capability-authoring.md](docs/tutorials/capability-authoring.md) | The canonical authoring tutorial — registry, guards, manifests, adapter binding. |
 | [GET-STARTED.md](GET-STARTED.md) | The full manual: configuration, paths, filesystem, plugins, every integration, adapters, troubleshooting. |
@@ -342,8 +343,8 @@ module by module.
   and skip/run depending on credentials or OS behavior), with 90.00%+ coverage
   enforced as a two-decimal hard CI floor
   (`--cov-fail-under=90`) — a pull request that drops coverage fails the gate.
-- **CI runs the full suite on Python 3.14** (the minimum supported
-  interpreter) on every push.
+- **CI runs the full suite on Python 3.12** (the minimum supported
+  interpreter) and on 3.14 (the newest) on every push.
 - Production code is not allowed to detect that it's under test (a dedicated
   CI check fails the build if it finds `"pytest" in sys.modules` or similar).
 

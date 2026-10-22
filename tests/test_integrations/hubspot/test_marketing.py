@@ -981,3 +981,66 @@ def test_transport_blocks_arbitrary_endpoints() -> None:
         with pytest.raises(ValueError):
             transport.request("GET", path)
     transport.close()
+
+
+# --- a draft needs only a name (HubSpot v3 create); publishing still checks ----------
+
+
+def _minimal() -> EmailDraft:
+    return EmailDraft(
+        name="Weekly",
+        subject="This week",
+        content=EmailContent(),
+        from_name="Editor",
+        from_email="editor@example.com",
+    )
+
+
+def test_a_minimal_draft_omits_what_it_does_not_set() -> None:
+    body = _minimal().to_api()
+    assert "subscriptionDetails" not in body
+    assert body["content"] == {}
+    assert body["state"] == "DRAFT"
+    assert body["from"] == {"fromName": "Editor", "replyTo": "editor@example.com"}
+
+
+def test_each_optional_field_is_emitted_only_when_set(draft: EmailDraft) -> None:
+    only_subscription = _minimal().model_copy(update={"subscription_id": "5"})
+    assert only_subscription.to_api()["subscriptionDetails"] == {"subscriptionId": "5"}
+    only_office = _minimal().model_copy(update={"office_location_id": "6"})
+    assert only_office.to_api()["subscriptionDetails"] == {"officeLocationId": "6"}
+    templated = EmailContent(template_path="email/custom.html")
+    assert templated.to_api() == {"templatePath": "email/custom.html"}
+    full = draft.to_api()
+    assert full["subscriptionDetails"] == {
+        "subscriptionId": "5",
+        "officeLocationId": "6",
+    }
+    assert full["content"]["templatePath"] == "email/custom.html"
+
+
+def test_reply_to_still_sets_custom_reply_to_on_a_minimal_draft() -> None:
+    reply = _minimal().model_copy(update={"reply_to": "desk@example.com"})
+    assert reply.to_api()["from"]["customReplyTo"] == "desk@example.com"
+
+
+def test_a_draft_without_a_subscription_cannot_be_published(
+    setup_client: ClientFixture,
+) -> None:
+    client, calls, responses = setup_client
+    stored = email_data(_minimal())
+    assert "subscriptionDetails" not in stored
+    responses.append(httpx.Response(200, json=stored))
+    with pytest.raises(ValueError, match="subscription type does not match"):
+        client.publish_email(
+            PublishRequest(
+                email_id="123",
+                expected_updated_at=REVISION,
+                expected_send_spec_sha256=send_spec_digest(stored),
+                render_evidence_ref="reviews/render-1",
+                audience=Audience(contact_ids=("42",)),
+                subscription_id="5",
+                confirm=True,
+            )
+        )
+    assert len(calls) == 1

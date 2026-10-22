@@ -257,7 +257,7 @@ class HttpRevolutTokenGateway:
                         ):
                             # The grant was issued; only its delivery failed.
                             return TokenFailure(kind="unknown")
-        except httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout:
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
             return TokenFailure(kind="unavailable")  # nothing reached the provider
         except httpx.HTTPError:
             return TokenFailure(kind="unknown")

@@ -1,0 +1,2 @@
+bump: patch
+**Newsletter hidden text: documentation and tests for the Council's P3 notes on #153 (zeocore-SOW-41).** The how-to now defines a plain keyword and states that a comment inside a `display` or `visibility` value can add one `inline_display` or `inline_visibility` count above what the commented-out text alone would give (never lower). Two tests pin the property filter and that over-count. No behaviour change.

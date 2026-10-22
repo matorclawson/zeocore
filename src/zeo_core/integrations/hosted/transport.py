@@ -639,7 +639,7 @@ def _code(response: httpx.Response) -> object:
 def _is_pending(response: httpx.Response) -> bool:
     try:
         return bool(response.json().get("code") == "authorization_pending")
-    except AttributeError, ValueError:
+    except (AttributeError, ValueError):
         return False
 
 

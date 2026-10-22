@@ -116,7 +116,7 @@ class WorkDir:
             value = json.loads(self.receipt_path(name).read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
-        except OSError, ValueError:
+        except (OSError, ValueError):
             raise RecordInvalidError(
                 "receipt_invalid", f"{name}: the sign receipt can't be read"
             ) from None
@@ -812,7 +812,7 @@ class _Run:
             refusal, facts = _check_bundle(
                 bundle, candidate, self.entitlements, self.toolchain
             )
-        except ToolError, OSError:
+        except (ToolError, OSError):
             refusal, facts = _stop("held", "unreadable", "", bundle.name), {}
         if refusal is not None:
             return _stop(
@@ -883,7 +883,7 @@ class _Run:
             refusal, facts = _check_bundle(
                 bundle, candidate, self.entitlements, self.toolchain
             )
-        except ToolError, OSError:
+        except (ToolError, OSError):
             refusal = _stop(
                 "held",
                 "signing_failed_unknown",
@@ -921,7 +921,7 @@ class _Run:
                 for item in bundle.nested
             }
             bundle_tree = tree_sha256(candidate)
-        except TreeError, OSError:
+        except (TreeError, OSError):
             return _stop(
                 "refused",
                 "bundle_unsafe",
@@ -1165,7 +1165,7 @@ def _verify_executable(
             expected_entitlements,
             toolchain,
         )
-    except ToolError, OSError:
+    except (ToolError, OSError):
         return _stop(
             "held",
             "verify_unreadable",
@@ -1194,7 +1194,7 @@ def _bundle_trees(
     """The signed tree's digest, once it and the original match their records."""
     try:
         signed_tree: str | None = tree_sha256(candidate)
-    except TreeError, OSError:
+    except (TreeError, OSError):
         signed_tree = None
     if signed_tree is None or signed_tree != signed.get("signed_tree_sha256"):
         return _stop(
@@ -1207,7 +1207,7 @@ def _bundle_trees(
     if original.exists() or original.is_symlink():
         try:
             unchanged = tree_sha256(original) == bundle.unsigned_tree_sha256
-        except TreeError, OSError:
+        except (TreeError, OSError):
             unchanged = False
         if not unchanged:
             return _stop(
@@ -1245,7 +1245,7 @@ def _nested_receipts(
             )
         try:
             digests = _code_digests(candidate / item.path)
-        except TreeError, OSError:
+        except (TreeError, OSError):
             digests = (None, None)
         recorded = (receipt.get("signed_sha256"), receipt.get("signed_tree_sha256"))
         if digests == (None, None) or digests != recorded:
@@ -1317,7 +1317,7 @@ def _verify_bundle(
     expected = _bundle_entitlements(loaded, bundle)
     try:
         refusal, facts = _check_bundle(bundle, candidate, expected, toolchain)
-    except ToolError, OSError:
+    except (ToolError, OSError):
         return _stop(
             "held", "verify_unreadable", "the signature could not be read", bundle.name
         )

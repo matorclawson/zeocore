@@ -63,7 +63,7 @@ class FileJournal:
                 receipt_id = record["receipt_id"]
                 if not isinstance(receipt_id, str) or not receipt_id:
                     raise ValueError
-            except ValueError, KeyError, TypeError:
+            except (ValueError, KeyError, TypeError):
                 self._file.close()
                 raise ValueError(
                     f"{self._path} line {number}: unreadable journal record"
