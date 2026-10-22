@@ -109,6 +109,7 @@ STYLE: Final = (
     ".zc-tag-provider{background:#C6FEE1;color:#2B5E47}"
     ".zc-tag-computed{background:#EDE8E0;color:#AA1E54}"
     ".zc-tag-derived{background:#EDE8E0;color:#AA1E54}"
+    ".zc-labels{margin:4px 0}"
     ".zc-fresh{margin:4px 0;font-size:15px;line-height:21px;color:#524A43}"
     ".zc-context{margin:0 0 12px;font-size:15px;line-height:21px;color:#524A43}"
     ".zc-note{margin:4px 0;font-size:15px;line-height:21px;color:#524A43}"
@@ -196,23 +197,32 @@ def _labels(data: object) -> list[str]:
     return [str(_get(item, "label")) for item in _get(data, "assumptions") or ()]
 
 
-def _tags(card: CardState, extra: Sequence[str] = ()) -> str:
+def _tags(card: CardState, extra: Sequence[str] = ()) -> tuple[str, str]:
+    """(exceptional state beside the title, provenance labels after the answer)."""
     data = card.data_ref
     labels = _labels(data)
     replay = _get(data, "replay") is True
+    exceptional: list[str] = []
+    provenance: list[str] = []
     if replay:  # REPLAY takes precedence over everything: it is the one label
-        tags = [_tag("replay", "REPLAY")]
+        exceptional.append(_tag("replay", "REPLAY"))
     elif str(card.component) == "arrival_timeline":
         # every value of the timeline is derived from other cards' values and the
         # traveller's stated transfer and meeting time: say so, naming the inputs
-        tags = [_tag("derived", _DERIVED)]
+        provenance.append(_tag("derived", _DERIVED))
     else:
-        tags = [_tag("provider", "PROVIDER DATA")]
+        provenance.append(_tag("provider", "PROVIDER DATA"))
     if any(label not in _DERIVATIONS for label in labels) or ("assumption" in extra):
-        tags.append(_tag("assumption", "ASSUMPTION"))
+        provenance.append(_tag("assumption", "ASSUMPTION"))
     if card.replaced is True:
-        tags.append(_tag("superseded", "SUPERSEDED"))
-    return "".join(tags)
+        exceptional.append(_tag("superseded", "SUPERSEDED"))
+    return "".join(exceptional), "".join(provenance)
+
+
+def _as_of(ref: object, place: Place | None) -> str:
+    """``as of 09:40 at JFK``: what a relative claim counts from (UTC with no Place)."""
+    moment = _clock(ref, place)
+    return f"as of {moment}" + (f" at {place.code}" if place is not None else "")
 
 
 def _stamp(value: object, place: Place | None) -> str:
@@ -243,11 +253,16 @@ def _article(
 ) -> str:
     component = str(card.component)
     title = _t(_TITLES.get(component, component))
+    exceptional, labels = _tags(card, extra)
+    labels_line = f'<p class="zc-labels">{labels}</p>' if labels else ""
+    lead = re.match(r'(<p class="zc-big">.*?</p>)(.*)', body, flags=re.S)
+    answer, rest = (lead[1], lead[2]) if lead else ("", body)
+    # the title and any exceptional state, then the answer, then how fresh it is
     return (
         f'<article class="zc-card zc-{_t(component)}"'
         f' data-widget="{_t(card.widget_id)}">'
-        f"<h3>{title} {_tags(card, extra)}</h3>{fresh}{body}{_provenance(card, place)}"
-        "</article>"
+        f"<h3>{title} {exceptional}</h3>{answer}{fresh}{labels_line}{rest}"
+        f"{_provenance(card, place)}</article>"
     )
 
 
@@ -284,7 +299,8 @@ def _fresh(card: CardState, payload: Any, place: Place | None = None) -> str:  #
         )
         text = (
             "computed from a live position "
-            f"{_age((fetched - position).total_seconds())} old"
+            f"{_age((fetched - position).total_seconds())} old, "
+            f"{_as_of(_get(data, 'fetched_at'), place)}"
             if position is not None and fetched is not None and fetched >= position
             else "computed from a live position (age not provided)"
         )
@@ -422,6 +438,7 @@ def _flight(
         head += f" at {code}" if code else ""
         if now is not None and when >= now:
             head += f", in about {_span((when - now).total_seconds() / 60)}"
+            head += f", {_as_of(ref, place)}"  # the moment 'in about' counts from
     else:
         head = "No landing estimate"
     if route.origin == absent and route.destination == absent:
@@ -458,7 +475,7 @@ def _flight(
     )
     return (
         f'<p class="zc-big">{_t(head)}</p>'
-        f"<p><strong>{_t(payload.flight_number)}</strong>{where}</p>"
+        + f"<p><strong>{_t(payload.flight_number)}</strong>{where}</p>"
         + (
             _line(
                 "estimated arrival",
@@ -496,11 +513,24 @@ def _zones(hours: Sequence[Any], place: Place | None) -> str:
     return "/".join(names) or "UTC"
 
 
+def _stop_time(value: object, place: Place | None, with_day: bool) -> str:
+    """A stop's local time; with the weekday on every stop when the stops span days."""
+    moment = _moment(value)
+    if moment is None or not with_day:
+        return _clock(value, place)
+    return f"{moment.astimezone(_zone(place)).strftime('%a')} {_clock(value, place)}"
+
+
+def _zone_name(value: object, place: Place | None) -> str:
+    moment = _moment(value)
+    return moment.astimezone(_zone(place)).tzname() or "" if moment else ""
+
+
 def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
     hours = payload.hourly
-    # Drawn at about its rendered size (a 360-unit-wide box in a 280 to 360 px card), so
+    # Drawn at about its rendered size (a 300-unit-wide box in a 262 to 360 px card), so
     # its 20-unit labels are 16 px or more on screen instead of a scaled-down 5 px.
-    width, height, left, top, bottom = 360.0, 300.0, 56.0, 16.0, 52.0
+    width, height, left, top, bottom = 300.0, 300.0, 56.0, 16.0, 52.0
     plot_h = height - top - bottom
     step = (width - left - 10) / max(len(hours), 1)
     low, high = _scale([h.temp_c for h in hours])
@@ -567,8 +597,10 @@ def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
         else ""
     )
     show_prob = any(h.precip_prob is not None for h in hours)
+    crossing = "/" in zones  # EDT/EST: a bare 01:00 would be ambiguous, so name it
     rows = "".join(
-        f"<tr><td>{_clock(h.time, place)}</td><td>{_fixed(h.temp_c, 1)} &deg;C</td>"
+        f"<tr><td>{_clock(h.time, place, zone_name=crossing)}</td>"
+        f"<td>{_fixed(h.temp_c, 1)} &deg;C</td>"
         + (f"<td>{_pct(h.precip_prob)}</td>" if show_prob else "")
         + f"<td>{_fixed(h.precip_mm, 1)} mm</td></tr>"
         for h in hours
@@ -582,7 +614,9 @@ def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
             if show_prob
             else '<p class="zc-note">rain probability not provided by this source</p>'
         )
-        + '<div class="zc-scroll"><table><tr><th>time</th><th>temp</th>'
+        + '<div class="zc-scroll" role="region" tabindex="0"'
+        + ' aria-label="Hourly forecast table, scrolls sideways if wide">'
+        + "<table><tr><th>time</th><th>temp</th>"
         + ("<th>rain</th>" if show_prob else "")
         + f"<th>precip</th></tr>{rows}</table></div>"
         + '<details class="zc-details"><summary>details</summary>'
@@ -597,8 +631,15 @@ def _timeline(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
         ("Meeting", payload.meeting_time)
     ]
     stops.sort(key=lambda stop: _moment(stop[1]) or datetime.max.replace(tzinfo=UTC))
+    named = "/" in _zones([type("S", (), {"time": when}) for _, when in stops], place)
+    days = {
+        m.astimezone(_zone(place)).date()
+        for _, when in stops
+        if (m := _moment(when)) is not None
+    }
     items = "".join(
-        f"<li><strong>{_day_clock(when, place, payload.meeting_time)}</strong> "
+        f"<li><strong>{_stop_time(when, place, len(days) > 1)}"
+        f"{' ' + _zone_name(when, place) if named else ''}</strong> "
         f"{_t(label)}</li>"
         for label, when in stops
     )
@@ -698,7 +739,9 @@ def _market(
             if computed and any(q.change is not None for q in payload.symbols)
             else ""
         )
-        + '<div class="zc-scroll"><table><tr><th>symbol</th><th>rate</th>'
+        + '<div class="zc-scroll" role="region" tabindex="0"'
+        + ' aria-label="Exchange rate table, scrolls sideways if wide">'
+        + "<table><tr><th>symbol</th><th>rate</th>"
         + "<th>change</th><th>change %</th><th></th></tr>"
         + f"{rows}</table></div>"
     )
@@ -712,7 +755,9 @@ _BODIES: Final = {
 }
 
 
-def render_card_html(card: CardState, *, place: Place | None = None) -> str:
+def render_card_html(
+    card: CardState, *, place: Place | None = None, now: datetime | None = None
+) -> str:
     """One card as an ``<article>``; an invalid reference renders as unavailable."""
     if not isinstance(card, CardState):  # model text or a raw dict is never rendered
         return (
@@ -735,7 +780,9 @@ def render_card_html(card: CardState, *, place: Place | None = None) -> str:
     except (ValidationError, TypeError, ValueError, AttributeError):
         return _unavailable(card, place=place)  # WidgetRefused is a ValueError
     fresh = _fresh(card, payload, place)
-    ref = _get(data, "fetched_at")
+    if now is not None and (not isinstance(now, datetime) or now.utcoffset() is None):
+        raise ValueError("invalid_now")  # a naive 'now' would be guessed in some zone
+    ref = now.isoformat() if now is not None else _get(data, "fetched_at")
     if component == "flight_status":
         # a REPLAY never claims a live computation
         computed = _get(
@@ -780,6 +827,7 @@ def render_snapshot_html(
     document: bool = False,
     title: str = "Briefing",
     place: Place | None = None,
+    now: datetime | None = None,
 ) -> str:
     """
     The cards of a ``WidgetBoard.snapshot()`` as HTML, in snapshot order.
@@ -787,9 +835,11 @@ def render_snapshot_html(
     ``document=False`` returns a fragment (one ``<section class="zc-board">`` with its
     own ``<style>``); ``document=True`` wraps it in a full page whose content-security
     policy allows nothing but inline style. ``place`` (a :class:`Place`) is where the
-    traveller is going: with it every time is in that zone, without it in UTC.
+    traveller is going: with it every time is in that zone, without it in UTC. ``now``
+    (aware) is the moment relative text ("in about 2 h") counts from; left out, it
+    counts from each card's own fetch time, so one snapshot renders the same each time.
     """
-    body = "".join(render_card_html(card, place=place) for card in cards) or (
+    body = "".join(render_card_html(card, place=place, now=now) for card in cards) or (
         "<p>no cards yet</p>"
     )
     section = (

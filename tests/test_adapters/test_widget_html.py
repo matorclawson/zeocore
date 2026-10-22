@@ -6,6 +6,7 @@ import ast
 import copy
 import inspect
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -592,8 +593,20 @@ def test_m4_no_external_resource_can_load() -> None:
 
 def test_m4_this_renderer_opens_no_socket_and_binds_nothing() -> None:
     tree = ast.parse(Path(inspect.getsourcefile(widget_html) or "").read_text())
-    text = ast.dump(tree)
-    assert "socket" not in text and "0.0.0" + ".0" not in text and "bind" not in text
+    imported = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        for alias in (
+            node.names
+            if isinstance(node, ast.Import)
+            else [ast.alias(name=node.module or "")]
+        )
+    }
+    attributes = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    assert not imported & {"socket", "socketserver", "http", "asyncio", "ssl"}
+    assert "bind" not in attributes and "listen" not in attributes
+    assert "0.0.0" + ".0" not in ast.dump(tree)  # (tabindex is markup, not a bind)
 
 
 # M5 -- everything escaped; an invalid reference is exactly 'unavailable' --------------
@@ -984,7 +997,9 @@ def test_f1_a_live_timeline_is_computed_with_its_inputs_named_not_provider_data(
     assert _provenance_labels(out) == ["derived"]
     assert "COMPUTED from the flight estimate, the stated transfer time" in out
     assert "the meeting time" in out and "PROVIDER DATA" not in out
-    assert _fresh_lines(out) == ["computed from a live position 0 s old"]
+    assert _fresh_lines(out) == [
+        "computed from a live position 0 s old, as of 13:40 UTC"
+    ]
 
 
 def test_f1_a_replay_timeline_is_replay_only_never_computed() -> None:
@@ -1212,7 +1227,7 @@ def test_c6_the_computed_line_is_not_a_second_freshness_line() -> None:
 # --- a forecast and a computed timeline are not "live"; tables stay in their card ---
 
 FRESH_FORECAST_UTC = "forecast, issued 13:40 UTC"
-FRESH_TIMELINE_0S = "computed from a live position 0 s old"
+FRESH_TIMELINE_0S = "computed from a live position 0 s old, as of 13:40 UTC"
 
 
 def test_fr1_each_component_gets_the_freshness_line_that_is_true_of_it() -> None:
@@ -1249,7 +1264,11 @@ def test_fr4_tables_scroll_inside_their_card_instead_of_overflowing_it() -> None
     assert ".zc-scroll{overflow-x:auto;max-width:100%}" in style
     for article in _articles(render_snapshot_html(FULL)):
         for table in re.findall(r"<table.*?</table>", article, flags=re.S):
-            assert f'<div class="zc-scroll">{table}</div>' in article  # every table
+            assert re.search(
+                r'<div class="zc-scroll" role="region" tabindex="0" '
+                r'aria-label="[^"]+">' + re.escape(table) + "</div>",
+                article,
+            )  # every table is in a labelled, keyboard-focusable scroll region
     assert 'class="zc-scroll"' in render_card_html(snapshot("market_watchlist")[0])
     assert 'class="zc-scroll"' in render_card_html(snapshot("weather_hourly")[0])
 
@@ -1340,11 +1359,11 @@ def test_t6_the_weather_freshness_is_the_providers_issue_time_never_fetch_time()
 def test_t7_the_timeline_freshness_is_the_age_of_the_position() -> None:
     old = snapshot("arrival_timeline", as_of="2026-10-22T13:35:00Z")[0]  # 5 min before
     assert _fresh_lines(render_card_html(old)) == [
-        "computed from a live position 5 min old"
+        "computed from a live position 5 min old, as of 13:40 UTC"
     ]
     young = snapshot("arrival_timeline", as_of="2026-10-22T13:39:30Z")[0]
     assert _fresh_lines(render_card_html(young)) == [
-        "computed from a live position 30 s old"
+        "computed from a live position 30 s old, as of 13:40 UTC"
     ]
     none = snapshot("arrival_timeline", as_of=None)[0]
     assert _fresh_lines(render_card_html(none)) == [
@@ -1444,7 +1463,8 @@ def test_r1_the_headline_names_the_routes_destination_not_the_places_code() -> N
     assert _big(out).startswith(
         "Landing about 17:35 at EWR"
     )  # the Place gives the zone
-    assert " at JFK" not in _big(out)
+    assert "Landing about 17:35 at JFK" not in _big(out)  # the destination is EWR
+    assert _big(out).endswith("as of 09:40 at JFK")  # JFK is only the clock's place
 
 
 def test_r2_the_timeline_headline_carries_its_assumption() -> None:
@@ -1474,8 +1494,8 @@ def test_r4_across_the_new_york_dst_change_hours_are_edt_then_est() -> None:
     out = render_card_html(
         snapshot("weather_hourly", payload=_dst_hours(times))[0], place=NYC
     )
-    rows = re.findall(r"<tr><td>(\d\d:\d\d)</td>", out)
-    assert rows == ["00:00", "01:00", "01:00", "02:00"]
+    rows = re.findall(r"<tr><td>(\d\d:\d\d \w{3})</td>", out)
+    assert rows == ["00:00 EDT", "01:00 EDT", "01:00 EST", "02:00 EST"]  # not ambiguous
     assert "local time (EDT/EST)" in out and "times in EDT<" not in out
 
 
@@ -1488,12 +1508,12 @@ def test_r4_a_meeting_after_the_change_shows_est() -> None:
     ]
     out = render_card_html(snapshot("arrival_timeline", payload=sample)[0], place=NYC)
     assert "Meeting at 13:00 EST" in out
-    assert re.search(r"<strong>(?:\w{3} )?00:30</strong> Land", out)  # 04:30Z, EDT
+    assert re.search(r"<strong>(?:\w{3} )?00:30 EDT</strong> Land", out)  # 04:30Z
 
 
 def test_b1_the_weather_chart_is_drawn_near_its_rendered_size() -> None:
     out = render_card_html(snapshot("weather_hourly")[0], place=NYC)
-    assert 'viewBox="0 0 360 300"' in out  # not a 560-wide box scaled to a fifth
+    assert 'viewBox="0 0 300 300"' in out  # not a 560-wide box scaled to a fifth
     style = widget_html.STYLE
     assert ".zc-svg text{font-size:20px" in style  # 20 units at about 1:1 is 16 px+
     assert "min-height:220px" in style and "max-height:300px" in style
@@ -1532,3 +1552,109 @@ def test_b5_the_timeline_lists_its_stops_in_time_order() -> None:
     order = re.findall(r"<li><strong>(?:\w{3} )?(\d\d:\d\d)</strong> (\w+)", out)
     # 17:35 Land, 18:00 Meeting, 18:05 Customs: the fixture lists Customs before Meeting
     assert [label for _, label in order] == ["Land", "Meeting", "Customs"]
+
+
+def test_o1_the_answer_comes_before_the_freshness_and_the_labels() -> None:
+    for component in ("flight_status", "weather_hourly", "arrival_timeline"):
+        out = render_card_html(snapshot(component)[0], place=NYC)
+        position = {
+            "answer": out.index('class="zc-big"'),
+            "fresh": out.index('class="zc-fresh"'),
+            "labels": out.index('class="zc-labels"'),
+        }
+        assert position["answer"] < position["fresh"] < position["labels"], component
+        assert out.index("<h3>") < position["answer"]
+        assert (
+            "zc-tag" not in out[: position["answer"]]
+        )  # no badge row before the answer
+
+
+def test_o2_a_replay_and_a_superseded_card_keep_their_state_beside_the_title() -> None:
+    replay = render_card_html(snapshot("weather_hourly", replay=True)[0], place=NYC)
+    title = re.search(r"<h3>(.*?)</h3>", replay)[1]  # type: ignore[index]
+    assert "REPLAY" in title and replay.index("REPLAY") < replay.index('class="zc-big"')
+    old = card_with("market_watchlist", replay=True).model_dump() | {"replaced": True}
+    stale = render_card_html(CardState.model_construct(**old))
+    assert "SUPERSEDED" in re.search(r"<h3>(.*?)</h3>", stale)[1]  # type: ignore[index]
+
+
+def test_o3_a_card_with_no_big_fact_still_renders_in_order() -> None:
+    out = render_card_html(
+        snapshot("market_watchlist", payload={}, error={"reason": "Source is down"})[0]
+    )
+    assert "unavailable" in out and 'class="zc-big"' not in out
+
+
+def test_n1_a_supplied_now_sets_the_relative_text_and_naive_now_is_refused() -> None:
+    card = snapshot("flight_status")[0]  # lands 21:35Z; the card was fetched 13:40Z
+    default = _big(render_card_html(card, place=NYC))
+    later = _big(
+        render_card_html(
+            card, place=NYC, now=datetime(2026, 10, 22, 19, 35, tzinfo=UTC)
+        )
+    )
+    assert "in about 7 h 55 min" in default and "in about 2 h" in later
+    with pytest.raises(ValueError, match="invalid_now"):
+        render_card_html(card, now=datetime(2026, 10, 22, 19, 35))  # noqa: DTZ001
+    assert "in about 2 h" in render_snapshot_html(
+        [card], place=NYC, now=datetime(2026, 10, 22, 19, 35, tzinfo=UTC)
+    )
+
+
+def test_n2_when_the_stops_span_two_days_every_stop_has_its_weekday() -> None:
+    sample = copy.deepcopy(PAYLOADS["arrival_timeline"])
+    sample["steps"] = [
+        {"label": "Land", "time": "2026-10-22T21:35:00Z"},
+        {"label": "Customs", "time": "2026-10-22T22:50:00Z"},
+    ]
+    sample["meeting_time"] = "2026-10-23T07:30:00Z"  # 03:30 Fri in New York
+    out = render_card_html(snapshot("arrival_timeline", payload=sample)[0], place=NYC)
+    stops = re.findall(r"<li><strong>(.*?)</strong> (\w+)", out)
+    assert stops == [
+        ("Thu 17:35", "Land"),
+        ("Thu 18:50", "Customs"),
+        ("Fri 03:30", "Meeting"),
+    ]
+
+
+def test_n3_a_300_unit_chart_box_renders_20_unit_labels_over_16_px_at_262() -> None:
+    out = render_card_html(snapshot("weather_hourly")[0], place=NYC)
+    assert 'viewBox="0 0 300 300"' in out
+    assert 262 / 300 * 20 >= 16  # the 320 px viewport case measured by the design seat
+
+
+def test_a1_a_relative_time_is_shown_with_the_moment_it_counts_from() -> None:
+    card = snapshot("flight_status")[0]
+    head = _big(render_card_html(card, place=NYC))
+    # the moment is IN the same line as the relative time, not a footer far below
+    assert head.endswith("in about 7 h 55 min, as of 09:40 at JFK"), head
+    later = _big(
+        render_card_html(
+            card, place=NYC, now=datetime(2026, 10, 22, 19, 35, tzinfo=UTC)
+        )
+    )
+    assert later.endswith("in about 2 h, as of 15:35 at JFK"), later
+    # without a Place the moment is UTC and says so
+    assert _big(render_card_html(card)).endswith("as of 13:40 UTC")
+
+
+def test_a3_the_timeline_freshness_line_carries_its_as_of_moment() -> None:
+    card = snapshot("arrival_timeline", as_of="2026-10-22T13:35:00Z")[0]
+    line = _fresh_lines(render_card_html(card, place=NYC))
+    assert line == ["computed from a live position 5 min old, as of 09:40 at JFK"]
+    unknown = snapshot("arrival_timeline", as_of=None)[0]
+    assert _fresh_lines(render_card_html(unknown, place=NYC)) == [
+        "computed from a live position (age not provided)"  # no age claimed, no as-of
+    ]
+
+
+def test_a2_no_relative_text_means_no_as_of() -> None:
+    sample = copy.deepcopy(PAYLOADS["flight_status"])
+    sample["estimated_arrival"] = None  # nothing to count to
+    out = render_card_html(snapshot("flight_status", payload=sample)[0], place=NYC)
+    assert "in about" not in out and "as of" not in _big(out)
+    for component in ("weather_hourly", "market_watchlist"):
+        assert (
+            "as of"
+            not in _fresh_lines(render_card_html(snapshot(component)[0], place=NYC))[0]
+        )
