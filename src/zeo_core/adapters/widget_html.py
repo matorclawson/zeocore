@@ -110,6 +110,7 @@ STYLE: Final = (
     ".zc-tag-computed{background:#EDE8E0;color:#AA1E54}"
     ".zc-tag-derived{background:#EDE8E0;color:#AA1E54}"
     ".zc-labels{margin:4px 0}"
+    ".zc-asof{margin:0 0 6px;font-size:15px;line-height:21px;color:#524A43}"
     ".zc-fresh{margin:4px 0;font-size:15px;line-height:21px;color:#524A43}"
     ".zc-context{margin:0 0 12px;font-size:15px;line-height:21px;color:#524A43}"
     ".zc-note{margin:4px 0;font-size:15px;line-height:21px;color:#524A43}"
@@ -426,11 +427,13 @@ def _flight(
     code = "" if route.destination == absent else route.destination  # the route's own
     estimate = payload.estimated_arrival
     when, now = _moment(estimate), _moment(ref)
+    relative = False
     if estimate and when is not None:
         head = f"Landing about {_day_clock(estimate, place, ref)}"
         head += f" at {code}" if code else ""
         if now is not None and when >= now:
             head += f", in about {_span((when - now).total_seconds() / 60)}"
+            relative = True
     else:
         head = "No landing estimate"
     if route.origin == absent and route.destination == absent:
@@ -467,7 +470,14 @@ def _flight(
     )
     return (
         f'<p class="zc-big">{_t(head)}</p>'
-        f"<p><strong>{_t(payload.flight_number)}</strong>{where}</p>"
+        + (
+            f'<p class="zc-asof">as of {_clock(ref, place, zone_name=True)}'
+            + (f" at {_t(place.code)}" if place is not None else "")
+            + " (the &ldquo;in about&rdquo; time counts from this moment)</p>"
+            if relative
+            else ""
+        )
+        + f"<p><strong>{_t(payload.flight_number)}</strong>{where}</p>"
         + (
             _line(
                 "estimated arrival",

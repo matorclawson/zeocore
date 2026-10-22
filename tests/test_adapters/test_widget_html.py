@@ -1618,3 +1618,27 @@ def test_n3_a_300_unit_chart_box_renders_20_unit_labels_over_16_px_at_262() -> N
     out = render_card_html(snapshot("weather_hourly")[0], place=NYC)
     assert 'viewBox="0 0 300 300"' in out
     assert 262 / 300 * 20 >= 16  # the 320 px viewport case measured by the design seat
+
+
+def test_a1_a_relative_time_is_shown_with_the_moment_it_counts_from() -> None:
+    card = snapshot("flight_status")[0]
+    out = render_card_html(card, place=NYC)
+    assert "in about 7 h 55 min" in _big(out)
+    asof = re.search(r'<p class="zc-asof">(.*?)</p>', out)
+    assert asof is not None and asof[1].startswith("as of 09:40 EDT at JFK")
+    # a supplied now moves the 'as of' with the relative text
+    later = render_card_html(
+        card, place=NYC, now=datetime(2026, 10, 22, 19, 35, tzinfo=UTC)
+    )
+    assert "as of 15:35 EDT at JFK" in later and "in about 2 h" in _big(later)
+    # without a Place the moment is UTC and says so
+    assert "as of 13:40 UTC" in render_card_html(card)
+
+
+def test_a2_no_as_of_line_when_there_is_no_relative_text() -> None:
+    sample = copy.deepcopy(PAYLOADS["flight_status"])
+    sample["estimated_arrival"] = None  # nothing to count to
+    out = render_card_html(snapshot("flight_status", payload=sample)[0], place=NYC)
+    assert "zc-asof" not in out and "in about" not in out
+    for component in ("weather_hourly", "arrival_timeline", "market_watchlist"):
+        assert "zc-asof" not in render_card_html(snapshot(component)[0], place=NYC)

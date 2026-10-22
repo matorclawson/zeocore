@@ -10,3 +10,6 @@ keyboard-focusable scroll region. `render_snapshot_html` and `render_card_html` 
 card's own fetch time. The test that checked "no socket, no bind" by searching the source text now
 checks the syntax tree (no socket-type import, no bind or listen call), because the markup attribute
 `tabindex` contains the letters "bind".
+Beside any relative time ("in about 7 h 55 min") the flight card now says what it counts from: "as of
+09:40 EDT at JFK" (the card's fetch time, or the supplied `now`), so a relative time is never read as
+live wall-clock time.
