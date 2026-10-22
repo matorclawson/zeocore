@@ -691,3 +691,29 @@ def test_a_series_day_must_be_real_too() -> None:
 def test_the_old_payloads_are_still_valid() -> None:
     for component, payload in PAYLOADS.items():
         ref(component, payload=copy.deepcopy(payload)).check(component)
+
+
+def test_a_quote_without_a_previous_value_has_no_change_and_is_not_zero() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    payload["symbols"][0]["change"] = None
+    payload["symbols"][0]["change_pct"] = None
+    checked = ref("market_watchlist", payload=payload).check("market_watchlist")
+    model = REGISTRY["market_watchlist"].model_validate(checked.payload)
+    assert model.symbols[0].change is None and model.symbols[0].change_pct is None  # type: ignore[attr-defined]
+    del payload["symbols"][0]["change"], payload["symbols"][0]["change_pct"]
+    ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_a_change_that_is_given_must_be_a_finite_number() -> None:
+    for bad in ("0.5", float("nan"), float("inf")):
+        payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+        payload["symbols"][0]["change"] = bad
+        with pytest.raises(WidgetRefused):
+            ref("market_watchlist", payload=payload).check("market_watchlist")
+
+
+def test_a_price_is_still_required() -> None:
+    payload = copy.deepcopy(PAYLOADS["market_watchlist"])
+    del payload["symbols"][0]["price"]
+    with pytest.raises(WidgetRefused):
+        ref("market_watchlist", payload=payload).check("market_watchlist")

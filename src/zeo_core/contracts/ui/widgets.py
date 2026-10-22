@@ -166,8 +166,9 @@ Symbol = Annotated[str, Field(pattern=r"^[A-Z0-9.\-]{1,12}$")]
 class Quote(_Closed):
     symbol: Symbol
     price: Number
-    change: Number
-    change_pct: Number
+    #: Null when there is no previous value to compare with: never filled with 0.
+    change: Number | None = None
+    change_pct: Number | None = None
 
 
 class SeriesPoint(_Closed):
