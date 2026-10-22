@@ -1139,3 +1139,67 @@ def test_p2_a_reason_with_an_id_or_a_host_name_is_not_shown() -> None:
 def test_p2_the_page_policy_allows_no_images() -> None:
     page = render_snapshot_html(snapshot(), document=True)
     assert "img-src" not in page and "default-src 'none'" in page
+
+
+# --- the market change is COMPUTED, not provider data (ruling 9dc5ee68) -------------
+
+CHANGE_LABEL = "change_computed_from_two_reference_days"
+
+
+def _ecb_computed(**over: Any) -> str:  # noqa: ANN401
+    assumptions = [
+        {"label": CHANGE_LABEL, "value": "two ECB days", "kind": "assumption"}
+    ]
+    return render_card_html(
+        snapshot(
+            "market_watchlist",
+            payload=_ecb(),
+            delayed=False,
+            **({"assumptions": assumptions} | over),
+        )[0]
+    )
+
+
+def test_the_label_constant_is_the_published_one() -> None:
+    assert widget_html.MARKET_CHANGE_ASSUMPTION == CHANGE_LABEL
+
+
+def test_c1_a_computed_change_says_so_and_names_its_two_days_and_source() -> None:
+    out = _ecb_computed()
+    assert out.count("COMPUTED from two reference days") == 1
+    assert "2026-10-20 and 2026-10-21" in out and "provider.x" in out
+    assert "not provider data" in out and "(inputs:" in out
+    assert _provenance_labels(out) == ["provider"]  # the price keeps its ONE label
+    assert ">ASSUMPTION<" not in out  # a derivation note is not an assumption tag
+
+
+def test_c2_without_the_declaration_the_change_claims_nothing_computed() -> None:
+    out = _ecb_computed(assumptions=[])
+    assert "COMPUTED" not in out and "not provider data" not in out
+
+
+def test_c3_a_replay_never_claims_a_computation() -> None:
+    out = _ecb_computed(replay=True)
+    assert "COMPUTED" not in out and _provenance_labels(out) == ["replay"]
+
+
+def test_c4_no_previous_value_means_no_computation_claim() -> None:
+    payload = _ecb()
+    payload["symbols"][0] |= {"change": None, "change_pct": None}
+    assumptions = [{"label": CHANGE_LABEL, "value": "x", "kind": "assumption"}]
+    out = render_card_html(
+        snapshot(
+            "market_watchlist", payload=payload, delayed=False, assumptions=assumptions
+        )[0]
+    )
+    assert "change unavailable" in out and "COMPUTED" not in out
+
+
+def test_c5_the_input_source_is_withheld_when_it_is_not_a_plain_name() -> None:
+    out = _ecb_computed(source="https://x.test/?key=sk-ant-abcdefgh12345678")
+    assert "sk-ant" not in out and "x.test" not in out and "COMPUTED" in out
+
+
+def test_c6_the_computed_line_is_not_a_second_freshness_line() -> None:
+    out = _ecb_computed()
+    assert _fresh_lines(out) == ["daily reference rate, not a live quote"]
