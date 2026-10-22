@@ -12,14 +12,14 @@ transfer_minutes=the_explicitly_stated_number, meeting_time=aware_datetime).
 Close the client after use. read_briefing composes all four references and
 uses the route's destination coordinates for the weather request.
 
-Only api.met.no, api.adsb.lol and data-api.ecb.europa.eu are allowed, on HTTPS443
+Only api.met.no, api.adsb.lol and data-api.ecb.europa.eu are allowed, on HTTPS 443
 and fixed documented path shapes. Redirects, userinfo, nonstandard ports,
 arbitrary URLs and environment proxies are refused. The client serialises
-requests, sends an identifying User-Agent, caches each request for at least60s
+requests, sends an identifying User-Agent, caches each request for at least 60 s
 and respects MET's later Expires header. HTTP429 establishes Retry-After
-cooldown with no automatic retry. Each client run has a20-request per-host
-budget and each response is limited to1MiB with a10s timeout. Do not create
-new clients to evade that budget.
+cooldown with no automatic retry. Each client run has a 20-request per-host rolling ten minute
+budget and each response is limited to 1 MiB with a 10 s inactivity timeout and a monotonic deadline checked on every unbuffered network chunk. Keep one shared client for the service run; do not create
+new clients to evade the rolling budget, source cooldown or cache.
 
 MET Norway hourly forecasts carry CC BY4.0 attribution. Missing precipitation
 probability stays null. ADSB.lol position data carry ODbL1.0 attribution and
@@ -35,6 +35,7 @@ rates retain their actual publication date and say daily reference rate, not a
 live quote. Changes use Decimal arithmetic rounded half-even to six decimal
 places; a missing previous observation leaves change null. Source: ECB
 statistics; data are freely available from ECB. Derived changes are identified.
+Partial ECB replies make the whole market card unavailable.
 No stock prices, invented rows, today-stamped holidays or fake midnight
 publication time are supplied.
 

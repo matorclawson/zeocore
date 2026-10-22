@@ -1,6 +1,6 @@
 """Offline public-source transport controls; no provider calls in this suite."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -220,9 +220,102 @@ def test_budget_and_provider_expiry_are_enforced() -> None:
         http.fetch("GET", url)
         assert len(calls) == 1
         clock.t = 8000
-        http.requests["api.met.no"] = 20
-        with pytest.raises(SourceUnavailableError):
-            http.fetch("GET", url)
-        assert len(calls) == 1
+        http.fetch("GET", url)
+        assert len(calls) == 2
+    finally:
+        http.close()
+
+
+@pytest.mark.parametrize(
+    "body,host,path",
+    [
+        ("[" * 50000 + "]" * 50000, "api.adsb.lol", "/v2/callsign/TEST123"),
+        (
+            "CURRENCY,OBS_VALUE\nUSD," + "9" * 140000 + "\n",
+            "data-api.ecb.europa.eu",
+            "/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=2&format=csvdata",
+        ),
+    ],
+)
+def test_decoder_limit_errors_are_value_free_source_unavailable(
+    body: str, host: str, path: str
+) -> None:
+    http, _ = client(lambda request: httpx.Response(200, text=body))
+    try:
+        try:
+            http.fetch("GET", "https://" + host + path)
+        except Exception as error:
+            assert isinstance(error, SourceUnavailableError)
+            assert error.code == "source_unavailable"
+            assert body not in str(error)
+        else:
+            pytest.fail("Malformed source must be unavailable")
+    finally:
+        http.close()
+
+
+def test_dripping_stream_stops_at_monotonic_deadline_without_buffering_64k() -> None:
+    clock = Clock()
+    observed: list[float] = []
+
+    class Drip(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            for _ in range(100):
+                clock.t += 6
+                observed.append(clock.t)
+                yield b" "
+
+    http = PublicSourceHTTP(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, stream=Drip())),
+        clock=clock.now,
+        monotonic=clock.mono,
+        sleep=clock.sleep,
+    )
+    try:
+        with pytest.raises(SourceUnavailableError) as error:
+            http.fetch("GET", POSITION_URL)
+        assert error.value.code == "source_unavailable"
+        assert observed == [6, 12]
+        assert not http._cache
+    finally:
+        http.close()
+
+
+def test_twenty_five_spaced_briefings_keep_working_with_shared_budget() -> None:
+    calls: list[httpx.Request] = []
+    http, clock = client(response_handler(httpx.Response(200, json={"ac": []}), calls))
+    try:
+        for number in range(25):
+            clock.t = number * 61.0
+            # Two ADS-B reads per briefing, all unique so cache cannot hide exhaustion.
+            for suffix in ("A", "B"):
+                try:
+                    http.fetch(
+                        "GET",
+                        "https://api.adsb.lol/v2/callsign/TEST" + str(number) + suffix,
+                    )
+                except SourceUnavailableError as error:
+                    raise AssertionError(
+                        "Spaced briefings exhausted a lifetime budget"
+                    ) from error
+        assert len(calls) == 50
+    finally:
+        http.close()
+
+
+def test_rolling_window_burst_refused_then_recovers_without_a_new_client() -> None:
+    calls: list[httpx.Request] = []
+    http, clock = client(response_handler(httpx.Response(200, json={"ac": []}), calls))
+    try:
+        for number in range(20):
+            http.fetch("GET", "https://api.adsb.lol/v2/callsign/TEST" + str(number))
+        with pytest.raises(SourceUnavailableError) as caught:
+            http.fetch("GET", "https://api.adsb.lol/v2/callsign/TEST20")
+        assert caught.value.code == "source_request_budget_exhausted"
+        assert "ten minute window" in str(caught.value)
+        assert len(calls) == 20
+        clock.t = 601
+        http.fetch("GET", "https://api.adsb.lol/v2/callsign/TEST20")
+        assert len(calls) == 21
     finally:
         http.close()

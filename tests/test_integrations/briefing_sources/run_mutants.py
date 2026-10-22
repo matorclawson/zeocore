@@ -36,7 +36,7 @@ MUTANTS = [
     (
         "P identifying UA removed",
         "http.py",
-        'headers={"User-Agent": USER_AGENT}',
+        'headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"}',
         "headers={}",
         "test_http.py::test_cache_user_agent_and_no_personal_fields",
     ),
@@ -86,6 +86,81 @@ MUTANTS = [
         "test_http.py::test_cache_data_cannot_be_poisoned_by_a_caller",
     ),
 ]
+
+MUTANTS.extend(
+    [
+        (
+            "A1 attribution withheld",
+            "flight.py",
+            "ODbL 1.0, Virtual",
+            "ODbL 1.0; Virtual",
+            "test_flight.py::test_all_adapter_attributions_survive_the_actual_shared_renderer",
+        ),
+        (
+            "A2 CSV decoder escapes",
+            "http.py",
+            "            csv.Error,",
+            "            ArithmeticError,",
+            "test_http.py::test_decoder_limit_errors_are_value_free_source_unavailable",
+        ),
+        (
+            "A2 recursive JSON escapes",
+            "http.py",
+            "            RecursionError,",
+            "            ArithmeticError,",
+            "test_http.py::test_decoder_limit_errors_are_value_free_source_unavailable",
+        ),
+        (
+            "A3 stream deadline absent",
+            "http.py",
+            (
+                "        for chunk in response.iter_bytes():\n"
+                "            if self._monotonic() >= deadline:"
+            ),
+            "        for chunk in response.iter_bytes():\n            if False:",
+            "test_http.py::test_dripping_stream_stops_at_monotonic_deadline_without_buffering_64k",
+        ),
+    ]
+)
+
+MUTANTS.append(
+    (
+        "F2 tiny change becomes zero",
+        "market.py",
+        "return float(value if rounded == 0 and value != 0 else rounded)",
+        "return float(rounded)",
+        "test_market.py::test_tiny_positive_and_negative_changes_never_become_invented_zero",
+    )
+)
+
+MUTANTS.append(
+    (
+        "Market computed declaration missing",
+        "market.py",
+        "label=MARKET_CHANGE_ASSUMPTION",
+        'label="undeclared_computation"',
+        "test_market.py::test_daily_date_decimal_change_no_live_clock_or_unknown_row",
+    )
+)
+
+MUTANTS.append(
+    (
+        "Rolling budget never expires",
+        "http.py",
+        "while window and window[0] <= now - 600:",
+        "while False and window:",
+        "test_http.py::test_twenty_five_spaced_briefings_keep_working_with_shared_budget",
+    )
+)
+MUTANTS.append(
+    (
+        "Rolling budget unlimited",
+        "http.py",
+        "if len(window) >= 20:",
+        "if False:",
+        "test_http.py::test_rolling_window_burst_refused_then_recovers_without_a_new_client",
+    )
+)
 
 
 def main() -> int:

@@ -15,7 +15,7 @@ from zeo_core.integrations.briefing_sources.http import (
 )
 from zeo_core.integrations.briefing_sources.timeline import unavailable
 
-SOURCE = "ADSB.lol contributors, ODbL 1.0; Virtual Radar Server standing-data, CC0"
+SOURCE = "ADSB.lol contributors, ODbL 1.0, Virtual Radar Server standing-data, CC0"
 
 
 @dataclass(frozen=True)

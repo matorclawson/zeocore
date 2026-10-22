@@ -91,3 +91,61 @@ def test_actual_smoke_empty_aircraft_response_is_unavailable() -> None:
         assert ref.error is not None and ref.payload == {}
     finally:
         http.close()
+
+
+def test_all_adapter_attributions_survive_the_actual_shared_renderer() -> None:
+    from datetime import timedelta
+
+    from tests.test_integrations.briefing_sources.test_market import SAMPLE
+    from zeo_core.adapters.widget_html import render_card_html
+    from zeo_core.contracts.ui.widgets import WidgetBoard, WidgetUpsert
+    from zeo_core.integrations.briefing_sources import PublicBriefingSources
+
+    def sources(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.met.no":
+            return httpx.Response(
+                200,
+                json=json.loads((FIXTURES / "met-locationforecast.json").read_text()),
+            )
+        if request.url.host == "data-api.ecb.europa.eu":
+            return httpx.Response(200, text=SAMPLE)
+        return handler(request)
+
+    http, _ = client(sources)
+    source = PublicBriefingSources(http, clock=lambda: NOW)
+    try:
+        refs = source.read_briefing(
+            "TEST123",
+            transfer_minutes=45,
+            meeting_time=NOW + timedelta(hours=5),
+            currencies=["USD"],
+        )
+        assert len(refs) == 4
+        board = WidgetBoard()
+        board.begin_request("attribution-test")
+        for component, reference in refs.items():
+            assert reference.error is None
+            event = WidgetUpsert.model_validate(
+                {
+                    "widget_id": component.replace("_", "-"),
+                    "type": "widget.upsert",
+                    "component": component,
+                    "revision": 1,
+                    "request_id": "attribution-test",
+                    "data_ref": reference.id,
+                }
+            )
+            assert board.apply(event, reference)
+        for card in board.snapshot():
+            rendered = render_card_html(card)
+            assert card.data_ref.source in rendered
+            assert "[withheld]" not in rendered
+            if card.component == "market_watchlist":
+                assert (
+                    "change and change % COMPUTED from two reference days" in rendered
+                )
+                assert "not provider data" in rendered
+        assert "ODbL 1.0" in refs["flight_status"].source
+        assert "CC BY 4.0" in refs["weather_hourly"].source
+    finally:
+        source.close()

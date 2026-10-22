@@ -7,6 +7,7 @@ import io
 import json
 import re
 import time
+from collections import deque
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -30,7 +31,9 @@ class SourceUnavailableError(ValueError):
         reasons = {
             "source_request_refused": "The public source request was refused",
             "source_rate_limited": "The public source asked us to wait",
-            "source_request_budget_exhausted": "The source request limit was reached",
+            "source_request_budget_exhausted": (
+                "The source request limit was reached, wait for the ten minute window"
+            ),
             "source_response_too_large": "The public source response was too large",
             "source_unavailable": "The public source did not answer with usable data",
             "arrival_inputs_unavailable": "The arrival inputs are unavailable",
@@ -110,7 +113,8 @@ def _project_json(
 class PublicSourceHTTP:
     """A fixed-endpoint client; not an arbitrary URL proxy.
 
-    Cache and host budgets live for this instance's run. Injected transports
+    Cache and rolling ten minute host budgets live for this instance's run.
+    Injected transports
     remain behind the same URL guard. No environment proxy or credential read.
     """
 
@@ -128,13 +132,14 @@ class PublicSourceHTTP:
             trust_env=False,
             follow_redirects=False,
             timeout=10,
-            headers={"User-Agent": USER_AGENT},
+            headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"},
         )
         self._lock = RLock()
         self._cache: dict[str, tuple[float, Fetched]] = {}
         self._cooldown: dict[str, float] = {}
         self._last: dict[str, float] = {}
         self.requests: dict[str, int] = {}
+        self._request_windows: dict[str, deque[float]] = {}
         self.refused = 0
 
     def close(self) -> None:
@@ -266,10 +271,14 @@ class PublicSourceHTTP:
         if cached and cached[0] > now:
             return deepcopy(cached[1])
         self._cache.pop(key, None)  # an expired value is never a failure fallback
-        if self.requests.get(host, 0) >= 20:
+        window = self._request_windows.setdefault(host, deque())
+        while window and window[0] <= now - 600:
+            window.popleft()
+        if len(window) >= 20:
             raise SourceUnavailableError("source_request_budget_exhausted")
         self._sleep(max(0, 1 - (now - self._last.get(host, now - 1))))
         self._last[host] = self._monotonic()
+        window.append(self._monotonic())
         self.requests[host] = self.requests.get(host, 0) + 1
         return self._remote(host, path, key, method, url, body)
 
@@ -282,6 +291,7 @@ class PublicSourceHTTP:
         url: str,
         body: dict[str, Any] | None,
     ) -> Fetched:
+        deadline = self._monotonic() + 10
         try:
             with self._client.stream(method, url, json=body) as response:
                 fetched_at = self._clock()
@@ -291,25 +301,46 @@ class PublicSourceHTTP:
                     if 300 <= response.status_code < 400:
                         self.refused += 1
                     raise SourceUnavailableError("source_unavailable")
-                chunks = bytearray()
-                for chunk in response.iter_bytes(chunk_size=65536):
-                    chunks.extend(chunk)
-                    if len(chunks) > MAX_BYTES:
-                        raise SourceUnavailableError("source_response_too_large")
+                chunks = self._bounded_body(response, deadline)
                 data = self._decode(host, path, chunks)
                 result = Fetched(data, fetched_at)
-                ttl = 60.0
-                if host == "api.met.no" and "Expires" in response.headers:
-                    ttl = max(
-                        ttl,
-                        (
-                            parsedate_to_datetime(response.headers["Expires"])
-                            - fetched_at
-                        ).total_seconds(),
-                    )
+                ttl = self._ttl(host, response, fetched_at)
                 self._cache[key] = (self._monotonic() + ttl, deepcopy(result))
                 return result
         except SourceUnavailableError:
             raise
-        except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError):
+        except (
+            httpx.HTTPError,
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            csv.Error,
+            RecursionError,
+        ):
             raise SourceUnavailableError("source_unavailable") from None
+
+    def _bounded_body(self, response: httpx.Response, deadline: float) -> bytearray:
+        if response.headers.get("Content-Encoding", "identity") != "identity":
+            raise SourceUnavailableError("source_unavailable")
+        chunks = bytearray()
+        for chunk in response.iter_bytes():
+            if self._monotonic() >= deadline:
+                raise SourceUnavailableError("source_unavailable")
+            chunks.extend(chunk)
+            if len(chunks) > MAX_BYTES:
+                raise SourceUnavailableError("source_response_too_large")
+        if self._monotonic() >= deadline:
+            raise SourceUnavailableError("source_unavailable")
+        return chunks
+
+    @staticmethod
+    def _ttl(host: str, response: httpx.Response, fetched_at: datetime) -> float:
+        ttl = 60.0
+        if host == "api.met.no" and "Expires" in response.headers:
+            try:
+                expiry = parsedate_to_datetime(response.headers["Expires"])
+                ttl = max(ttl, (expiry - fetched_at).total_seconds())
+            except (ValueError, TypeError, OverflowError):
+                pass
+        return ttl

@@ -33,9 +33,7 @@ def arrival_timeline(
     fetched_at: datetime | None = None,
 ) -> DataRef:
     fetched_at = fetched_at or utc_now()
-    source = (
-        "Computed from ADSB.lol position estimate and traveller-stated transfer/meeting"
-    )
+    source = "Computed from ADSB.lol position estimate, stated transfer and meeting"
     try:
         flight = DataRef.model_validate(flight.model_dump()).check("flight_status")
         if (
@@ -53,7 +51,7 @@ def arrival_timeline(
         landing = datetime.fromisoformat(estimate).astimezone(UTC)
         meeting = meeting_time.astimezone(UTC)
         arrival = landing + timedelta(minutes=transfer_minutes)
-        margin = (meeting - arrival).total_seconds() / 60
+        margin = round((meeting - arrival).total_seconds() / 60)
         return DataRef(
             id="timeline-" + uuid4().hex,
             source=source,

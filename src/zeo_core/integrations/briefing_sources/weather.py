@@ -15,7 +15,7 @@ from zeo_core.integrations.briefing_sources.http import (
 )
 from zeo_core.integrations.briefing_sources.timeline import unavailable
 
-SOURCE = "MET Norway (api.met.no), CC BY 4.0; hourly subset normalised"
+SOURCE = "MET Norway (api.met.no), CC BY 4.0, hourly subset normalised"
 
 
 def weather(

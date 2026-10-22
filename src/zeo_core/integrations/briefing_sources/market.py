@@ -7,19 +7,25 @@ from datetime import date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from uuid import uuid4
 
-from zeo_core.contracts.ui.widgets import DataRef
+from zeo_core.contracts.ui.widgets import Assumption, DataRef
 from zeo_core.integrations.briefing_sources.http import (
     PublicSourceHTTP,
     SourceUnavailableError,
 )
 from zeo_core.integrations.briefing_sources.timeline import unavailable
 
-SOURCE = "ECB statistics, freely available; daily EUR reference rates; changes computed"
+SOURCE = "ECB statistics, freely available, daily EUR reference rates, changes computed"
 # Explicit supported currency list; a missing provider row is still unavailable.
 CURRENCIES = frozenset(
     {"USD", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "NOK", "SEK", "DKK"}
 )
+MARKET_CHANGE_ASSUMPTION = "change_computed_from_two_reference_days"
 ROUNDING = Decimal("0.000001")
+
+
+def _reported_delta(value: Decimal) -> float:
+    rounded = value.quantize(ROUNDING, rounding=ROUND_HALF_EVEN)
+    return float(value if rounded == 0 and value != 0 else rounded)
 
 
 def _observations(
@@ -84,12 +90,8 @@ def market(
             if len(observed) == 2:
                 previous = observed[0][1]
                 delta = current - previous
-                change = float(delta.quantize(ROUNDING, rounding=ROUND_HALF_EVEN))
-                percent = float(
-                    (delta / previous * Decimal(100)).quantize(
-                        ROUNDING, rounding=ROUND_HALF_EVEN
-                    )
-                )
+                change = _reported_delta(delta)
+                percent = _reported_delta(delta / previous * Decimal(100))
             symbol = "EUR" + code
             quotes.append(
                 {
@@ -110,6 +112,17 @@ def market(
             as_of=None,
             replay=False,
             delayed=False,
+            assumptions=(
+                [
+                    Assumption(
+                        label=MARKET_CHANGE_ASSUMPTION,
+                        value="two ECB reference days",
+                        kind="assumption",
+                    )
+                ]
+                if any(quote["change"] is not None for quote in quotes)
+                else []
+            ),
             payload={
                 "symbols": quotes,
                 "market_status": "Currencies only; market hours not provided",

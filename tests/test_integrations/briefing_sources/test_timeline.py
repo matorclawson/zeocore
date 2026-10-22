@@ -26,7 +26,7 @@ def test_timeline_margin_and_bound_assumption_not_model_prose() -> None:
         assert output.assumptions[0].value == 90.0
         landing = datetime.fromisoformat(ref.payload["estimated_arrival"])
         expected = ((NOW + timedelta(hours=3)) - landing).total_seconds() / 60 - 90
-        assert abs(output.payload["margin_minutes"] - expected) < 0.000001
+        assert output.payload["margin_minutes"] == round(expected)
         for transfer in (-1.0, float("nan")):
             bad = arrival_timeline(
                 ref, transfer_minutes=transfer, meeting_time=NOW, fetched_at=NOW
