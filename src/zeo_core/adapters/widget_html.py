@@ -505,6 +505,14 @@ def _zones(hours: Sequence[Any], place: Place | None) -> str:
     return "/".join(names) or "UTC"
 
 
+def _stop_time(value: object, place: Place | None, with_day: bool) -> str:
+    """A stop's local time; with the weekday on every stop when the stops span days."""
+    moment = _moment(value)
+    if moment is None or not with_day:
+        return _clock(value, place)
+    return f"{moment.astimezone(_zone(place)).strftime('%a')} {_clock(value, place)}"
+
+
 def _zone_name(value: object, place: Place | None) -> str:
     moment = _moment(value)
     return moment.astimezone(_zone(place)).tzname() or "" if moment else ""
@@ -512,9 +520,9 @@ def _zone_name(value: object, place: Place | None) -> str:
 
 def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
     hours = payload.hourly
-    # Drawn at about its rendered size (a 360-unit-wide box in a 280 to 360 px card), so
+    # Drawn at about its rendered size (a 300-unit-wide box in a 262 to 360 px card), so
     # its 20-unit labels are 16 px or more on screen instead of a scaled-down 5 px.
-    width, height, left, top, bottom = 360.0, 300.0, 56.0, 16.0, 52.0
+    width, height, left, top, bottom = 300.0, 300.0, 56.0, 16.0, 52.0
     plot_h = height - top - bottom
     step = (width - left - 10) / max(len(hours), 1)
     low, high = _scale([h.temp_c for h in hours])
@@ -598,7 +606,9 @@ def _weather(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
             if show_prob
             else '<p class="zc-note">rain probability not provided by this source</p>'
         )
-        + '<div class="zc-scroll"><table><tr><th>time</th><th>temp</th>'
+        + '<div class="zc-scroll" role="region" tabindex="0"'
+        + ' aria-label="Hourly forecast table, scrolls sideways if wide">'
+        + "<table><tr><th>time</th><th>temp</th>"
         + ("<th>rain</th>" if show_prob else "")
         + f"<th>precip</th></tr>{rows}</table></div>"
         + '<details class="zc-details"><summary>details</summary>'
@@ -614,8 +624,13 @@ def _timeline(payload: Any, place: Place | None = None) -> str:  # noqa: ANN401
     ]
     stops.sort(key=lambda stop: _moment(stop[1]) or datetime.max.replace(tzinfo=UTC))
     named = "/" in _zones([type("S", (), {"time": when}) for _, when in stops], place)
+    days = {
+        m.astimezone(_zone(place)).date()
+        for _, when in stops
+        if (m := _moment(when)) is not None
+    }
     items = "".join(
-        f"<li><strong>{_day_clock(when, place, payload.meeting_time)}"
+        f"<li><strong>{_stop_time(when, place, len(days) > 1)}"
         f"{' ' + _zone_name(when, place) if named else ''}</strong> "
         f"{_t(label)}</li>"
         for label, when in stops
@@ -716,7 +731,9 @@ def _market(
             if computed and any(q.change is not None for q in payload.symbols)
             else ""
         )
-        + '<div class="zc-scroll"><table><tr><th>symbol</th><th>rate</th>'
+        + '<div class="zc-scroll" role="region" tabindex="0"'
+        + ' aria-label="Exchange rate table, scrolls sideways if wide">'
+        + "<table><tr><th>symbol</th><th>rate</th>"
         + "<th>change</th><th>change %</th><th></th></tr>"
         + f"{rows}</table></div>"
     )
@@ -730,7 +747,9 @@ _BODIES: Final = {
 }
 
 
-def render_card_html(card: CardState, *, place: Place | None = None) -> str:
+def render_card_html(
+    card: CardState, *, place: Place | None = None, now: datetime | None = None
+) -> str:
     """One card as an ``<article>``; an invalid reference renders as unavailable."""
     if not isinstance(card, CardState):  # model text or a raw dict is never rendered
         return (
@@ -753,7 +772,9 @@ def render_card_html(card: CardState, *, place: Place | None = None) -> str:
     except (ValidationError, TypeError, ValueError, AttributeError):
         return _unavailable(card, place=place)  # WidgetRefused is a ValueError
     fresh = _fresh(card, payload, place)
-    ref = _get(data, "fetched_at")
+    if now is not None and (not isinstance(now, datetime) or now.utcoffset() is None):
+        raise ValueError("invalid_now")  # a naive 'now' would be guessed in some zone
+    ref = now.isoformat() if now is not None else _get(data, "fetched_at")
     if component == "flight_status":
         # a REPLAY never claims a live computation
         computed = _get(
@@ -798,6 +819,7 @@ def render_snapshot_html(
     document: bool = False,
     title: str = "Briefing",
     place: Place | None = None,
+    now: datetime | None = None,
 ) -> str:
     """
     The cards of a ``WidgetBoard.snapshot()`` as HTML, in snapshot order.
@@ -805,9 +827,11 @@ def render_snapshot_html(
     ``document=False`` returns a fragment (one ``<section class="zc-board">`` with its
     own ``<style>``); ``document=True`` wraps it in a full page whose content-security
     policy allows nothing but inline style. ``place`` (a :class:`Place`) is where the
-    traveller is going: with it every time is in that zone, without it in UTC.
+    traveller is going: with it every time is in that zone, without it in UTC. ``now``
+    (aware) is the moment relative text ("in about 2 h") counts from; left out, it
+    counts from each card's own fetch time, so one snapshot renders the same each time.
     """
-    body = "".join(render_card_html(card, place=place) for card in cards) or (
+    body = "".join(render_card_html(card, place=place, now=now) for card in cards) or (
         "<p>no cards yet</p>"
     )
     section = (

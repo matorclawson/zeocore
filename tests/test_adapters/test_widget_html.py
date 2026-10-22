@@ -6,6 +6,7 @@ import ast
 import copy
 import inspect
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -592,8 +593,20 @@ def test_m4_no_external_resource_can_load() -> None:
 
 def test_m4_this_renderer_opens_no_socket_and_binds_nothing() -> None:
     tree = ast.parse(Path(inspect.getsourcefile(widget_html) or "").read_text())
-    text = ast.dump(tree)
-    assert "socket" not in text and "0.0.0" + ".0" not in text and "bind" not in text
+    imported = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        for alias in (
+            node.names
+            if isinstance(node, ast.Import)
+            else [ast.alias(name=node.module or "")]
+        )
+    }
+    attributes = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    assert not imported & {"socket", "socketserver", "http", "asyncio", "ssl"}
+    assert "bind" not in attributes and "listen" not in attributes
+    assert "0.0.0" + ".0" not in ast.dump(tree)  # (tabindex is markup, not a bind)
 
 
 # M5 -- everything escaped; an invalid reference is exactly 'unavailable' --------------
@@ -1249,7 +1262,11 @@ def test_fr4_tables_scroll_inside_their_card_instead_of_overflowing_it() -> None
     assert ".zc-scroll{overflow-x:auto;max-width:100%}" in style
     for article in _articles(render_snapshot_html(FULL)):
         for table in re.findall(r"<table.*?</table>", article, flags=re.S):
-            assert f'<div class="zc-scroll">{table}</div>' in article  # every table
+            assert re.search(
+                r'<div class="zc-scroll" role="region" tabindex="0" '
+                r'aria-label="[^"]+">' + re.escape(table) + "</div>",
+                article,
+            )  # every table is in a labelled, keyboard-focusable scroll region
     assert 'class="zc-scroll"' in render_card_html(snapshot("market_watchlist")[0])
     assert 'class="zc-scroll"' in render_card_html(snapshot("weather_hourly")[0])
 
@@ -1493,7 +1510,7 @@ def test_r4_a_meeting_after_the_change_shows_est() -> None:
 
 def test_b1_the_weather_chart_is_drawn_near_its_rendered_size() -> None:
     out = render_card_html(snapshot("weather_hourly")[0], place=NYC)
-    assert 'viewBox="0 0 360 300"' in out  # not a 560-wide box scaled to a fifth
+    assert 'viewBox="0 0 300 300"' in out  # not a 560-wide box scaled to a fifth
     style = widget_html.STYLE
     assert ".zc-svg text{font-size:20px" in style  # 20 units at about 1:1 is 16 px+
     assert "min-height:220px" in style and "max-height:300px" in style
@@ -1563,3 +1580,41 @@ def test_o3_a_card_with_no_big_fact_still_renders_in_order() -> None:
         snapshot("market_watchlist", payload={}, error={"reason": "Source is down"})[0]
     )
     assert "unavailable" in out and 'class="zc-big"' not in out
+
+
+def test_n1_a_supplied_now_sets_the_relative_text_and_naive_now_is_refused() -> None:
+    card = snapshot("flight_status")[0]  # lands 21:35Z; the card was fetched 13:40Z
+    default = _big(render_card_html(card, place=NYC))
+    later = _big(
+        render_card_html(
+            card, place=NYC, now=datetime(2026, 10, 22, 19, 35, tzinfo=UTC)
+        )
+    )
+    assert "in about 7 h 55 min" in default and "in about 2 h" in later
+    with pytest.raises(ValueError, match="invalid_now"):
+        render_card_html(card, now=datetime(2026, 10, 22, 19, 35))  # noqa: DTZ001
+    assert "in about 2 h" in render_snapshot_html(
+        [card], place=NYC, now=datetime(2026, 10, 22, 19, 35, tzinfo=UTC)
+    )
+
+
+def test_n2_when_the_stops_span_two_days_every_stop_has_its_weekday() -> None:
+    sample = copy.deepcopy(PAYLOADS["arrival_timeline"])
+    sample["steps"] = [
+        {"label": "Land", "time": "2026-10-22T21:35:00Z"},
+        {"label": "Customs", "time": "2026-10-22T22:50:00Z"},
+    ]
+    sample["meeting_time"] = "2026-10-23T07:30:00Z"  # 03:30 Fri in New York
+    out = render_card_html(snapshot("arrival_timeline", payload=sample)[0], place=NYC)
+    stops = re.findall(r"<li><strong>(.*?)</strong> (\w+)", out)
+    assert stops == [
+        ("Thu 17:35", "Land"),
+        ("Thu 18:50", "Customs"),
+        ("Fri 03:30", "Meeting"),
+    ]
+
+
+def test_n3_a_300_unit_chart_box_renders_20_unit_labels_over_16_px_at_262() -> None:
+    out = render_card_html(snapshot("weather_hourly")[0], place=NYC)
+    assert 'viewBox="0 0 300 300"' in out
+    assert 262 / 300 * 20 >= 16  # the 320 px viewport case measured by the design seat
