@@ -1227,3 +1227,82 @@ def test_an_invalid_spend_limit_is_refused_before_any_call(value: object) -> Non
         native(client, spend_limit_cents=value)
     assert refused.value.code == "spend_limit_invalid"
     assert sessions.seen == {}  # create() was never reached
+
+
+# --- openai 3.29.0's create() has no spend_control (3.30.0 is the first that has) ---
+
+
+class _Sdk329Sessions:
+    """create() as in openai 3.29.0: the same, minus ``spend_control``."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self._inner = _RealShapedSessions(turn(), answer())
+
+    def create(  # noqa: PLR0913
+        self,
+        *,
+        environment: Mapping[str, Any],
+        output_type: object = None,
+        tool_handlers: Mapping[str, Callable[[dict[str, Any]], Any]] | None = None,
+        stream: bool,
+        agent: Mapping[str, Any] | None = None,
+        agent_id: str | None = None,
+        input: object = None,  # noqa: A002
+        metadata: object = None,
+        vault_ids: object = None,
+        extra_headers: object = None,
+        extra_query: object = None,
+        extra_body: object = None,
+        timeout: object = None,
+    ) -> object:
+        self.calls += 1
+        return self._inner.create(
+            environment=environment,
+            tool_handlers=tool_handlers,
+            stream=stream,
+            agent=agent,
+            input=input,
+            timeout=timeout,
+        )
+
+
+def _client_329() -> tuple[SimpleNamespace, _Sdk329Sessions]:
+    sessions = _Sdk329Sessions()
+    client = SimpleNamespace(
+        beta=SimpleNamespace(agents=SimpleNamespace(sessions=sessions))
+    )
+    return client, sessions
+
+
+def test_a_spend_limit_on_an_sdk_without_spend_control_is_refused_plainly() -> None:
+    client, sessions = _client_329()
+    with pytest.raises(agents.AgentsRefused) as refused:
+        native(client, spend_limit_cents=200)
+    assert refused.value.code == "spend_limit_unsupported_by_sdk"
+    assert sessions.calls == 0  # refused before any request: never a silent no-op
+
+
+def test_the_same_old_sdk_still_runs_without_a_spend_limit() -> None:
+    client, sessions = _client_329()
+    result = native(client)
+    assert result.ok and sessions.calls == 1
+
+
+def test_a_create_whose_signature_cannot_be_read_is_refused_for_a_spend_limit() -> None:
+    def create(**kwargs: object) -> None:  # inspect.signature raises TypeError on this
+        raise AssertionError
+
+    create.__signature__ = "unreadable"  # type: ignore[attr-defined]
+
+    class Opaque:
+        pass
+
+    Opaque.create = staticmethod(create)  # type: ignore[attr-defined]
+
+    client = SimpleNamespace(
+        beta=SimpleNamespace(agents=SimpleNamespace(sessions=Opaque()))
+    )
+    with pytest.raises(agents.AgentsRefused) as refused:
+        native(client, spend_limit_cents=200)
+    assert refused.value.code == "spend_limit_unsupported_by_sdk"

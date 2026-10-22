@@ -77,6 +77,11 @@ for a completed turn with non-blank output.
 - **Never show the model's prose as data.** Build the values you display from
   what your handlers returned. The [briefing cards guide](../how-to/briefing-cards.md)
   does this.
+- **A spend limit can be requested.** `run_native(..., spend_limit_cents=200)` asks
+  the provider to apply a limit for the session (USD cents; the SDK's `spend_control`).
+  It needs `openai>=3.30.0`: with 3.29.0 the call is refused with
+  `spend_limit_unsupported_by_sdk` before any request, never silently dropped. Whether
+  the provider stops a session that passes the limit has not been shown by a funded run.
 - **A follow-up message is a new session** carrying the earlier brief.
 
 ## Test without a key

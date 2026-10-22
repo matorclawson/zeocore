@@ -27,6 +27,7 @@ carry a code, never provider text.
 
 from __future__ import annotations
 
+import inspect
 import ipaddress
 import json
 import re
@@ -654,6 +655,16 @@ def _watch(
     return state.refusal
 
 
+def _create_takes_spend_control(sessions: object) -> bool:
+    """Whether this SDK's ``sessions.create`` names ``spend_control`` (3.30.0+)."""
+    create: Any = getattr(sessions, "create", None)
+    try:
+        parameters = inspect.signature(create).parameters
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return "spend_control" in parameters
+
+
 def _native_failure(error: Exception, state: _NativeState) -> NativeTurn:
     """A coded NativeTurn for an SDK exception; never its text."""
     called = tuple(state.called)
@@ -711,9 +722,13 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
     ``AgentTurnResultError`` is mapped from its fixed ``reason``. Every SDK exception
     becomes a code with no provider text. A follow-up is a NEW session whose input
     carries the prior brief: ``tool_handlers`` on a saved session was not verified.
-    ``spend_limit_cents`` is the SDK's ``spend_control``: a hard limit for the session
-    in USD cents, enforced by the provider. Omitted (``None``) the argument is not sent
-    at all (an explicit null would remove a limit a saved template carries).
+    ``spend_limit_cents`` is the SDK's ``spend_control``: a limit for the session in USD
+    cents that the provider is asked to apply (that it stops a session over the limit
+    is not shown here). It needs ``openai>=3.30.0``: ``sessions.create`` in 3.29.0 has
+    no ``spend_control``, and then the call is refused with
+    ``spend_limit_unsupported_by_sdk`` before any request, never silently dropped.
+    Omitted (``None``) the argument is not sent at all (an explicit null would remove a
+    limit a saved template carries).
     Needs ``openai>=3.29.0``; the repository's own lock is older.
     """
     if spend_limit_cents is not None and (
@@ -730,6 +745,8 @@ def run_native(  # noqa: PLR0913 -- separate, named, keyword-only inputs
     sessions = getattr(agents, "sessions", None)
     if sessions is None or not hasattr(sessions, "create"):
         raise AgentsRefused("agents_api_unavailable")
+    if spend_limit_cents is not None and not _create_takes_spend_control(sessions):
+        raise AgentsRefused("spend_limit_unsupported_by_sdk")
     state = _NativeState()
     guarded = {
         name: _guard(name, handler, state, max_calls)
