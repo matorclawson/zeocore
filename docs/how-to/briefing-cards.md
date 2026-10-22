@@ -30,8 +30,9 @@ request budget.
 The contract refuses to show what it cannot back up:
 
 - Every card shows **one provenance label** (`PROVIDER DATA`, `COMPUTED` or
-  `REPLAY`) and, unless it is a replay, **one freshness line** (`live`,
-  `delayed, not real time`, or `daily reference rate, not a live quote`).
+  `REPLAY`) and, unless it is a replay, **one freshness line** (`live` for a
+  position, `forecast, not a live reading`, `computed from its inputs, not a live
+  reading`, `delayed, not real time`, or `daily reference rate, not a live quote`).
 - A failed source gives an **empty `DataRef` with a short reason**, shown as
   "unavailable". A previous value is never shown as current.
 - Missing data stays missing: no schedule, no rain probability and no previous
