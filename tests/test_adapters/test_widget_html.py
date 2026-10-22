@@ -997,7 +997,9 @@ def test_f1_a_live_timeline_is_computed_with_its_inputs_named_not_provider_data(
     assert _provenance_labels(out) == ["derived"]
     assert "COMPUTED from the flight estimate, the stated transfer time" in out
     assert "the meeting time" in out and "PROVIDER DATA" not in out
-    assert _fresh_lines(out) == ["computed from a live position 0 s old"]
+    assert _fresh_lines(out) == [
+        "computed from a live position 0 s old, as of 13:40 UTC"
+    ]
 
 
 def test_f1_a_replay_timeline_is_replay_only_never_computed() -> None:
@@ -1225,7 +1227,7 @@ def test_c6_the_computed_line_is_not_a_second_freshness_line() -> None:
 # --- a forecast and a computed timeline are not "live"; tables stay in their card ---
 
 FRESH_FORECAST_UTC = "forecast, issued 13:40 UTC"
-FRESH_TIMELINE_0S = "computed from a live position 0 s old"
+FRESH_TIMELINE_0S = "computed from a live position 0 s old, as of 13:40 UTC"
 
 
 def test_fr1_each_component_gets_the_freshness_line_that_is_true_of_it() -> None:
@@ -1357,11 +1359,11 @@ def test_t6_the_weather_freshness_is_the_providers_issue_time_never_fetch_time()
 def test_t7_the_timeline_freshness_is_the_age_of_the_position() -> None:
     old = snapshot("arrival_timeline", as_of="2026-10-22T13:35:00Z")[0]  # 5 min before
     assert _fresh_lines(render_card_html(old)) == [
-        "computed from a live position 5 min old"
+        "computed from a live position 5 min old, as of 13:40 UTC"
     ]
     young = snapshot("arrival_timeline", as_of="2026-10-22T13:39:30Z")[0]
     assert _fresh_lines(render_card_html(young)) == [
-        "computed from a live position 30 s old"
+        "computed from a live position 30 s old, as of 13:40 UTC"
     ]
     none = snapshot("arrival_timeline", as_of=None)[0]
     assert _fresh_lines(render_card_html(none)) == [
@@ -1461,7 +1463,8 @@ def test_r1_the_headline_names_the_routes_destination_not_the_places_code() -> N
     assert _big(out).startswith(
         "Landing about 17:35 at EWR"
     )  # the Place gives the zone
-    assert " at JFK" not in _big(out)
+    assert "Landing about 17:35 at JFK" not in _big(out)  # the destination is EWR
+    assert _big(out).endswith("as of 09:40 at JFK")  # JFK is only the clock's place
 
 
 def test_r2_the_timeline_headline_carries_its_assumption() -> None:
@@ -1622,23 +1625,36 @@ def test_n3_a_300_unit_chart_box_renders_20_unit_labels_over_16_px_at_262() -> N
 
 def test_a1_a_relative_time_is_shown_with_the_moment_it_counts_from() -> None:
     card = snapshot("flight_status")[0]
-    out = render_card_html(card, place=NYC)
-    assert "in about 7 h 55 min" in _big(out)
-    asof = re.search(r'<p class="zc-asof">(.*?)</p>', out)
-    assert asof is not None and asof[1].startswith("as of 09:40 EDT at JFK")
-    # a supplied now moves the 'as of' with the relative text
-    later = render_card_html(
-        card, place=NYC, now=datetime(2026, 10, 22, 19, 35, tzinfo=UTC)
+    head = _big(render_card_html(card, place=NYC))
+    # the moment is IN the same line as the relative time, not a footer far below
+    assert head.endswith("in about 7 h 55 min, as of 09:40 at JFK"), head
+    later = _big(
+        render_card_html(
+            card, place=NYC, now=datetime(2026, 10, 22, 19, 35, tzinfo=UTC)
+        )
     )
-    assert "as of 15:35 EDT at JFK" in later and "in about 2 h" in _big(later)
+    assert later.endswith("in about 2 h, as of 15:35 at JFK"), later
     # without a Place the moment is UTC and says so
-    assert "as of 13:40 UTC" in render_card_html(card)
+    assert _big(render_card_html(card)).endswith("as of 13:40 UTC")
 
 
-def test_a2_no_as_of_line_when_there_is_no_relative_text() -> None:
+def test_a3_the_timeline_freshness_line_carries_its_as_of_moment() -> None:
+    card = snapshot("arrival_timeline", as_of="2026-10-22T13:35:00Z")[0]
+    line = _fresh_lines(render_card_html(card, place=NYC))
+    assert line == ["computed from a live position 5 min old, as of 09:40 at JFK"]
+    unknown = snapshot("arrival_timeline", as_of=None)[0]
+    assert _fresh_lines(render_card_html(unknown, place=NYC)) == [
+        "computed from a live position (age not provided)"  # no age claimed, no as-of
+    ]
+
+
+def test_a2_no_relative_text_means_no_as_of() -> None:
     sample = copy.deepcopy(PAYLOADS["flight_status"])
     sample["estimated_arrival"] = None  # nothing to count to
     out = render_card_html(snapshot("flight_status", payload=sample)[0], place=NYC)
-    assert "zc-asof" not in out and "in about" not in out
-    for component in ("weather_hourly", "arrival_timeline", "market_watchlist"):
-        assert "zc-asof" not in render_card_html(snapshot(component)[0], place=NYC)
+    assert "in about" not in out and "as of" not in _big(out)
+    for component in ("weather_hourly", "market_watchlist"):
+        assert (
+            "as of"
+            not in _fresh_lines(render_card_html(snapshot(component)[0], place=NYC))[0]
+        )
