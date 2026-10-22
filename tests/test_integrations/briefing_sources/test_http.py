@@ -41,6 +41,17 @@ def client(
     ), clock
 
 
+def response_handler(
+    response: httpx.Response, calls: list[httpx.Request] | None = None
+) -> Callable[[httpx.Request], httpx.Response]:
+    def reply(request: httpx.Request) -> httpx.Response:
+        if calls is not None:
+            calls.append(request)
+        return response
+
+    return reply
+
+
 @pytest.mark.parametrize(
     "url",
     [
@@ -58,10 +69,8 @@ def client(
     ],
 )
 def test_guard_precedes_connection(url: str) -> None:
-    calls = []
-    http, _ = client(
-        lambda req: calls.append(req) or httpx.Response(200, json={"ac": []})
-    )
+    calls: list[httpx.Request] = []
+    http, _ = client(response_handler(httpx.Response(200, json={"ac": []}), calls))
     try:
         with pytest.raises(SourceUnavailableError):
             http.fetch("GET", url)
@@ -72,24 +81,23 @@ def test_guard_precedes_connection(url: str) -> None:
 
 
 def test_redirect_never_contacts_target() -> None:
-    calls = []
+    calls: list[httpx.Request] = []
     http, _ = client(
-        lambda req: (
-            calls.append(req.url.host)
-            or httpx.Response(302, headers={"Location": "https://evil.invalid/"})
+        response_handler(
+            httpx.Response(302, headers={"Location": "https://evil.invalid/"}), calls
         )
     )
     try:
         with pytest.raises(SourceUnavailableError):
             http.fetch("GET", POSITION_URL)
-        assert calls == ["api.adsb.lol"]
+        assert [r.url.host for r in calls] == ["api.adsb.lol"]
         assert http.refused == 1
     finally:
         http.close()
 
 
 def test_cache_user_agent_and_no_personal_fields() -> None:
-    calls = []
+    calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
@@ -123,7 +131,7 @@ def test_cache_user_agent_and_no_personal_fields() -> None:
 
 
 def test_expired_cache_failure_never_returns_stale() -> None:
-    calls = []
+    calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
@@ -144,11 +152,9 @@ def test_expired_cache_failure_never_returns_stale() -> None:
 
 
 def test_retry_after_respected_without_retry() -> None:
-    calls = []
+    calls: list[httpx.Request] = []
     http, clock = client(
-        lambda req: (
-            calls.append(req) or httpx.Response(429, headers={"Retry-After": "120"})
-        )
+        response_handler(httpx.Response(429, headers={"Retry-After": "120"}), calls)
     )
     try:
         for t in (0, 61, 119):
@@ -173,7 +179,7 @@ def test_retry_after_respected_without_retry() -> None:
     ],
 )
 def test_bad_response_is_value_free(response: httpx.Response) -> None:
-    http, _ = client(lambda req, response=response: response)
+    http, _ = client(response_handler(response))
     try:
         with pytest.raises(SourceUnavailableError) as caught:
             http.fetch("GET", POSITION_URL)
@@ -197,14 +203,14 @@ def test_cache_data_cannot_be_poisoned_by_a_caller() -> None:
 
 
 def test_budget_and_provider_expiry_are_enforced() -> None:
-    calls = []
+    calls: list[httpx.Request] = []
     met = {"properties": {"meta": {"updated_at": NOW.isoformat()}, "timeseries": []}}
     http, clock = client(
-        lambda req: (
-            calls.append(req)
-            or httpx.Response(
+        response_handler(
+            httpx.Response(
                 200, json=met, headers={"Expires": "Thu, 22 Oct 2026 03:00:00 GMT"}
-            )
+            ),
+            calls,
         )
     )
     try:

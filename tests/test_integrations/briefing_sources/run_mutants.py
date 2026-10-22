@@ -92,7 +92,7 @@ def main() -> int:
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    results = []
+    results: list[dict[str, str | int]] = []
     for index, (name, filename, old, new, selector) in enumerate(MUTANTS):
         path = SOURCE / filename
         original = path.read_text()

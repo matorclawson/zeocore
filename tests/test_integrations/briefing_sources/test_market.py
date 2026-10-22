@@ -2,7 +2,11 @@
 
 import httpx
 
-from tests.test_integrations.briefing_sources.test_http import NOW, client
+from tests.test_integrations.briefing_sources.test_http import (
+    NOW,
+    client,
+    response_handler,
+)
 from zeo_core.integrations.briefing_sources.market import market
 
 HEADER = "FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE\n"
@@ -49,7 +53,7 @@ def test_unknown_code_partial_empty_or_bad_rates_do_not_invent_rows() -> None:
         (["USD"], HEADER),
         (["USD"], SAMPLE.replace("1.09002", "NaN")),
     ):
-        http, _ = client(lambda req, text=text: httpx.Response(200, text=text))
+        http, _ = client(response_handler(httpx.Response(200, text=text)))
         try:
             ref = market(http, currencies, fetched_at=NOW)
             assert ref.error is not None and ref.payload == {}

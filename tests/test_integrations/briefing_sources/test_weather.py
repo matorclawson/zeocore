@@ -6,7 +6,11 @@ from pathlib import Path
 
 import httpx
 
-from tests.test_integrations.briefing_sources.test_http import NOW, client
+from tests.test_integrations.briefing_sources.test_http import (
+    NOW,
+    client,
+    response_handler,
+)
 from zeo_core.integrations.briefing_sources.weather import weather
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "briefing_sources"
@@ -38,7 +42,7 @@ def test_recorded_met_hourly_forecast_keeps_actual_time_and_probability_absence(
 
 def test_weather_down_or_malformed_is_empty_unavailable() -> None:
     for response in (httpx.Response(500), httpx.Response(200, json={})):
-        http, _ = client(lambda req, response=response: response)
+        http, _ = client(response_handler(response))
         try:
             ref = weather(
                 http, 51.4, -0.4, location="EGLL", arrival=None, fetched_at=NOW
