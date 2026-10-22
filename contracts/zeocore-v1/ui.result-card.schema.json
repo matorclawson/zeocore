@@ -158,6 +158,7 @@
             "properties": {
               "value": {
                 "maxLength": 1024,
+                "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$",
                 "type": "string"
               }
             }
