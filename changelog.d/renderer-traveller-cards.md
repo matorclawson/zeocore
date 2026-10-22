@@ -23,3 +23,6 @@ order; a weather table that crosses a daylight-saving change says "local time (E
 chart is drawn near its rendered size so its labels are readable, and the board says whose clock the
 times are on (or that destination time is unavailable and times are UTC). Visible times in the card
 footers are local, with the exact ISO times inside a details line; changes are shown to two places.
+Each card now reads in the order: title (and any REPLAY or SUPERSEDED state), the answer, how fresh
+it is, then the provenance labels; where the zone changes inside a list (daylight saving) every time
+names its zone (01:00 EDT, 01:00 EST) instead of repeating a bare 01:00.

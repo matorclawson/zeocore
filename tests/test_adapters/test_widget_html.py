@@ -1474,8 +1474,8 @@ def test_r4_across_the_new_york_dst_change_hours_are_edt_then_est() -> None:
     out = render_card_html(
         snapshot("weather_hourly", payload=_dst_hours(times))[0], place=NYC
     )
-    rows = re.findall(r"<tr><td>(\d\d:\d\d)</td>", out)
-    assert rows == ["00:00", "01:00", "01:00", "02:00"]
+    rows = re.findall(r"<tr><td>(\d\d:\d\d \w{3})</td>", out)
+    assert rows == ["00:00 EDT", "01:00 EDT", "01:00 EST", "02:00 EST"]  # not ambiguous
     assert "local time (EDT/EST)" in out and "times in EDT<" not in out
 
 
@@ -1488,7 +1488,7 @@ def test_r4_a_meeting_after_the_change_shows_est() -> None:
     ]
     out = render_card_html(snapshot("arrival_timeline", payload=sample)[0], place=NYC)
     assert "Meeting at 13:00 EST" in out
-    assert re.search(r"<strong>(?:\w{3} )?00:30</strong> Land", out)  # 04:30Z, EDT
+    assert re.search(r"<strong>(?:\w{3} )?00:30 EDT</strong> Land", out)  # 04:30Z
 
 
 def test_b1_the_weather_chart_is_drawn_near_its_rendered_size() -> None:
@@ -1532,3 +1532,34 @@ def test_b5_the_timeline_lists_its_stops_in_time_order() -> None:
     order = re.findall(r"<li><strong>(?:\w{3} )?(\d\d:\d\d)</strong> (\w+)", out)
     # 17:35 Land, 18:00 Meeting, 18:05 Customs: the fixture lists Customs before Meeting
     assert [label for _, label in order] == ["Land", "Meeting", "Customs"]
+
+
+def test_o1_the_answer_comes_before_the_freshness_and_the_labels() -> None:
+    for component in ("flight_status", "weather_hourly", "arrival_timeline"):
+        out = render_card_html(snapshot(component)[0], place=NYC)
+        position = {
+            "answer": out.index('class="zc-big"'),
+            "fresh": out.index('class="zc-fresh"'),
+            "labels": out.index('class="zc-labels"'),
+        }
+        assert position["answer"] < position["fresh"] < position["labels"], component
+        assert out.index("<h3>") < position["answer"]
+        assert (
+            "zc-tag" not in out[: position["answer"]]
+        )  # no badge row before the answer
+
+
+def test_o2_a_replay_and_a_superseded_card_keep_their_state_beside_the_title() -> None:
+    replay = render_card_html(snapshot("weather_hourly", replay=True)[0], place=NYC)
+    title = re.search(r"<h3>(.*?)</h3>", replay)[1]  # type: ignore[index]
+    assert "REPLAY" in title and replay.index("REPLAY") < replay.index('class="zc-big"')
+    old = card_with("market_watchlist", replay=True).model_dump() | {"replaced": True}
+    stale = render_card_html(CardState.model_construct(**old))
+    assert "SUPERSEDED" in re.search(r"<h3>(.*?)</h3>", stale)[1]  # type: ignore[index]
+
+
+def test_o3_a_card_with_no_big_fact_still_renders_in_order() -> None:
+    out = render_card_html(
+        snapshot("market_watchlist", payload={}, error={"reason": "Source is down"})[0]
+    )
+    assert "unavailable" in out and 'class="zc-big"' not in out
