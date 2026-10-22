@@ -1,8 +1,6 @@
 name: Documentation
 
 on:
-  pull_request:
-    paths: ["docs/**", "examples/**", "src/**", "*.md", "mkdocs.yml", "pyproject.toml", "uv.lock", "tools/mkdocs_hooks_v1.py", "tests/docs_site/**", "Makefile", ".github/workflows/docs.yml"]
   push:
     branches: [main]
     paths: ["docs/**", "examples/**", "src/**", "*.md", "mkdocs.yml", "pyproject.toml", "uv.lock", "tools/mkdocs_hooks_v1.py", "tests/docs_site/**", "Makefile", ".github/workflows/docs.yml"]
