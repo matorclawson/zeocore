@@ -38,20 +38,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"author\":{\"email\":\"seat@example.com\",\"name\":\"Example\"},\"changes\":[{\"content_base64\":\"aGVsbG8K\",\"mode\":\"100644\",\"path\":\"README.md\"},{\"delete\":true,\"path\":\"old.txt\"}],\"expected_old_sha\":null,\"message\":\"Example ü\",\"parents\":[\"0123456789abcdef0123456789abcdef01234567\"],\"ref\":\"refs/heads/zeonewsroom/example\",\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.git.publish\"}",
-   "canonical_bytes": 625,
-   "request_sha256": "0e779e0449c148b3a9cf94077860e8b7d8ddcbbe90ee8026bc59410fcbed0f76"
+   "canonical": "{\"arguments\":{\"author\":{\"email\":\"seat@example.com\",\"name\":\"Example\"},\"changes\":[{\"content_base64\":\"aGVsbG8K\",\"mode\":\"100644\",\"path\":\"README.md\"},{\"delete\":true,\"path\":\"old.txt\"}],\"expected_old_sha\":null,\"message\":\"Example ü\",\"parents\":[\"0123456789abcdef0123456789abcdef01234567\"],\"ref\":\"refs/heads/zeonewsroom/example\",\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.git.publish\"}",
+   "canonical_bytes": 615,
+   "request_sha256": "c6e164d3a3873c319ddb898c9c14a2f0e22edd79bed1eafe9e68a6bc06988b27"
   },
   {
    "name": "github.git.reconcile",
@@ -63,20 +63,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"execution_id\":\"exe_fixture_0001\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.git.reconcile\"}",
-   "canonical_bytes": 319,
-   "request_sha256": "2403aa8d1e88cd02b5ccc2e2e2b8b1a0180c9a3c54e050b42924241abc80e3b5"
+   "canonical": "{\"arguments\":{\"execution_id\":\"exe_fixture_0001\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.git.reconcile\"}",
+   "canonical_bytes": 309,
+   "request_sha256": "c8ece9cd8a3fcc428bf7719da016c082aa6d284103749ef7895db42708cc7e4b"
   },
   {
    "name": "github.intent.resolve",
@@ -89,20 +89,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"idempotency_key\":\"fixture-0001-abcdef-0123456789abcd\",\"request_sha256\":\"3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.intent.resolve\"}",
-   "canonical_bytes": 425,
-   "request_sha256": "2c3858949ee5738826351ae1162e01185c9afac4bdbce3e82c88ebd2e90e9299"
+   "canonical": "{\"arguments\":{\"idempotency_key\":\"fixture-0001-abcdef-0123456789abcd\",\"request_sha256\":\"3c04a8b0551bdb180d2b5fc5e1364bacdb23a9af1386b953af3b8085fe6f729f\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.intent.resolve\"}",
+   "canonical_bytes": 415,
+   "request_sha256": "db48dcdb0d4683522b13ff4a236dca0571aac5729df0d42b9b229e932162e559"
   },
   {
    "name": "github.pr.open",
@@ -119,20 +119,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.pr.open\"}",
-   "canonical_bytes": 455,
-   "request_sha256": "770f24c5918c68f1eae2b6d5437eea02313afd631bff64e59364ee46ebab9525"
+   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.pr.open\"}",
+   "canonical_bytes": 445,
+   "request_sha256": "e721996e4649f1ea27bb4e70bcde08e37f44a63a8e6bc2049462d01496e9f734"
   },
   {
    "name": "github.pr.update",
@@ -146,20 +146,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"number\":7,\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.pr.update\"}",
-   "canonical_bytes": 346,
-   "request_sha256": "8abd1e67433c9465824958e0bb515c8bb54416ef1aef7ba94a1db35d3569789f"
+   "canonical": "{\"arguments\":{\"number\":7,\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.pr.update\"}",
+   "canonical_bytes": 336,
+   "request_sha256": "32f4a45214a99d6c68124cc3af7dba3bba4a34a4fbfc8612b5678d57a40c023e"
   },
   {
    "name": "github.contents.read",
@@ -173,20 +173,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"path\":\"docs/index.md\",\"ref\":\"refs/heads/main\",\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.contents.read\"}",
-   "canonical_bytes": 368,
-   "request_sha256": "122c893de4faa0e383ab2bbb013cb3fc0e8c7ac8a964e6c43cccbf2efbfec177"
+   "canonical": "{\"arguments\":{\"path\":\"docs/index.md\",\"ref\":\"refs/heads/main\",\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.contents.read\"}",
+   "canonical_bytes": 358,
+   "request_sha256": "565eab2fc0fb131ddf6a88f1545e941dd47e7e35f3915709de8c0d27042b1db3"
   },
   {
    "name": "github.pr.read",
@@ -202,20 +202,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"include\":[\"files\"],\"number\":7,\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.pr.read\"}",
-   "canonical_bytes": 346,
-   "request_sha256": "5ad2c8a49bae473675808771639e14bb3080eb7839e25fbe409659d73a39125c"
+   "canonical": "{\"arguments\":{\"include\":[\"files\"],\"number\":7,\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.pr.read\"}",
+   "canonical_bytes": 336,
+   "request_sha256": "0eafbbf3de9aa8277e182931eb60b126ee52c38b428b4f0a41fac643abe16fca"
   },
   {
    "name": "github.checks.read",
@@ -228,20 +228,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"repository\":\"example-org/newsroom\",\"sha\":\"0123456789abcdef0123456789abcdef01234567\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.checks.read\"}",
-   "canonical_bytes": 368,
-   "request_sha256": "504c0c3e6f1c1f42efc30001a2af50ecf36d2606c5b6fff3adb7e3d17a2ecea3"
+   "canonical": "{\"arguments\":{\"repository\":\"example-org/newsroom\",\"sha\":\"0123456789abcdef0123456789abcdef01234567\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.checks.read\"}",
+   "canonical_bytes": 358,
+   "request_sha256": "24a88d7f65293a816ec35109aa4babcd2a7a62234505ac2a433fbf6507b03167"
   },
   {
    "name": "github.pr.list",
@@ -254,20 +254,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"repository\":\"example-org/newsroom\",\"state\":\"open\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.pr.list\"}",
-   "canonical_bytes": 330,
-   "request_sha256": "9d7afc6065cb2d299c04e3f7feecfc2d0a8b0c1a15a1a62c4e8b3e129d2a2c17"
+   "canonical": "{\"arguments\":{\"repository\":\"example-org/newsroom\",\"state\":\"open\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.pr.list\"}",
+   "canonical_bytes": 320,
+   "request_sha256": "16ee18593fda57acbd8b511f043ad24e4af1c6fe6d3592b74551981ad2ce5c44"
   },
   {
    "name": "github.ref.read",
@@ -280,20 +280,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"ref\":\"refs/heads/main\",\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.ref.read\"}",
-   "canonical_bytes": 340,
-   "request_sha256": "4cdf758c83af4ecc681c80ccaf8e20a7b91c4beefa50d559d4a64819c940639d"
+   "canonical": "{\"arguments\":{\"ref\":\"refs/heads/main\",\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.ref.read\"}",
+   "canonical_bytes": 330,
+   "request_sha256": "46c88653e1e9a022190022cbb508c45a7a0c122e065f68953d111385c00b5dbf"
   },
   {
    "name": "github.fork.sync",
@@ -305,20 +305,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.fork.sync\"}",
-   "canonical_bytes": 317,
-   "request_sha256": "61c85f1ec1c82697fb8032108341675d25522652580b6332397d4757d53167ca"
+   "canonical": "{\"arguments\":{\"repository\":\"example-org/newsroom\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.fork.sync\"}",
+   "canonical_bytes": 307,
+   "request_sha256": "b6aeaf997b6d60e29dab5513a42b786bf252df1f497079bc7fbb87bd1447d8fc"
   },
   {
    "name": "on_behalf_of: another seat",
@@ -338,17 +338,17 @@
      "principal_id": "prn_zeocreator",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeocreator\"},\"operation_id\":\"github.pr.open\"}",
-   "canonical_bytes": 454,
-   "request_sha256": "82892ee8eeccfc2ae67ef8aa3415c63dcbdfd4db39201c5fa4c2aa552d1b3fbc"
+   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_zeocreator\"},\"operation_id\":\"github.pr.open\"}",
+   "canonical_bytes": 448,
+   "request_sha256": "1d7c2978b338ee0d70f547abeeff63ed325d2586cfdbf42d1878787d62e75d0d"
   },
   {
    "name": "on_behalf_of: another incarnation",
@@ -365,20 +365,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 4,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":4,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.pr.open\"}",
-   "canonical_bytes": 455,
-   "request_sha256": "0abbc467eb8fa020e5dfcce6dc05d2804f7f8db10469edf888626c9214605cbd"
+   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":4,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.pr.open\"}",
+   "canonical_bytes": 445,
+   "request_sha256": "d067f895faa80fa9a1ccaa1118af4cf3ea71510ee4585d876a67ad89707d3f31"
   },
   {
    "name": "on_behalf_of: another account incarnation",
@@ -395,20 +395,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
-      "host_id": "host_matormini",
+      "host_id": "host_example",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 2
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":2,\"host_id\":\"host_matormini\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.pr.open\"}",
-   "canonical_bytes": 455,
-   "request_sha256": "db3aead5ec144593a157ad9be9ce229c20f06bffe3025556a712291fa7c9c463"
+   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":2,\"host_id\":\"host_example\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.pr.open\"}",
+   "canonical_bytes": 445,
+   "request_sha256": "f76266a895dce53173f333fcc130801246179f7ca6961be89c76842e99769453"
   },
   {
    "name": "on_behalf_of: another host",
@@ -425,20 +425,20 @@
     },
     "idempotency_key": "fixture-0001-abcdef-0123456789abcd",
     "on_behalf_of": {
-     "principal_id": "prn_zeonewsroom",
+     "principal_id": "prn_example",
      "incarnation": 3,
      "authenticated_as": {
       "host_id": "host_eng-uk-0006",
       "host_incarnation": 2,
-      "os_account": "za-zeonewsroom",
+      "os_account": "za-example",
       "account_incarnation": 1
      }
     },
     "door_request_id": "door-req-0001"
    },
-   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_eng-uk-0006\",\"host_incarnation\":2,\"os_account\":\"za-zeonewsroom\"},\"incarnation\":3,\"principal_id\":\"prn_zeonewsroom\"},\"operation_id\":\"github.pr.open\"}",
-   "canonical_bytes": 457,
-   "request_sha256": "5b516a0d576d93059dae0f1694dcf1b591142c40b13dd54db6689d4eff972636"
+   "canonical": "{\"arguments\":{\"body\":\"Fixture body ü\",\"draft\":false,\"head\":\"zeonewsroom/example\",\"head_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"repository\":\"example-org/newsroom\",\"title\":\"Example\"},\"connection_id\":\"role_zeonewsroom_publish\",\"on_behalf_of\":{\"authenticated_as\":{\"account_incarnation\":1,\"host_id\":\"host_eng-uk-0006\",\"host_incarnation\":2,\"os_account\":\"za-example\"},\"incarnation\":3,\"principal_id\":\"prn_example\"},\"operation_id\":\"github.pr.open\"}",
+   "canonical_bytes": 449,
+   "request_sha256": "8ae1a51d0c1ec2e420b073a2ffed1ceb7216dca3f07b57c7f9f0968cee9a36d2"
   }
  ]
 }

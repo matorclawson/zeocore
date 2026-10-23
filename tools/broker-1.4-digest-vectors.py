@@ -32,12 +32,12 @@ DIGESTED = ("connection_id", "operation_id", "arguments", "on_behalf_of")
 SHA = "0123456789abcdef0123456789abcdef01234567"
 REPO = "example-org/newsroom"
 SEAT: dict[str, Any] = {
-    "principal_id": "prn_zeonewsroom",
+    "principal_id": "prn_example",
     "incarnation": 3,
     "authenticated_as": {
-        "host_id": "host_matormini",
+        "host_id": "host_example",
         "host_incarnation": 2,
-        "os_account": "za-zeonewsroom",
+        "os_account": "za-example",
         "account_incarnation": 1,
     },
 }
