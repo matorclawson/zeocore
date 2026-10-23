@@ -39,7 +39,7 @@ def _client(handler: Handler) -> tuple[GitHubClient, Tokens, list[httpx.Request]
     tokens = Tokens()
     client = GitHubClient(
         tokens=tokens,
-        veto_repo="rodriveracom/org-zeroemployeeorg",
+        veto_repo="example-org/records",
         veto_path="operator/veto-list.md",
         http_client=httpx.Client(
             base_url=GITHUB_API, transport=httpx.MockTransport(record)
@@ -135,7 +135,7 @@ def test_the_veto_list_is_read_from_main_and_its_blob_sha_is_the_revision() -> N
     vetoes, revision = client.vetoes()
     assert vetoes == frozenset({"zeroemployeeorg/zeocore#85"}) and revision == "blob1"
     assert seen_paths[0].endswith("/contents/operator/veto-list.md?ref=main")
-    assert tokens.asked == ["rodriveracom/org-zeroemployeeorg"]
+    assert tokens.asked == ["example-org/records"]
 
 
 def test_a_missing_veto_list_raises_so_the_merger_holds() -> None:
@@ -221,7 +221,7 @@ def test_a_merge_without_a_token_is_not_sent() -> None:
 
     client = GitHubClient(
         tokens=NoTokens(),
-        veto_repo="rodriveracom/org-zeroemployeeorg",
+        veto_repo="example-org/records",
         veto_path="operator/veto-list.md",
         http_client=httpx.Client(
             base_url=GITHUB_API, transport=httpx.MockTransport(record)
@@ -247,7 +247,7 @@ def test_an_injected_client_that_follows_redirects_is_refused() -> None:
     with pytest.raises(ValueError, match="must not follow redirects"):
         GitHubClient(
             tokens=Tokens(),
-            veto_repo="rodriveracom/org-zeroemployeeorg",
+            veto_repo="example-org/records",
             veto_path="operator/veto-list.md",
             http_client=httpx.Client(base_url=GITHUB_API, follow_redirects=True),
         )

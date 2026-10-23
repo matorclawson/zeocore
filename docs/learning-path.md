@@ -184,11 +184,3 @@ virtual environment, docs site, build output, coverage and caches under
 the checkout. Conduct expectations are in
 [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md); security reports go through
 [SECURITY.md](../SECURITY.md).
-
-## Maintainer / ecosystem reports
-
-These are **not** end-user documentation. They record how ZeoCore relates to
-Sovereign Agent and the wider Zero Employee ecosystem.
-
-- [Capability symbol audit](reports/capability-symbol-audit.md)
-- [Sovereign Agent replacement readiness](reports/sovereign-agent-capability-replacement-readiness.md)
