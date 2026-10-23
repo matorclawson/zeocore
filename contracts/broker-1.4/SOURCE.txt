@@ -1,4 +1,0 @@
-zeoconnect Broker contract 1.4.0, as merged in rodriveracom/zeoconnect #73: merge commit c134661ec99ee14b0e1d1f00b006028c4cf697f5 (2026-10-12T00:33:08Z), byte-identical to the frozen head d5c7d14a. The pin is read from the merge commit.
-1.4.0-annex-a.json: contract/fixtures/1.4.0-annex-a.json at that commit, unchanged (sha256 3394ad34aabfeae2...).
-schemas.json: every JSON block with an $id in contract/broker-contract-v1-github-keymaster.md at that commit (sha256 36d2f7617b0283db..., 133952 bytes), keyed by $id, unchanged. The base is contract/broker-contract-v1.md (sha256 15f7b4db31327bbe..., 55329 bytes).
-digest-vectors.json: written by zeocore, tools/broker-1.4-digest-vectors.py (ZEOCORE-SOW-27 §3), each request validated against schemas.json.
