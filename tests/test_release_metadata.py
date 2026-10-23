@@ -522,3 +522,42 @@ def test_a_re_run_never_asks_the_index(repo: Repo, index: Index) -> None:
     assert status == 0, stderr
     assert outputs["version"] == "1.2.4"
     assert index.paths == []
+
+
+# --------------------------------------------------------------------------
+# One component for every repository: its shape and its reserved files
+# --------------------------------------------------------------------------
+
+
+def test_the_component_takes_no_version_commit_or_ref() -> None:
+    document = _workflow("release-on-merge.yml")
+    assert set(document[True]) == {"workflow_call"}
+    inputs = set(document[True]["workflow_call"]["inputs"])
+    assert inputs == {"project", "verify", "build"}
+
+
+def test_only_the_docs_site_can_be_started_by_hand() -> None:
+    """No release, tag or upload can be cut by a person pressing a button."""
+    by_hand = {
+        path.name
+        for path in WORKFLOWS.glob("*.yml")
+        if "workflow_dispatch" in yaml.safe_load(path.read_text())[True]
+    }
+    assert by_hand == {"docs.yml"}  # the docs site; it releases nothing
+    for name in ("publish.yml", "release-on-merge.yml"):
+        triggers = set(_workflow(name)[True])
+        assert not triggers & {"pull_request", "pull_request_target", "schedule"}
+
+
+RESERVED = [
+    ".github/workflows/release-on-merge.yml",
+    ".github/workflows/publish.yml",
+    "release.yaml",
+]
+
+
+def test_the_executors_files_exist_and_are_on_the_reserved_list() -> None:
+    readme = (ROOT / ".github" / "release" / "README.md").read_text()
+    for path in RESERVED:
+        assert (ROOT / path).is_file(), path
+        assert f"`{path}`" in readme, path
