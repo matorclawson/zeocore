@@ -285,7 +285,7 @@ jobs:
           path: dist
 
       - name: Write the release event (version, commit, tree, notes and file digests)
-        run: python3 .github/release/event.py "${TAG}" release-notes.md dist > release-event.json
+        run: python3 .github/release/event.py "${TAG}" release-notes.md dist --repository "${GITHUB_REPOSITORY}" > release-event.json
 
       - name: Create the release, or accept it from an earlier attempt
         run: |

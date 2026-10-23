@@ -6,6 +6,10 @@ LEVELS = ("patch", "minor", "major")
 # INDEX: the index URL (PyPI's JSON API) or "none" for a repository with no
 # package on any index, which then counts from its tags alone.
 PREFIX = os.environ.get("TAG_PREFIX", "v")
+if re.fullmatch(r"(?:[a-z][a-z0-9-]*/)?v", PREFIX) is None:
+    sys.exit(
+        f"::error::TAG_PREFIX {PREFIX!r} must be 'v' or '<name>/v' (lower-case name)"
+    )
 NO_INDEX = os.environ["INDEX"] == "none"
 SEMVER = re.compile(re.escape(PREFIX) + r"(\d+)\.(\d+)\.(\d+)")
 

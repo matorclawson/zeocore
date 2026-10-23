@@ -771,3 +771,59 @@ def test_the_tag_is_the_prefix_and_the_bare_version_never_doubled(
     _, outputs, _, _ = made.release(TAG_PREFIX="engine/v", INDEX="none")
     assert outputs["version"] == "2.0.1" and outputs["tag"] == "engine/v2.0.1"
     assert "vv" not in outputs["tag"]
+
+
+def _event_run(made: Repo, *extra: str, **env: str) -> subprocess.CompletedProcess[str]:
+    notes = made.root / "notes.md"
+    notes.write_text("A fix.\n")
+    return subprocess.run(  # noqa: S603 - the repository's own script
+        [sys.executable, str(EVENT), "v1.2.4", str(notes), *extra],
+        cwd=made.root,
+        env={**made.env, **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_a_credential_in_the_remote_is_refused_and_never_printed(
+    tmp_path: Path, index: Index
+) -> None:
+    made, _ = _released(tmp_path, index)
+    made.git(
+        "remote",
+        "set-url",
+        "origin",
+        "https://user:s3cr3t-token@example.invalid/org/demo.git",
+    )
+    result = _event_run(made)
+    assert result.returncode != 0 and "userinfo" in result.stderr
+    assert "s3cr3t" not in result.stdout + result.stderr
+
+
+def test_a_credential_in_an_explicit_name_is_refused_too(
+    tmp_path: Path, index: Index
+) -> None:
+    made, _ = _released(tmp_path, index)
+    result = _event_run(
+        made, "--repository", "https://user:s3cr3t-token@example.invalid/org/demo"
+    )
+    assert result.returncode != 0 and "s3cr3t" not in result.stdout + result.stderr
+    ok = _event_run(made, "--repository", "org/demo")
+    assert ok.returncode == 0 and json.loads(ok.stdout)["repository"] == "org/demo"
+
+
+def test_the_actions_repository_name_is_used_when_the_runner_has_one(
+    tmp_path: Path, index: Index
+) -> None:
+    made, dist = _released(tmp_path, index)
+    made.env["GITHUB_REPOSITORY"] = "org/demo"
+    assert _event(made, "v1.2.4", dist)["repository"] == "org/demo"
+
+
+@pytest.mark.parametrize(
+    "prefix", ["", "V", "release-", "../v", "engine/v ", "a/b/v", "Engine/v", "v1"]
+)
+def test_a_tag_prefix_outside_the_closed_grammar_fails(repo: Repo, prefix: str) -> None:
+    code, _, _, stderr = repo.release(TAG_PREFIX=prefix, INDEX="none")
+    assert code != 0 and "TAG_PREFIX" in stderr

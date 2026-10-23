@@ -23,7 +23,9 @@ here, and if the inline copy of `plan.py` in the workflow differs from the file.
 
 `project`, `verify`, `build`, `tag_prefix` (default `v`; the engine uses
 `engine/v`) and `index` (default PyPI's JSON API; `none` for a repository with
-no package). It takes no version, commit or ref, and its only trigger is
+no package; a repository that publishes a package must never pass `none`, it
+switches off the index guards). `tag_prefix` is `v` or `<name>/v` with a
+lower-case name, and anything else fails the run. It takes no version, commit or ref, and its only trigger is
 `workflow_call`. A caller's only trigger is a push to `main`; no release, tag or
 upload can be started by hand. The version is bare semver, computed from the
 last tag in the namespace, the package index (unless `none`) and the
@@ -67,7 +69,7 @@ fragment changed or deleted since the last tag, fails the run.
 
 ## The release event
 
-`event.py TAG NOTES [ARTIFACT_DIR]` prints one JSON document, schema
+`event.py TAG NOTES [ARTIFACT_DIR] [--repository NAME]` prints one JSON document, schema
 `zeo.release-event/v1`: `repository`, `tag`, `tag_object`, `commit`, `tree`,
 `notes_sha256`, `artifacts` (each `path`, `size`, `sha256`) and `event_sha256`.
 
@@ -77,6 +79,10 @@ is the one excluded field, so no field hashes itself. With `--detached DIR` the
 script also writes `DIR/release-event.payload.json` (exactly the canonical
 bytes) and `DIR/release-event.sha256` (the hex digest and a newline), so a
 signer signs the payload file and a verifier recomputes the digest from it.
+
+**The repository name** comes from `--repository`, else `GITHUB_REPOSITORY`,
+else origin's URL; any value that carries userinfo (`https://user:token@...`)
+is refused, so no credential can reach a published asset.
 
 **What it does not do.** It signs nothing and trusts no caller-supplied flag. A
 consumer checks the signature of the artifacts it names (PyPI attestations for
