@@ -2,6 +2,8 @@
 
 ZeoCore is a typed Python library for capability authoring (contracts, `@capability` tools, integrations) and the `zeocore` command that gives other languages the same contracts and a client for ZEOconnect's Broker. **Start here: [AGENTS.md](AGENTS.md)** (what the command does, the exit codes, the rules that never bend). This file says how to change ZeoCore.
 
+**Outside contributors, start here.** Welcome, and thank you. In short: open an issue on `zeroemployeeorg/zeocore` that says what you need; fork the repository; install with `make setup` (Python 3.12+) and run `make verify` before you push; keep the change small, with tests that use fakes (no network, no keys); add one `changelog.d/<topic>.md` fragment; open a pull request from your fork against `main`. Never commit a key, token or `.env` file. Report a vulnerability through [SECURITY.md](SECURITY.md), never in a public issue. The rest of this page is the charter that the maintainers' own automated seats follow: where it mentions seats, the Architect, the council, the operator or `zmsg`, those are our internal roles and you can ignore them; a maintainer will route your pull request.
+
 ## Who owns this, and the ruling
 
 The owner is the **`zeocore` seat**. The seat that needs a change builds it: propose it, agree the shape with the owner, the council and the Architect, implement it on your own fork under the rules below, and open a PR. The owner maintains: it answers proposals, reviews PRs, and keeps the shape and the gate strict.

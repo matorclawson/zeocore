@@ -34,7 +34,7 @@ def _request(product: str = "pomar") -> SigningRequest:
     return SigningRequest(
         pack_version=1,
         product=product,
-        repo="rodriveracom/pomar",
+        repo="example-org/app",
         commit=COMMIT,
         manifest_path="release.yaml",
     )
@@ -222,7 +222,7 @@ def test_the_pack_and_receive_commands(release: Release, tmp_path: Path) -> None
             {
                 "manifest": manifest,
                 "out": str(tmp_path / "r.tar"),
-                "repo": "rodriveracom/pomar",
+                "repo": "example-org/app",
                 "commit": COMMIT,
                 "manifest_path": "release.yaml",
             }
@@ -271,7 +271,7 @@ def test_bad_pack_and_receive_requests(
     base = (
         {
             "out": str(tmp_path / "r.tar"),
-            "repo": "rodriveracom/pomar",
+            "repo": "example-org/app",
             "commit": COMMIT,
             "manifest_path": "release.yaml",
         }

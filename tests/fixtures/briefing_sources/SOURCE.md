@@ -23,8 +23,6 @@ position existed. No coordinate was invented to force a route response.
   ECB arithmetic/date tests explicitly use synthetic CSV vectors. Source:
   ECB statistics, freely available; daily reference rate, not a live quote.
 
-Full request/status/time/hash receipt:
-/Volumes/ZeoWork/rasa/article-delivery-20261020/public-source-smoke-once-20261022.json.
 The raw ADS-B body hash is
 adf5a410cea51007e972eaa75718d4e5a3ad8a8747ea485fa3dc33326baa33a2.
 No passenger, crew, owner, credential or capability field is retained.

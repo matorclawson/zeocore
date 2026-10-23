@@ -97,7 +97,7 @@ class TestLLMService:
                 "zeo_core.core.fs.service.standalone.normalize_path"
             ) as mock_normalize_path:
                 # Create a mock Path object instead of using absolute()
-                mock_path = "/Users/rodrivera/config.yaml"
+                mock_path = "/Users/example/config.yaml"
                 mock_normalize_path.return_value = mock_path
 
                 # Also patch the BaseIntegrationService._set_config_path method
@@ -105,7 +105,7 @@ class TestLLMService:
                     "zeo_core.integrations.core.base.BaseIntegrationService._set_config_path"
                 ):
                     # Also patch os.getcwd() to avoid FileNotFoundError
-                    with patch("os.getcwd", return_value="/Users/rodrivera"):
+                    with patch("os.getcwd", return_value="/Users/example"):
                         service = LLMIntegration(
                             provider="anthropic",
                             model="claude-3-opus",

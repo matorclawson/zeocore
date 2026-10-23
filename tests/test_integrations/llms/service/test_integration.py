@@ -130,11 +130,11 @@ class TestLLMIntegrationComprehensive:
                 # both as callables, so it never reaches the real .path
                 # attribute.
                 mock_resolve_path.side_effect = lambda p: SimpleNamespace(
-                    path=f"/Users/rodrivera/{p}"
+                    path=f"/Users/example/{p}"
                 )
 
                 # Mock os.getcwd to prevent FileNotFoundError
-                with patch("os.getcwd", return_value="/Users/rodrivera"):
+                with patch("os.getcwd", return_value="/Users/example"):
                     integration = LLMIntegration(
                         provider="anthropic",
                         model="claude-3-opus",
@@ -149,9 +149,9 @@ class TestLLMIntegrationComprehensive:
                     assert integration.api_key == "test-key"
                     # config_path must resolve from the REAL passed path
                     # ("custom_config.yaml"), never from a log-level-derived
-                    # nonsense path (e.g. "/Users/rodrivera/10").
+                    # nonsense path (e.g. "/Users/example/10").
                     assert (
-                        integration.config_path == "/Users/rodrivera/custom_config.yaml"
+                        integration.config_path == "/Users/example/custom_config.yaml"
                     )
                     # config stays None (the ctor's own default): the bug
                     # shifted config_path into this slot, so a regression

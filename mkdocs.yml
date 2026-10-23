@@ -66,6 +66,10 @@ markdown_extensions:
       alternate_style: true
 hooks:
   - tools/mkdocs_hooks_v1.py
+# Maintainer working notes: kept in the repository, not published on the site.
+exclude_docs: |
+  reports/
+  MERGER-PROOF.md
 extra_css:
   - stylesheets/extra.css
 validation:
@@ -138,5 +142,3 @@ nav:
       - Documentation publishing: publishing.md
       - Security: project/SECURITY.md
       - Code of conduct: project/CODE_OF_CONDUCT.md
-      - Capability audit: reports/capability-symbol-audit.md
-      - Agent readiness: reports/sovereign-agent-capability-replacement-readiness.md
