@@ -267,7 +267,13 @@ class Repo:
         # (pre-push runs make verify) sets them, and git would then act on
         # the real repository instead of this throwaway one.
         self.env = {
-            **{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+            # Never inherit the runner's GITHUB_* either: on Actions GITHUB_REPOSITORY
+            # is set, and a test of the remote-derived name would silently use it.
+            **{
+                k: v
+                for k, v in os.environ.items()
+                if not k.startswith(("GIT_", "GITHUB_"))
+            },
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_AUTHOR_NAME": "t",
