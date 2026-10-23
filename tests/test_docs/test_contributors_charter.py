@@ -21,7 +21,16 @@ SECTIONS = (
 )
 
 #: Words that belong to the internal seat charter, not to a public file.
-INTERNAL_WORDS = ("zmsg", "ZeoWork", "the operator", "zeomerger", "the Architect")
+INTERNAL_WORDS = (
+    "zmsg",
+    "ZeoWork",
+    "the operator",
+    "zeomerger",
+    "the Architect",
+    "matormini",
+    "matorclawson",
+    "ENG-UK",
+)
 
 
 def _text() -> str:
