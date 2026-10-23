@@ -3,7 +3,7 @@
 It merges pull requests the Architect approved, under RULING-467 amendment 3
 and the Architect's QUEUE-SPEC-v2, whose decision contract ZEO-LEDGER owns.
 This package is a port of ZEO-LEDGER's Go core (zeomerger), held to its
-language-neutral parity fixtures in ``contracts/merger-v1/``.
+language-neutral parity fixtures in ``tests/fixtures/merger-v1/``.
 
 The merger reads the register, checks every condition against GitHub,
 re-reads the register and the approval just before the call, journals its

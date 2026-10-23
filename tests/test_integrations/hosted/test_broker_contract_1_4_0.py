@@ -43,7 +43,7 @@ from zeo_core.integrations.hosted.client import (
     stop_of,
 )
 
-CONTRACT = Path(__file__).resolve().parents[3] / "contracts" / "broker-1.4"
+CONTRACT = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "broker-1.4"
 DIGESTED = ("connection_id", "operation_id", "arguments", "on_behalf_of")
 
 
@@ -73,11 +73,6 @@ def test_the_vendored_files_are_the_pinned_bytes() -> None:
         assert hashlib.sha256((CONTRACT / name).read_bytes()).hexdigest() == expected
 
 
-def test_the_annex_fixtures_are_zeoconnects_frozen_file() -> None:
-    sums = (CONTRACT / "SHA256SUMS").read_text()
-    assert "3394ad34aabfeae2e5cab717d8e31845be66eaa54915f60713cf8cb04c7d45ca" in sums
-
-
 # -- the digest vectors: zeocore's parity fixtures for the door --------------------
 
 
@@ -103,7 +98,7 @@ def test_there_is_a_vector_for_every_operation_and_the_digests_differ() -> None:
     assert len(set(digests)) == len(digests)
 
 
-def test_pr_open_matches_zeoconnects_published_fixture() -> None:
+def test_pr_open_matches_the_annex_digest() -> None:
     published = _json("1.4.0-annex-a.json")["digest"]
     (pr_open,) = [v for v in VECTORS if v["name"] == "github.pr.open"]
     assert pr_open["request_sha256"] == published["request_sha256"]

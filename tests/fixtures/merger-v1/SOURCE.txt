@@ -1,0 +1,1 @@
+Parity vectors for the merge-decision core, exported from its reference implementation. Other repositories' names are replaced by example names; the vectors keep this repository's own public name (zeroemployeeorg/zeocore) and the role names (architect, seat names).

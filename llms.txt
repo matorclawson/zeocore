@@ -196,5 +196,5 @@ These APIs ship in 0.11.0. Install with
 - `zeo_core.adapters.http`'s FastAPI app exposes an OpenAPI schema at the
   usual FastAPI routes (`/openapi.json`) when that adapter is running;
   Runtime host JSON Schemas and RFC 8785 vectors are checked in under
-  `contracts/runtime-host-v1/`. They describe the separate host wire protocol,
+  `tests/fixtures/runtime-host-v1/`. They describe the separate host wire protocol,
   not the HTTP adapter OpenAPI schema.
