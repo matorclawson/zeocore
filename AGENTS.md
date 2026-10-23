@@ -4,7 +4,7 @@
 
 **Install:** `uv tool install zeocore` gives the command. `uv pip install zeocore` gives the library, and an extra adds an integration, for example `zeocore[google]`. `zeocore release` also needs the `github` extra.
 
-**Contributing:** the seat that needs a change builds it. [CONTRIBUTING.md](CONTRIBUTING.md) is the contributors charter: how to propose, what is welcome, the owner-only areas, how to build and submit, and the response times.
+**Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md) says what is welcome, how to build with `make verify`, and how to submit a pull request.
 
 ## The command: learn it from itself
 

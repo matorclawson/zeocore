@@ -138,5 +138,3 @@ nav:
       - Documentation publishing: publishing.md
       - Security: project/SECURITY.md
       - Code of conduct: project/CODE_OF_CONDUCT.md
-      - Capability audit: reports/capability-symbol-audit.md
-      - Agent readiness: reports/sovereign-agent-capability-replacement-readiness.md
