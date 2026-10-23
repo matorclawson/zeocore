@@ -344,7 +344,9 @@ def test_admit_doesnt_rely_on_the_bypass_list(
             "promotion_unbound",
         ),
         (
-            FakeGitHub(policy=_policy(required_reviewers=frozenset({"rodriveracom"}))),
+            FakeGitHub(
+                policy=_policy(required_reviewers=frozenset({"example-reviewer"}))
+            ),
             "promotion_unbound",
         ),
         (
@@ -396,7 +398,7 @@ def test_admit_doesnt_rely_on_the_bypass_list(
             ),
             "approver_can_bypass",
         ),
-        (FakeGitHub(approver=Identity("rodriveracom", True)), "approver_mismatch"),
+        (FakeGitHub(approver=Identity("example-reviewer", True)), "approver_mismatch"),
     ],
 )
 def test_admit_refuses_unless_only_the_delegated_pair_can_release(
@@ -1182,7 +1184,7 @@ def test_a_policy_list_that_isnt_read_in_full_is_unreadable(
         {"protection_rules": "required_reviewers"},
         {
             "protection_rules": [
-                {"type": "required_reviewers", "reviewers": "rodriveracom"}
+                {"type": "required_reviewers", "reviewers": "example-reviewer"}
             ]
         },
     ],
