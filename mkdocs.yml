@@ -66,10 +66,6 @@ markdown_extensions:
       alternate_style: true
 hooks:
   - tools/mkdocs_hooks_v1.py
-# Maintainer working notes: kept in the repository, not published on the site.
-exclude_docs: |
-  reports/
-  MERGER-PROOF.md
 extra_css:
   - stylesheets/extra.css
 validation:
