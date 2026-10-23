@@ -833,3 +833,24 @@ def test_the_actions_repository_name_is_used_when_the_runner_has_one(
 def test_a_tag_prefix_outside_the_closed_grammar_fails(repo: Repo, prefix: str) -> None:
     code, _, _, stderr = repo.release(TAG_PREFIX=prefix, INDEX="none")
     assert code != 0 and "TAG_PREFIX" in stderr
+
+
+def test_the_runners_repository_name_wins_over_a_poisoned_remote_and_no_token_prints(
+    tmp_path: Path, index: Index
+) -> None:
+    """Both orders pinned: with GITHUB_REPOSITORY set (as on Actions) the name comes
+    from it and the credential in the remote is never read or printed; with it
+    unset the same remote is refused."""
+    made, _ = _released(tmp_path, index)
+    made.git(
+        "remote",
+        "set-url",
+        "origin",
+        "https://user:s3cr3t-token@example.invalid/org/demo.git",
+    )
+    runner = _event_run(made, GITHUB_REPOSITORY="org/demo")
+    assert runner.returncode == 0, runner.stderr
+    assert json.loads(runner.stdout)["repository"] == "org/demo"
+    assert "s3cr3t" not in runner.stdout + runner.stderr
+    local = _event_run(made)
+    assert local.returncode != 0 and "s3cr3t" not in local.stdout + local.stderr
