@@ -1,0 +1,5215 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Typed capabilities for scripts, services and sovereign agents.">
+      
+      
+      
+        <link rel="canonical" href="https://zeroemployeeorg.github.io/zeocore/project/CHANGELOG/">
+      
+      
+        <link rel="prev" href="../RELEASE_NOTES/">
+      
+      
+        <link rel="next" href="../CONTRIBUTING/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Changelog - ZeoCore</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="ZeoCore" class="md-header__button md-logo" aria-label="ZeoCore" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ZeoCore
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/zeroemployeeorg/zeocore" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    zeroemployeeorg/zeocore
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ZeoCore" class="md-nav__button md-logo" aria-label="ZeoCore" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    ZeoCore
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/zeroemployeeorg/zeocore" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    zeroemployeeorg/zeocore
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../learning-path/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../GET-STARTED/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/capability-authoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a capability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/provider-registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Register a provider
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/runtime-host/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime host
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/release-signing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sign and verify a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/release-pypi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release to PyPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/briefing-cards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Briefing cards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/newsletter-convert/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Convert a newsletter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/results-and-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results and errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/context-config-files/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Context and files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/resilient-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resilient execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/hubspot-marketing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HubSpot marketing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/kit-marketing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kit marketing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/zeoconnect-hosted-profile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managed profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/mcp-server-with-claude-code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/notion-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/supabase-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supabase
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/calendar-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Google Calendar
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/google-docs-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Google Docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bluesky-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bluesky
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../integrations/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integration setup
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integration setup
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Test and production
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/hubspot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HubSpot
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/google/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Google Workspace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/youtube/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YouTube
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/github/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/notion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/supabase/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supabase
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/bluesky/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bluesky
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/llms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Language models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/agents-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenAI managed Agents API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/briefing-sources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Briefing sources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/model-operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model operation draft
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/gemini-images/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gemini images
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/revolut-business/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Revolut Business
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/zeoconnect/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ZEOconnect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/meetings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Meeting operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/local-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/notebook-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notebook execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/authoring-receipts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authoring receipts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/authoring-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authoring reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../src/zeo_core/contracts/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Public API map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The zeocore command
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/generated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generated API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../src/zeo_core/contracts/EXAMPLES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contract examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RELEASE_NOTES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0151-2026-10-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.15.1] - 2026-10-12
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.15.1] - 2026-10-12">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0150-2026-10-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.15.0] - 2026-10-12
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.15.0] - 2026-10-12">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known issues
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0120-2026-10-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.12.0 - 2026-10-08
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.12.0 - 2026-10-08">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0110-2026-09-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.11.0 - 2026-09-10
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.11.0 - 2026-09-10">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0100-2026-09-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.10.0 - 2026-09-09
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.10.0 - 2026-09-09">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#090-2026-09-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.9.0 - 2026-09-06
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.9.0 - 2026-09-06">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#080-2026-09-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.8.0 - 2026-09-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.8.0 - 2026-09-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#070-2026-09-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.7.0 - 2026-09-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.7.0 - 2026-09-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#060-2026-08-31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.6.0 - 2026-08-31
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.6.0 - 2026-08-31">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#050-2026-08-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.0 - 2026-08-23
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.0 - 2026-08-23">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#named-not-fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named, not fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#040-2026-08-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.0 - 2026-08-21
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.0 - 2026-08-21">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#named-not-fixed-recorded-per-circle-of-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named, not fixed (recorded per circle-of-control)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#030-2026-08-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3.0 - 2026-08-20
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.0 - 2026-08-20">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#named-not-fixed-recorded-per-circle-of-control_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named, not fixed (recorded per circle-of-control)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#020-2026-08-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.0 - 2026-08-20
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.0 - 2026-08-20">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#breaking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BREAKING
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#research-no-code-shipped" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research (no code shipped)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-2026-08-17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1.0 - 2026-08-17
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.1.0 - 2026-08-17">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation publishing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CODE_OF_CONDUCT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code of conduct
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0151-2026-10-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.15.1] - 2026-10-12
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.15.1] - 2026-10-12">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0150-2026-10-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.15.0] - 2026-10-12
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.15.0] - 2026-10-12">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known issues
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0120-2026-10-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.12.0 - 2026-10-08
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.12.0 - 2026-10-08">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0110-2026-09-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.11.0 - 2026-09-10
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.11.0 - 2026-09-10">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0100-2026-09-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.10.0 - 2026-09-09
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.10.0 - 2026-09-09">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#090-2026-09-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.9.0 - 2026-09-06
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.9.0 - 2026-09-06">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#080-2026-09-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.8.0 - 2026-09-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.8.0 - 2026-09-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#070-2026-09-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.7.0 - 2026-09-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.7.0 - 2026-09-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#060-2026-08-31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.6.0 - 2026-08-31
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.6.0 - 2026-08-31">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#050-2026-08-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.0 - 2026-08-23
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.0 - 2026-08-23">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#named-not-fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named, not fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#040-2026-08-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.0 - 2026-08-21
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.0 - 2026-08-21">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#named-not-fixed-recorded-per-circle-of-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named, not fixed (recorded per circle-of-control)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#030-2026-08-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3.0 - 2026-08-20
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.0 - 2026-08-20">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#named-not-fixed-recorded-per-circle-of-control_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named, not fixed (recorded per circle-of-control)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#020-2026-08-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.0 - 2026-08-20
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.0 - 2026-08-20">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#breaking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BREAKING
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#research-no-code-shipped" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research (no code shipped)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-2026-08-17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1.0 - 2026-08-17
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.1.0 - 2026-08-17">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/zeroemployeeorg/zeocore/edit/main/CHANGELOG.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<p>All notable changes to this project will be documented in this file.</p>
+<p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
+and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
+<p><strong>From 0.15.2 on, every merge to <code>main</code> is a release, and this file no longer
+grows.</strong> Each PR adds a fragment to <a href="https://github.com/zeroemployeeorg/zeocore/blob/main/changelog.d/README.md"><code>changelog.d/</code></a>, and
+each version's notes are on its
+<a href="https://github.com/zeroemployeeorg/zeocore/releases">GitHub Release</a>. The
+history below runs up to 0.15.1.</p>
+<h2 id="0151-2026-10-12">[0.15.1] - 2026-10-12<a class="headerlink" href="#0151-2026-10-12" title="Permanent link">&para;</a></h2>
+<p>A patch release: 0.15.0's <code>zeocore</code> command didn't run on a plain install.
+It also closes the unprotected TestPyPI publish target.</p>
+<p><strong>0.15.1 has no tag.</strong> It was published from <code>e22a16ca</code> by Publish run
+38201406179, a manual dispatch, before release on merge. Its smoke test failed
+on index lag 30 s after the upload, so that run made no GitHub Release. The
+files on PyPI carry GitHub attestations for <code>zeroemployeeorg/zeocore</code>,
+<code>publish.yml</code> and <code>pypi</code>, and install and run on a plain install.</p>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>The <code>zeocore</code> command runs on a plain install.</strong> In 0.15.0 it crashed
+  at start-up on <code>pip install zeocore</code>: <code>rfc8785</code>, which the canonical digest
+  needs, was only in the <code>runtime-host</code> extra, and loading <code>zeocore release</code>
+  pulled in <code>requests</code> through <code>zeo_core.integrations.github</code>, which only the
+  <code>github</code> extra installs. The import check in the publish smoke test passed,
+  because it never ran the command. Now:</li>
+<li><code>rfc8785</code> is a base dependency;</li>
+<li><code>zeocore release</code> loads only when it is used, and on an install without
+    the <code>github</code> extra it answers <code>extra_missing</code> (exit 20), naming the extra;</li>
+<li>a test runs the command with every extra-only module refused;</li>
+<li>the publish smoke test runs <code>zeocore version</code> on the plain install,
+    before it adds any extra.</li>
+</ul>
+<p>The workaround for 0.15.0 is <code>pip install 'zeocore[runtime-host,github]==0.15.0'</code>.</p>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Every publish goes through the protected <code>pypi</code> environment.</strong> <code>publish.yml</code>
+  no longer has a <code>testpypi</code> dispatch target, its job or its smoke step. That
+  environment had no protection, so any account or App able to dispatch the
+  workflow could publish to TestPyPI unreviewed (ZEOCORE-SOW-30 §3.2). A test
+  now pins the dispatch options to <code>pypi</code> and the workflow's environments to
+  <code>pypi</code> alone. <code>CONTRIBUTING.md</code>'s release steps drop TestPyPI staging, say the
+  operator tags, and name <code>zeroemployeeorg</code> as the trusted publisher's owner.</li>
+</ul>
+<h2 id="0150-2026-10-12">[0.15.0] - 2026-10-12<a class="headerlink" href="#0150-2026-10-12" title="Permanent link">&para;</a></h2>
+<p>This release ships every change since 0.12.0. Three planned releases were never
+published, and their changes ship together here: 0.13.0, 0.14.0, and the
+binding-fence release, which was planned as "0.15.0 or 0.16.0". No entry
+below was changed by folding them.</p>
+<p>It conforms to these ZEOconnect Broker contracts, each pinned from its merge
+commit:
+- <strong>1.0.0:</strong> zeoconnect #35 at <code>2475934682ca07d480aa16946b3f3d6647255f6f</code>,
+  file sha256 <code>39e97d170941c4fba95f018b3943715fc0b7aa916211e1c1b28582e52366b2c0</code>;
+- <strong>1.2.0</strong>, the expected-binding fence: zeoconnect <code>31da8bda</code> (#56),
+  <code>docs/contract/broker-contract-v1.md</code>, sha256 <code>d2be4901…</code>;
+- <strong>1.2.1</strong>, the changed-request marker: zeoconnect <code>707bb91b</code> (#67),
+  <code>contract/broker-contract-v1.md</code>, sha256 <code>dc2e951f…</code>;
+- <strong>1.2.2</strong>, the re-enrolment code: zeoconnect <code>243409bc</code> (#70),
+  <code>contract/broker-contract-v1.md</code>, sha256 <code>358bcb0f…</code>;
+- <strong>1.4.0</strong>, the access refusals: zeoconnect <code>c134661e</code> (#73),
+  <code>contract/broker-contract-v1.md</code>, sha256 <code>15f7b4db…</code>.</p>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>The expected-binding fence</strong> (contract 1.2.0 §6a). A fenced invocation is
+  refused when its connection was re-enrolled or changed between the listing
+  and the call.</li>
+<li><code>HostedConnectionSummary.connection_revision</code> is the enrolment's revision.</li>
+<li><code>summary.expected_binding()</code> returns a <code>HostedExpectedBinding</code> for
+    <code>HostedOperationRequest.expect</code>.</li>
+<li>The Broker refuses a mismatch with no further provider call.
+    <code>binding_mismatch_of(response)</code> names the field that differed, and
+    <code>receipt["binding"]</code> holds the values the Broker found.</li>
+<li>When the fence can't be checked, because the listing has no revision or
+    the Broker answers a fenced call with 422, zeocore raises
+    <code>HostedFenceUnsupportedError</code>. Its <code>reason</code> says which:
+    <code>"no_revision"</code> or <code>"invalid_fenced_request"</code>. A 1.2 Broker answers
+    invalid arguments with the same 422, so the second message does not claim
+    the fence alone was the cause. zeocore never resends the request unfenced.</li>
+<li>Every request now declares <code>ZEOconnect-Capabilities: stopped-code,
+    expected-binding</code>.</li>
+<li><strong>A re-enrolled connection is its own error.</strong> A connection id re-enrolled
+  with a changed subject, scopes, resources or credential is refused by the
+  Broker with a 400 <code>kernel connection binding changed</code> (zeoconnect #59). This
+  now raises <code>HostedConnectionChangedError</code> instead of a generic refusal. It
+  comes before any provider call, and the fix is ZEOconnect's repair, never a
+  retry. From contract 1.2.2 the Broker also marks it <code>"code":
+  "connection_binding_changed"</code> for a client declaring <code>expected-binding</code>.
+  zeocore reads the code first and keeps the detail string as the fallback,
+  so a 1.2.1 Broker is still recognised.</li>
+<li>
+<p><strong>A changed request under a used key is its own error</strong> (contract 1.2.1
+  §6a.5). The same idempotency key with different arguments or a different
+  <code>expect</code> is refused, nothing is recorded, and the key's original outcome
+  stands. An effect's marked 400 raises <code>HostedRequestChangedError</code>. A read
+  comes back <code>failed_safe</code>, which <code>request_changed_of(response)</code> recognises.
+  The fix is a new key for the changed request, never a retry. An unmarked
+  conflict, such as the 1.1 <code>approval is unavailable</code>, stays a plain refusal.</p>
+</li>
+<li>
+<p><code>HostedRevolutBusinessClient</code>: Revolut Business account and transaction
+  reads through ZEOconnect, read-only (contract §6). On the wire the query's
+  start field is <code>from</code>; a result carrying any JSON number is refused, so
+  amounts are only ever exact decimal strings.</p>
+</li>
+<li><code>HostedStoppedError</code> (with <code>control</code> and <code>scope</code>), <code>HostedUnavailableError</code>,
+  <code>HostedUnreachableError</code> and <code>HostedUpgradeRequiredError</code>, all subclasses of
+  <code>HostedClientError</code>, and <code>stop_of(response)</code> for an orchestrated stop.</li>
+<li><code>NormalizedErrorCode.STOPPED</code>. zeocore declares
+  <code>ZEOconnect-Capabilities: stopped-code</code> on every request, so the Broker may
+  send it; without that capability it sends <code>REQUEST_REFUSED</code> with
+  <code>stopped:&lt;control&gt;:&lt;scope&gt;</code>, which <code>stop_of</code> reads the same way.</li>
+<li><code>TransactionQuery</code> accepts <code>from</code> as well as <code>from_</code>.</li>
+<li>
+<p>Contract <code>1.1.0</code> additions (zeoconnect #40), which are additive, so no
+  re-pin is needed: <code>HostedOperationResponse.replayed</code> is true when the Broker
+  served its stored outcome, which is never a fresh success. <code>is_outage(response)</code>
+  recognizes <code>failed_safe</code> with <code>PROVIDER_UNAVAILABLE</code>, such as
+  <code>controls_unavailable:&lt;control&gt;</code>, as an outage, never a stop. The Broker
+  stores that outcome, so retrying with the same idempotency key replays it;
+  another attempt needs a new key and is a new occurrence, never an automatic
+  retry. YouTube retention defers on it.</p>
+</li>
+<li>
+<p><strong>A named session file for a product's service user</strong> (operator ruling,
+  2026-10-12; client-access proposal §9, option A). <code>ZEOCORE_SESSION_FILE</code>
+  selects <code>FileSecureSessionStore</code>. It is opt-in, never a fallback, and checks:</p>
+</li>
+<li>a 0700 directory owned by the user, with no symbolic link in the path;</li>
+<li>no directory above it writable by another user unless it is sticky;</li>
+<li>a regular 0600 file owned by the user, checked on the open descriptor.</li>
+</ul>
+<p>Writes are atomic, and the file is bound to its Broker origin. Without the
+  variable, a Keychain that can't be read still fails closed with exit 12.</p>
+<ul>
+<li><strong>Broker contract 1.4.0</strong> (zeoconnect #73, merged at <code>c134661e</code>):</li>
+<li><strong>the three access refusals:</strong> <code>door_required</code>, <code>app_identity_unverified</code>
+    and <code>no_principal</code>, in both of their forms (an <code>:invoke</code> answered
+    <code>failed_safe</code> with the exact message, and 403 <code>{"code": ...}</code> elsewhere).
+    The client raises <code>HostedAccessRefusedError</code> or reports
+    <code>access_refusal_of(...)</code>, and the CLI answers each by name with the way
+    back;</li>
+<li><strong>clearer CLI answers:</strong> a stop answers its <code>control</code> and <code>scope</code>, and a
+    426 answers <code>upgrade_required</code>;</li>
+<li>
+<p><strong>the parity fixtures for ZEO-RT's door</strong> (ZEOCORE-SOW-27 §3), in
+    <code>contracts/broker-1.4/</code>: digest vectors for one request per 1.4.0
+    operation, plus <code>on_behalf_of</code> variants, each validated against the
+    frozen schemas, with zeoconnect's own conformance cases vendored beside
+    them. <code>tools/broker-1.4-digest-vectors.py</code> rewrites them.</p>
+</li>
+<li>
+<p><strong>Delegated PyPI releases</strong> (<code>zeocore release pypi apply | approve</code>), on the
+  operator's delegation of 2026-10-11.</p>
+</li>
+<li>The <code>zeo-release</code> GitHub App creates the release tag with a one-repository
+    token minted from its Keychain key.</li>
+<li>matorclawson approves the waiting <code>pypi</code> deployment, once, only for that
+    exact tag and commit.</li>
+<li><code>admit</code> refuses unless only the two identities, together, can release:
+    matorclawson is the only reviewer with self-review prevented and no admin
+    bypass, only <code>v*</code> tags deploy, and a tag ruleset lets only the App touch
+    <code>v*</code>.</li>
+<li>
+<p>The targets are a reviewed table: zeocore, zeocreator, zero-employee and
+    sovereign-agent.</p>
+</li>
+<li>
+<p><strong>The PyPI adapter</strong> (<code>zeocore release pypi plan | admit | apply |
+  reconcile | verify</code>), on ZEOCORE-SOW-26.</p>
+</li>
+<li><code>plan</code> checks the commit is reviewed and the version agrees everywhere.</li>
+<li><code>admit</code> checks that only the operator can approve the publish: the tag's
+    creator can't approve its own deployment or bypass it as an admin, and
+    only <code>v*</code> tags may deploy.</li>
+<li><code>apply</code> creates the release tag, its one effect, under a durable intent,
+    and never retries.</li>
+<li><code>reconcile</code> follows the tag to its publish run.</li>
+<li>
+<p><code>verify</code> checks PyPI's files, each attestation's recorded publisher, and
+    that each attestation names that file's digest.</p>
+</li>
+<li>
+<p><strong>One sign-and-verify step for every org executable</strong> (<code>zeo_core.release.signing</code>,
+  <code>zeocore release sign | verify</code>), on ZEOCORE-SOW-19 to SOW-22. It is built
+  first, before the PyPI adapter, because the Go seats and Pomar wait on it.</p>
+</li>
+<li>Internal Darwin releases sign with ZEO Runtime Code Signing, pinned by its
+    leaf SHA-1. Distributed releases hold as <code>notarisation_unbuilt</code>; Linux is
+    refused as signed until a Linux contract is adopted.</li>
+<li>Inputs come from the reviewed <code>release.yaml</code>, never from flags. The
+    signing host is configuration (<code>ZEOCORE_SIGNING_HOST</code>).</li>
+<li>A separate candidate is signed under a durable intent, and a lost answer
+    is reconciled by readback, never by signing again.</li>
+<li><code>verify</code> is read-only. It refuses an ad-hoc signature even when its
+    requirement names the pin, a bare cdhash, another certificate (including
+    the other audience's), and entitlements that differ from the manifest's.</li>
+<li>A locked keychain is reported only when its settings establish it.</li>
+<li>Request and response packs (<code>zeocore release pack | receive</code>) for signing
+    on matormini from another host.</li>
+<li>
+<p>The signing service on matormini (<code>zeocore release serve</code>) and its client
+    (<code>zeocore release send</code>). It is tailnet-only and identifies callers by
+    <code>tailscale whois</code>. It admits a request only under ZEOCORE-SOW-24 §1: a
+    node, product and identifier allowlist; the manifest read from GitHub at
+    a merged commit; internal audience only; size, count and rate bounds; and
+    a durable journal of every request.</p>
+</li>
+<li>
+<p><strong>Revolut Business reads for expenses, receipts and labels</strong>
+  (<code>zeo_core.integrations.revolut</code>), approved by the zeocore elders as an
+  independent 0.13.0 expansion (org issue #787, Q2):</p>
+</li>
+<li><code>list_expenses</code> (one bounded page, with <code>next_to</code> and stall detection);</li>
+<li><code>get_expense</code>;</li>
+<li><code>download_receipt</code>, bounded to 10 MiB while it is read, never parsed or
+    logged, and returned with its sha256;</li>
+<li><code>list_label_groups</code> and <code>list_labels</code>, which page by an opaque token.</li>
+</ul>
+<p>Amounts stay exact <code>Decimal</code>s, and an expense's <code>payer</code> name is dropped.
+  Redirects are never followed. A provider identifier must be one safe path
+  segment, or nothing is sent. The 0.12 read operations and their error codes
+  are unchanged.</p>
+<p><strong>Offline contract only; no request has been made to Revolut.</strong> Which date
+  Revolut's expense window filters on is not stated in its published
+  contract. The cursor assumes <code>expense_date</code>, and that is unverified until a
+  live sandbox run. <strong>So every <code>ExpensePage</code> reports
+  <code>completeness="unverified"</code></strong>, and a run that reaches <code>next_to=None</code> is not
+  proof of a complete window (org #787, council ruling on E4).
+- <strong>The <code>zeocore</code> command</strong>, for callers that don't import Python: the ZEOconnect
+  Broker and WEB, TypeScript pipelines, scripts. JSON on stdin and JSON lines on
+  stdout with the result last. Exit codes are the YouTube publish command's
+  family: 0, 2, 10, 11, 20, plus 12 not paired and 13 ambiguous
+  (<code>docs/reference/cli.md</code>).
+  - <code>zeocore schema list</code> and <code>zeocore schema &lt;name&gt;</code> give the public contract
+    models as JSON Schema 2020-12 under stable names, among them
+    <code>hosted.operation-request</code>, <code>hosted.operation-response</code> and
+    <code>connections.normalized-error</code>. The same schemas are committed under
+    <code>contracts/zeocore-v1/</code>, and a test fails if a model drifts from its file.
+  - <code>zeocore validate &lt;name&gt;</code> checks a value and answers the normalized form.
+    Its errors carry location and type only, never input values.
+  - <code>zeocore digest</code> is the sha256 of a value's RFC 8785 canonical bytes.
+  - <code>zeocore version</code> names the release and the protocols.
+- <strong>The ZEOconnect client as <code>zeocore</code> commands,</strong> so apps in any language reach
+  the Broker through one client instead of writing their own: <code>login</code>, <code>logout</code>,
+  <code>whoami</code>, <code>connections</code>, <code>invoke</code> and <code>artifact get</code>.
+  - Each app has its own device grant in the Keychain, chosen with <code>--profile</code>
+    or <code>ZEOCORE_PROFILE</code>. With no Keychain the command fails closed with exit 12.
+  - <code>invoke</code> derives its idempotency key from the request, so running the same
+    invocation again replays and never acts twice. It answers <code>request_key</code> and
+    <code>retry</code>. <code>--wait-approval</code> emits the approval link and replays the same key
+    until the person decides.
+  - <code>KeychainSecureSessionStore(profile=...)</code> keeps one entry per profile. No
+    profile keeps today's entry.
+- <strong>The runtime-host names are a supported tier</strong> (planned for 0.15.0, after
+  0.14.0). <code>zeo_core.adapters.runtime_host.canonical</code>, <code>.catalogue</code>, <code>.channel</code>
+  and <code>.host</code> now declare <code>__all__</code>: <code>canonical_bytes</code>, <code>digest</code>, <code>parse_json</code>,
+  <code>manifest_inventory</code>, <code>MAX_BYTES</code>, <code>ProtocolError</code>, <code>InvalidRequestError</code>,
+  <code>CandidateCatalogue</code>, <code>validate_inventory</code>, <code>RuntimeChannel</code>, <code>EffectPort</code>,
+  <code>ManagedHost</code>, <code>parse_result</code> and <code>prepare_request</code>. Until this release they
+  were internal, with no stability promise. Nothing about them changes.
+  <code>zeo_core.contracts.runtime.RUNTIME_HOST_PROTOCOL_VERSION</code> (1) names the
+  version every versioned runtime-host-v1 model carries, so a consumer can bound
+  compatibility on it. The <code>contracts/runtime-host-v1</code> schemas and vectors are
+  still not in the wheel; pin them by sha256 from the source tag.
+  <strong>The promise, from 0.15.0:</strong> while zeocore is 0.x, removing one of these
+  names or changing it incompatibly happens only in a minor release (0.y.0),
+  never in a patch, and is listed under "Breaking" in that release's entry.
+  From 1.0.0 it needs a major version. A wire-incompatible change to a
+  runtime-host-v1 model also raises <code>RUNTIME_HOST_PROTOCOL_VERSION</code>.
+- <strong>The merger's decision core, ported into zeocore</strong> (<code>zeo_core.merger</code>). This
+  follows the operator's ruling that the merger is a zeocore app; ZEO-LEDGER owns
+  the decision contract and reviews the port.
+  - It's a port of zeomerger's register reader, decision core, pass and journal.
+  - It is held to ZEO-LEDGER's language-neutral parity fixtures, committed byte
+    for byte under <code>contracts/merger-v1/</code>: 29 decision cases (v2), 11 whole-run
+    cases (v4) and 14 register cases.
+  - It never writes the register, makes exactly one merge call per receipt with
+    <code>sha</code> set to the approved head, journals its intent durably before the call,
+    and reconciles a lost answer by reading.
+  - A merge call that provably never left the host (no token, or no
+    connection) is journaled <code>not-sent</code>. That releases the intent, so a later
+    pass decides again; anything that may have arrived stays <code>unclear</code>. The Go
+    oracle does the same (zeomerger <code>4eb8950</code>, parity pass v4). An injected
+    HTTP client that follows redirects is refused, since a followed redirect
+    would make a later connect error no proof that nothing was sent.
+  - The base branch's required checks are read from its rulesets only, so a
+    branch under classic branch protection is refused (it fails closed).
+  - The GitHub adapter is in; the <code>zeocore merger</code> command follows.
+- <strong>GitHub App installation tokens for an isolated principal</strong>
+  (<code>zeo_core.integrations.github.app_tokens</code>, <code>github-app</code> extra). These are
+  for the merger, which by the operator's ruling is a zeocore app whose key is
+  kept outside ZEOconnect.
+  - It signs an RS256 App JWT and mints a token for exactly one repository and
+    exactly the requested permissions. A broader grant is revoked and refused.
+  - It sends one attempt and never retries.
+  - The key is read only from the running user's own Keychain item, or from
+    <code>FileAppKeySource</code>: the user's own regular file with no group or other access,
+    never a symlink.</p>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<p>These change what a caller sees. The session store API and the
+<code>ZEOconnectHTTPTransport</code> constructor (<code>session_store</code>, <code>base_url</code>,
+<code>allow_development_origin</code>, <code>http_client</code>, <code>clock</code>) are unchanged.</p>
+<table>
+<thead>
+<tr>
+<th>Broker answer</th>
+<th>0.13.0</th>
+<th>0.14.0</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>403 <code>{"code": "stopped", "control", "scope"}</code></td>
+<td>"hosted request was refused"</td>
+<td><code>HostedStoppedError</code>: "hosted request was stopped by <code>&lt;control&gt;</code> (<code>&lt;scope&gt;</code>)"</td>
+</tr>
+<tr>
+<td>503 with the protocol header</td>
+<td>"hosted request was refused"</td>
+<td><code>HostedUnavailableError</code>: "hosted transport is unavailable"</td>
+</tr>
+<tr>
+<td>401</td>
+<td>"hosted request was refused"</td>
+<td>one refresh, then the same request once more; a second 401 gives "paired device session was refused; pair this device again"</td>
+</tr>
+<tr>
+<td>426</td>
+<td>"hosted request was refused"</td>
+<td><code>HostedUpgradeRequiredError</code>, which says to upgrade zeocore</td>
+</tr>
+<tr>
+<td>no connection to the production Broker</td>
+<td>"hosted transport is unavailable"</td>
+<td><code>HostedUnreachableError</code> with the contract's off-network wording; a development origin keeps the old message</td>
+</tr>
+<tr>
+<td>a response field zeocore doesn't know</td>
+<td>the response is invalid</td>
+<td>the field is ignored (contract §10)</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>A Broker 503 is an outage, never a refusal and never a stop</strong> (council
+  ruling E7). It is not evidence that an effectful request was not accepted,
+  and it grants no retry: an effect is sent once. The one safe read,
+  <code>google.drive.file.download</code>, is attempted a second time only when no
+  response arrived, never because of a 503 (contract §9).</li>
+<li>
+<p><strong>"Refused" is not evidence of non-acceptance.</strong> Only a stop is a positive
+  statement about what the Broker did.</p>
+</li>
+<li>
+<p><strong>PyPI <code>admit</code> checks what a non-Admin can see</strong> (the operator, SOW-29,
+  option C). It no longer requires the exact <code>v*</code> ruleset bypass list, which
+  GitHub hides from anyone without Admin, and no agent is an Admin under ruling
+  r7. It requires the ruleset to be active on <code>refs/tags/v*</code> with no
+  exclusions, restricting creation, update and deletion, and matorclawson's own
+  <code>current_user_can_bypass</code> to be <code>never</code> (<code>approver_can_bypass</code> otherwise). A
+  hidden bypass list is now read as hidden, not as an error.</p>
+</li>
+<li>
+<p><strong><code>zero-employee</code> is no longer a PyPI target.</strong> It is now zeoruntime,
+  released Go-only through the shared signed release component.</p>
+</li>
+<li>
+<p><strong><code>make setup</code> and CI install exactly what <code>uv.lock</code> pins</strong> (<code>make sync</code>, which
+  runs <code>uv sync --locked</code> with every gate extra plus dev, lint and docs). Before
+  this, <code>uv pip install -e .[extras]</code> resolved the newest releases, so CI could
+  test dependencies a release never ships (pydantic 2.14 against the locked
+  2.13.4 on super PR #100). A stale lock now fails setup instead of drifting.</p>
+</li>
+<li><strong>One hosted error message is new.</strong> A Broker response with no
+  <code>ZEOconnect-Protocol-Version</code> header now raises <code>HostedClientError("hosted
+  response did not come from the Broker")</code>. Before, it raised "hosted protocol
+  version is incompatible", which now means only a different or doubled header.
+  No other <code>HostedClientError</code> message changes, and neither do the session
+  store API or the <code>ZEOconnectHTTPTransport</code> constructor. Callers that match
+  on the old message for a headerless response must match on the new one.</li>
+<li><strong>Breaking: <code>merge_pull_request</code> needs the head <code>sha</code> and merges only by
+  <code>merge</code>.</strong> <code>sha</code> is a required keyword, the full 40-hex commit the merge was
+  approved for, and GitHub refuses the merge if the head has moved. <code>squash</code>
+  and <code>rebase</code> are refused. Nothing in zeocore called it. In ZEO, merging is
+  zeomerger's alone (operator decision, 2026-10-10).</li>
+</ul>
+<h3 id="deprecated">Deprecated<a class="headerlink" href="#deprecated" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>The ZEOconnect client commands for seats</strong> (<code>zeocore login</code>, <code>logout</code>,
+  <code>whoami</code>, <code>connections</code>, <code>invoke</code> and <code>artifact get</code>). A seat uses <code>zeo</code>,
+  ZEO-RT's front door, for every Broker operation (ZEOCORE-SOW-27). The
+  commands stay for a product running as its own macOS service user,
+  <code>zs-&lt;product&gt;</code> (the first is <code>zs-newsroom-intake</code>). From Broker contract 1.4
+  the Broker refuses a product's grant from any other user, <code>rodbot</code> and an
+  author's own login included, with <code>app_identity_unverified</code>, and a seat's
+  grant with <code>door_required</code>. The Broker enforces this, not zeocore.</li>
+</ul>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Hosted access reaches ZEOconnect again.</strong> <code>ZEOCONNECT_PRODUCTION_ORIGIN</code> is
+  now <code>https://broker.connect.zeo.ac</code>, the Broker, which is reachable only on
+  the organisation's private network (contract §2). The retired
+  <code>https://connect.zeroemployee.org</code> and the browser-facing
+  <code>https://connect.zeo.ac</code> are refused as transport origins (org #791).</li>
+<li><strong>YouTube retention no longer deletes data during a stop or an outage.</strong> A
+  Broker stop or a 503 used to read as "refused", which removed <code>youtube.json</code>
+  as if access had lapsed. Both now defer, as an unreachable Broker already
+  did, until the 30-day limit.</li>
+<li><strong>A hosted request never carries NaN or ±Infinity.</strong> They are not JSON, and
+  the Broker refuses them (zeoconnect #49). httpx 0.27, which zeocore allows,
+  would have sent them. The transport now refuses such a body before sending,
+  with <code>HostedClientError("hosted request holds a number JSON cannot carry")</code>.</li>
+<li><strong>A YouTube job survives a kill mid-write.</strong> The job directory's write-once
+  files (each event and <code>receipt.json</code>) were created under their final name
+  and then written. A process killed in between left an empty file, so the next
+  run could not read the job at all. Each file is now written and synced
+  under a temporary name, then hard-linked into place, which is still
+  write-once. A filesystem without hard links is refused with <code>JobError</code> rather
+  than written directly, because a direct write would bring back the partial
+  file. This protects against a killed process. Power-loss durability also
+  depends on the filesystem honouring fsync.</li>
+<li><strong>Unknown fields nested in a Broker response are ignored too.</strong> 0.14.0 drops
+  unknown top-level fields (contract §10), but an unknown field inside
+  <code>artifact</code> or <code>normalized_error</code> still refused the whole response. Both now
+  drop unknown fields, so a later Broker can add fields at any level. A
+  <code>provider_detail</code> is still refused.</li>
+<li>
+<p><strong>Two processes sharing a paired session no longer ask to re-pair.</strong> Refresh
+  tokens are single use (contract §4). When a YouTube run and the retention
+  sweep both hit a 401, both refreshed with the same token, and the loser
+  reported "pair this device again" when nothing was wrong. zeocore now reads
+  the session store again before refreshing, and again if the refresh is
+  refused. A pair the other process rotated is used instead. One narrow window
+  remains: if the refusal is read before the other process has saved its
+  pair, the refusal stands.</p>
+</li>
+<li>
+<p><strong>A hidden ruleset bypass list is never read as empty.</strong> GitHub returns a
+  ruleset's <code>bypass_actors</code> only to a user with Admin on the repository.
+  <code>admit</code> used to read the missing key as an empty list and refuse as
+  <code>tag_ruleset_missing</code>, naming the wrong cause. It now records the list as
+  hidden, and doesn't rely on it (see Changed).</p>
+</li>
+<li>
+<p><strong>The YouTube custody relay no longer retries a failure no retry can cure.</strong>
+  Until now only a refusal ended a relayed upload: every other client error
+  backed off and probed again, up to 20 times. That covered an incompatible
+  protocol, an invalid answer, an expired or missing device session, and the
+  managed-execution refusal. Now only "unavailable" and "pending" are
+  transient. Anything else holds the job as <code>upload_rejected</code> after one
+  request. A refusal, a Broker stop included, still holds it as
+  <code>session_link_refused</code>.</p>
+</li>
+<li><strong>A Broker response without its protocol header is terminal everywhere.</strong>
+  On the relay, a 502/503/504 was read as an outage <em>before</em> the header was
+  checked. A proxy's headerless 503 was therefore retried as if the Broker had
+  sent it. Now the header is checked first on every Broker response, so a
+  missing, different or doubled header is a protocol failure. It is never
+  retried, refreshed around or read as a stop. A Broker 503 <em>with</em> the header is
+  still an outage and is retried (org #787, council ruling E5).
+  <strong>What this means in practice:</strong> a 502 or 503 from a CDN or edge proxy,
+  which carries no Broker header, is the most common real outage. It now ends
+  a relayed YouTube upload at once, holding the job as <code>upload_rejected</code>,
+  where before it was waited out. That is E5's choice. When the Broker is
+  reachable again, append a <code>released</code> event and the next run resumes the
+  upload.</li>
+<li><strong>A GitHub effect is sent once, never retried.</strong> <code>make_request</code> retried every
+  method on a 5xx, a rate limit, a timeout or a dropped connection. So one
+  ambiguous reply could open a second pull request, post a second comment or
+  issue, write a file twice, or merge twice. Only GET and HEAD are retried now.
+  POST, PUT, PATCH and DELETE are sent exactly once, and an unknown outcome is
+  raised for the caller to reconcile by reading back.</li>
+</ul>
+<h3 id="known-issues">Known issues<a class="headerlink" href="#known-issues" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Hosted access stays unavailable in this release,</strong> as in every release since
+  0.10.0. The hosted origin is still pinned to <code>connect.zeroemployee.org</code>, which
+  no longer names the ZEOconnect deployment; local integrations are unaffected. This release
+  changes relay failure handling. It does not claim conformance to Broker
+  contract <code>1.0.0</code> and does not repair the hosted origin; both are for 0.14.0
+  (org #791).</li>
+</ul>
+<h2 id="0120-2026-10-08"><a href="https://github.com/zeroemployeeorg/zeocore/compare/v0.11.0...v0.12.0">0.12.0</a> - 2026-10-08<a class="headerlink" href="#0120-2026-10-08" title="Permanent link">&para;</a></h2>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>YouTube data retention</strong> (<code>youtube.retention</code>, <code>publish retain</code>): YouTube's fields
+  (the video id, privacy, schedule and link) live only in a replaceable <code>youtube.json</code>,
+  never in the write-once job files. <code>retain</code> refreshes each record once it is 20 days
+  old (one <code>videos.get</code>, 1 unit). It deletes the record when the video is gone or
+  access has lapsed, or when no refresh succeeded by day 29, and logs when and why.
+  This follows the Developer Policies' 30-day limit (§III.E.4). <code>Receipt</code> no longer
+  carries <code>provider_object_id</code>, <code>video_url</code> or <code>response_sha256</code>; it points to
+  <code>provider_record</code>.</li>
+<li><strong>YouTube publishing for multi-GB files</strong> (<code>zeo_core.integrations.google.youtube</code>):
+  the provider client opens resumable sessions inside the custody boundary and
+  never sends bytes; <code>transfer</code> sends a file to a session link with no
+  credential, probing first so a drop, kill or reboot resumes at the exact byte;
+  <code>job</code> and <code>publish</code> are a write-once job directory (ZEO Runtime's occurrence
+  identity, Go-computed test vectors) and an executor CLI (<code>pair</code>, <code>connections</code>,
+  <code>run</code>, <code>status</code>) whose lost-final-answer path adopts one matching upload,
+  holds on several, and never uploads twice. Replaces 0.11's <code>upload_video</code>.
+  If YouTube refuses a link without a token, the job switches to a custody
+  relay (<code>relay.RelayByteHttp</code>, <code>ZEOconnectHTTPTransport.relay_youtube_chunk</code>):
+  sealed 4 MiB chunks through ZEOconnect, same session, same resume.
+  Offline contract only; no live request has been made.</li>
+<li><strong>YouTube publishing</strong> (<code>zeo_core.integrations.google.youtube</code>, extra <code>youtube</code>):
+  resumable chunked upload with progress, schedule (<code>publish_at</code>), metadata,
+  thumbnail, caption track, playlist item, channel identity and video state.
+  Injected credentials only (<code>GoogleCredentialSource</code>); it reads no credential
+  file. Models refuse what YouTube would reject before any call. When YouTube
+  keeps an upload private (an unverified API project), the result says so; a
+  failed upload is never retried. Not in the setup catalogue. Offline contract
+  only; no live request has been made.</li>
+<li><strong>Local Revolut Business enrollment</strong> (<code>zeo_core.integrations.revolut.local</code>,
+  extra <code>revolut</code>): use your own account on your own machine, with no hosted
+  service or database. Three explicit steps (<code>setup</code>, <code>authorize</code>, <code>complete</code>)
+  as a CLI or in Python; key, certificate and rotating tokens in owner-only
+  files outside any repository; configuration only from <code>.env</code>. One refresh per
+  read; a marker is written durably before a refresh is sent, and a lost answer
+  is a blocked unknown outcome that only a fresh consent clears. Registered as
+  the <code>revolut.business</code> entry point; the setup catalogue now reports the local
+  profile as implemented. Offline contract only; no live request has been made.</li>
+<li><code>HostedServiceRegistry</code>: explicit, immutable registrations replace the hosted
+  resolver's hard-coded service branch. The reviewed default registers exactly
+  the previously resolvable <code>google.drive</code> download, so resolution is unchanged.</li>
+<li>Read-only Revolut Business client (<code>zeo_core.integrations.revolut</code>): accounts
+  and one bounded, explicitly paged transaction page over a fixed origin, with
+  exact <code>Decimal</code> amounts, declared normalization, byte bounds on the upstream
+  body and the normalized result, observation timestamps and no credential path
+  of its own. Offline contract only; no live provider request has been made.</li>
+<li>Versioned, inert setup manifests for all twenty integration tracks, with
+  current operation/capability mappings and explicit unadmitted hosted profiles.</li>
+<li>Seven-dimension availability snapshots that preserve every blocker, expiry
+  and known revocation without conferring dispatch authority.</li>
+<li>Versioned resource-selection metadata distinguishing exact objects, fixed
+  collections and explicitly dynamic future membership.</li>
+</ul>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Local Revolut enrollment no longer clears an unresolved refresh when the
+  owner gives a fresh consent on the same registration. Consent authorizes new
+  tokens; it does not settle what the provider did with a request whose answer
+  was lost. The marker and its block survive: reads continue on the new access
+  token, refreshing stays blocked. A refused grant or a rejected token, which
+  are definite answers, are still cleared by a new grant. A new registration
+  records <code>follows_unresolved_refresh</code>, and the guide no longer describes
+  deleting a certificate as certain isolation: no qualified recovery exists.</li>
+<li>A stored local Revolut enrollment is bound to its environment. Files written
+  for sandbox are refused by a production-selected object, and the reverse,
+  with <code>ENVIRONMENT_MISMATCH</code> before any client is built or any credential is
+  sent, including for completion and refresh.</li>
+<li>Service requirements accept existing single-component service identities such
+  as <code>github</code>, while retaining exact operation-prefix validation.</li>
+</ul>
+<h2 id="0110-2026-09-10"><a href="https://github.com/zeroemployeeorg/zeocore/compare/v0.10.0...v0.11.0">0.11.0</a> - 2026-09-10<a class="headerlink" href="#0110-2026-09-10" title="Permanent link">&para;</a></h2>
+<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Version-1 supervised Runtime capability host and <code>zeo-capability</code> CLI with
+  explicit provider binding, canonical schemas/vectors and private inherited IPC.
+  The <code>runtime-host</code> extra is separate from <code>all</code>. Joint Runtime/ZEOconnect wire
+  agreement and real application acceptance remain required.</li>
+<li>Runtime-admitted meeting-v1 adapters for Notion upsert, Sheets/Calendar reads
+  and Gmail draft creation, retrieval and reconciliation, using their existing
+  meeting request/receipt protocol.</li>
+<li>Offline catalogue and meeting-request examples, provider-registration guidance,
+  and versioned installation guidance throughout the public docs.</li>
+<li>Searchable documentation with generated API reference and GitHub Pages publishing.</li>
+</ul>
+<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Legacy plugin registration publishes transactionally, restores surviving
+  shadowed contributions on unload, uses registration snapshots for cleanup,
+  and refuses ambiguous selected entry points before import.</li>
+<li>GitHub release announcements wait for published-package smoke checks, including
+  the installed Runtime host extra, offline examples and missing-authority refusal.</li>
+</ul>
+<h2 id="0100-2026-09-09"><a href="https://github.com/zeroemployeeorg/zeocore/compare/v0.9.0...v0.10.0">0.10.0</a> - 2026-09-09<a class="headerlink" href="#0100-2026-09-09" title="Permanent link">&para;</a></h2>
+<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Governed Gemini reference-image commissioning with durable dispatch markers,
+  private hashed artifacts, project-bound custody and read-only reconciliation.
+  Image candidates remain unreviewed; ambiguous delivery never triggers another POST.</li>
+<li>Conversion receipts, versioned notebook semantic comparison and strict staged
+  batches through the public Jupytext/Pandoc APIs. A complete reference consumer
+  independently checks fixtures and runs in separate test/production roots.</li>
+<li>Optional <code>notebook</code> extra for fresh-kernel execution with parent-enforced
+  deadlines, bounded output, observed process cleanup, resolved interpreter and
+  environment identity, declared lock provenance and explicit cell accounting.</li>
+<li>Explicit test and production integration environments with a process launcher,
+  scoped credential inputs, secure prompts and separate configuration, credential
+  caches, temporary files and working directories. All sixteen integration entry
+  points plus hosted ZEOconnect have detailed account and E2E setup guides.</li>
+<li>
+<p>Managed LLM runs fail on the selected provider instead of silently substituting
+  another provider or mock; offline mock use requires explicit test fixtures.</p>
+</li>
+<li>
+<p>Kit marketing integration and thirteen registered capabilities for broadcasts,
+  sequence authoring, subscriber consent, tags and reporting. Includes explicit
+  reviewed sends, safe error outcomes, an offline example and provider-contract tests.</p>
+</li>
+<li>
+<p>HubSpot postmerge review corrections: tolerate inert null workflow decorations,
+  allow reviewed unenrollment despite unrelated graph drift, and sanitize malformed
+  provider schedule errors.</p>
+</li>
+<li>
+<p>HubSpot marketing integration and eleven registered agent capabilities for
+  newsletter drafts, reviewed publishing and scheduling, campaigns, subscription
+  preferences and marketing email workflows. Includes bounded pagination, safe
+  error outcomes, workflow ID mapping, an offline example and account-tier docs.</p>
+</li>
+<li>
+<p>Native, consent-bound ZEOconnect composition with explicit <code>fake</code>, <code>local</code>,
+  <code>hosted</code>, and isolated <code>governed</code> profiles. Applications declare existing
+  service/operation identities once and receive structured connection states
+  without import-time or resolution-time networking.</p>
+</li>
+<li>An explicit device-pairing lifecycle, rotating device sessions, macOS
+  Keychain custody, deterministic in-memory test custody, sanitized connection
+  selection, and a fixed-origin/versioned ZEOconnect HTTP transport.</li>
+<li>A deterministic Drive fake and conformance proof that one Drive-read business
+  function runs unchanged under fake, local, and hosted composition.</li>
+</ul>
+<h3 id="fixed_4">Fixed<a class="headerlink" href="#fixed_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>
+<p>Native fake and hosted service imports no longer require optional local Google or Bluesky dependencies; SDK loading is deferred until local service construction.</p>
+</li>
+<li>
+<p>Notebook worker results are published atomically so polling parents cannot
+  observe partially written JSON. Successful and failed publication paths have
+  deterministic regression controls.</p>
+</li>
+<li>Google Drive listing now uses the SDK's <code>pageSize</code> keyword in both listing
+  paths. Real discovery-builder regression tests prevent permissive mocks from
+  hiding a broken first account check.</li>
+<li>Bind full HubSpot workflow reads to the requested ID before graph review or
+  follow-up enrollment, update, activation, metrics and archive requests.</li>
+<li>Kit mutation responses now require a valid operation-bound resource ID; a
+  newsletter send must return a new ID distinct from its source draft. Invalid
+  identities retain an unknown outcome without retrying.</li>
+<li>HubSpot unenrollment rejects metadata for missing, malformed or mismatched
+  workflow IDs before mapping or deletion, while permitting unrelated graph drift.</li>
+</ul>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>httpx</code> is now a base dependency because the hosted bridge is part of normal
+  ZeoCore installations. Construction remains inert and ignores ambient proxy
+  configuration.</li>
+<li>New hosted invocation requests omit connector revisions. ZEOconnect derives
+  the immutable revision from the authenticated connection; the 0.9 request
+  field remains optional for source compatibility during server migration.</li>
+</ul>
+<h3 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Managed Supabase launches reject identical test and production project URLs,
+  even with distinct keys, before creating state or starting the application.</li>
+<li>Managed integration children disable ambient netrc lookup, preventing HTTP
+  clients from replacing a selected token with credentials from the user home.</li>
+<li>Hosted resolution and Supabase remain separate boundaries: the ZeoCore client
+  accepts no Supabase URL, key, database role, Vault reference, tenant ID, or
+  provider credential.</li>
+<li>Governed resolution cannot instantiate a hosted client, load a paired-device
+  session, or fall back to member authority. Effects never receive the safe-read
+  transport retry granted to the first Drive observation.</li>
+</ul>
+<h2 id="090-2026-09-06"><a href="https://github.com/zeroemployeeorg/zeocore/compare/v0.8.0...v0.9.0">0.9.0</a> - 2026-09-06<a class="headerlink" href="#090-2026-09-06" title="Permanent link">&para;</a></h2>
+<h3 id="added_4">Added<a class="headerlink" href="#added_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>First-class Supabase integration through the maintained <code>supabase&gt;=2.31,&lt;3</code>
+  Python SDK. The <code>zeocore[supabase]</code> extra exposes runtime-checkable,
+  injectable services for bounded PostgREST CRUD and named RPC, secret-free
+  Auth dispositions, bounded Storage, named Edge Functions, and explicit async
+  Realtime subscriptions.</li>
+<li>Typed filters, ordering, row pages, user/session status, bucket metadata,
+  Function results, and Realtime changes. Update/delete require filters;
+  identifiers, object paths, response sizes, caller headers, and project URLs
+  fail closed.</li>
+</ul>
+<h3 id="security_1">Security<a class="headerlink" href="#security_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Supabase keys remain owned by the auth/client-construction seam and are
+  absent from configuration and public results. Privileged server keys require
+  explicit opt-in and never imply application authorization.</li>
+<li>Raw SQL, arbitrary URLs, signed bearer URLs, the Management API, and
+  <code>vault.decrypted_secrets</code> are deliberately absent. Provider exception text is
+  discarded before it can carry credentials into logs or receipts.</li>
+<li>Supabase OAuth start rejects an authorization URL outside the configured
+  project origin. Lazy Realtime construction keeps its project key opaque and
+  releases the local reference after SDK construction.</li>
+</ul>
+<h3 id="fixed_5">Fixed<a class="headerlink" href="#fixed_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Supabase convenience methods now return a structured uninitialized result
+  instead of raising while resolving the absent client.</li>
+</ul>
+<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>The Supabase tutorial now walks from project creation and publishable-key
+  selection through Row Level Security, first read, Auth, Storage, Functions,
+  Realtime, privileged-key isolation, and production verification.</li>
+<li>The Notion tutorial now teaches the admitted <code>notion.page.upsert</code> contract,
+  deterministic marker, cited content, dispatch/reconciliation boundary, and
+  hosted versus local custody paths. A credential-free runnable example makes
+  the request and connector revision inspectable without issuing an effect.</li>
+</ul>
+<h2 id="080-2026-09-05"><a href="https://github.com/zeroemployeeorg/zeocore/compare/v0.7.0...v0.8.0">0.8.0</a> - 2026-09-05<a class="headerlink" href="#080-2026-09-05" title="Permanent link">&para;</a></h2>
+<h3 id="added_5">Added<a class="headerlink" href="#added_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>A complete adapter-neutral <code>BrokerExecutionStore</code> protocol now covers the
+  durable nonce, idempotency, evidence, and outcome surface used by
+  <code>EffectOrchestrator</code>. SQLite remains the local implementation; hosted stores
+  no longer need to import or impersonate it.</li>
+<li><code>ObservationOrchestrator</code> provides a separate durable path for admitted READ
+  operations: exact authorization and selected-resource binding, atomic
+  idempotency, bounded and sanitized inline/artifact results, immutable
+  receipts, and failed-safe timeout handling without mutation-style ambiguity.</li>
+<li>The admitted <code>notion.page.upsert</code> operation includes a closed request shape,
+  deterministic marker, one-call dispatcher, read-only reconciler, and
+  Keychain custody path. A lost create response reconciles by marker without a
+  second create.</li>
+<li>Hosted Notion OAuth credential dispatch accepts organization-bound
+  <code>SecretRef</code> objects for refresh, introspection, and revocation while keeping
+  raw token material inside the custody callback.</li>
+<li>Google Drive and Docs accept injected credential sources and client
+  factories. The named selected-file scope profile uses only <code>drive.file</code>.</li>
+<li>A credential-free ZEOconnect client boundary and local/hosted service factory
+  provide protocol-compatible Drive download, Docs read, and confirmed Bluesky
+  post services. Remote downloads are size/digest verified and local paths
+  never cross the network.</li>
+</ul>
+<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Notion SDK construction has an explicit proxy policy and disables accidental
+  ambient proxy inheritance by default. Unit tests inject provider fakes; a
+  separately selected profile may opt into ambient transport configuration.</li>
+<li>Workspace connector extras now include the legible <code>docs</code>, <code>sheets</code>, and
+  <code>slides</code> aliases in addition to the shared <code>google</code> family extra.</li>
+<li>Coverage is measured to two decimals and guarded by a boundary meta-test:
+  89.99 fails and 90.00 passes.</li>
+</ul>
+<h3 id="fixed_6">Fixed<a class="headerlink" href="#fixed_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Release gates can no longer print success after accepting a rounded
+  below-threshold coverage result.</li>
+<li>The HTTP callback test now matches the real synchronous boundary and no
+  longer leaves an un-awaited mock coroutine.</li>
+<li>Jupytext fixtures carry stable cell IDs instead of relying on nbformat's
+  temporary repair behavior.</li>
+<li>README test-suite wording and Bluesky tutorial release evidence no longer
+  describe stale 0.6-era bytes.</li>
+</ul>
+<h2 id="070-2026-09-05"><a href="https://github.com/zeroemployeeorg/zeocore/compare/v0.6.0...v0.7.0">0.7.0</a> - 2026-09-05<a class="headerlink" href="#070-2026-09-05" title="Permanent link">&para;</a></h2>
+<h3 id="added_6">Added<a class="headerlink" href="#added_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Complete Notion API <code>2026-03-11</code> integration through the official
+  <code>notion-client&gt;=3.1.0</code> SDK: 44 current data operations spanning pages,
+  blocks, databases, data sources and templates, users, search, comments,
+  custom emoji, file uploads, views, meeting notes, and Markdown. Pagination,
+  request-size limits, bounded retry metadata, and current <code>in_trash</code> and
+  block-position semantics are explicit. Public OAuth covers authorization-code
+  exchange, refresh, introspection, and revocation while placing issued bearer
+  credentials directly into <code>SecretStore</code> custody.</li>
+<li>Durable effect orchestration under <code>zeo_core.connections</code>: an
+  organization-scoped SQLite store, exact fail-closed authorization verifier
+  with required signature verification and issuer/audience trust configuration,
+  persisted pre-dispatch state, one-call provider dispatch, fail-closed ambiguity,
+  reconciliation without blind redispatch, atomic outcome receipts, and
+  sanitized confirmation evidence. Connector admission closes origin, path,
+  redirect, request-field, secret-binding, and reconciliation surfaces;
+  <code>KeychainEffectDispatcher</code> confines credential material to a one-shot custody
+  callback.</li>
+<li>Bounded read/advisory retries and explicit provider fallback under
+  <code>zeo_core.execution</code>, including hard subprocess deadlines, process-group
+  cleanup, cancellation, and one-attempt LLM adapters.</li>
+</ul>
+<h3 id="changed_4">Changed<a class="headerlink" href="#changed_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Notion credentials now enter through environment variables or OAuth custody;
+  normal configuration and public results no longer carry raw bearer material.
+  Historical convenience methods remain available, but removed request fields
+  fail closed and ambiguous multi-data-source database calls must name the data
+  source explicitly.</li>
+<li>PyPI project URLs, release instructions, public repository links, and package
+  examples now point directly to <code>zeroemployeeorg/zeocore</code> after the repository move.</li>
+<li>Published authentication results no longer carry raw provider tokens.
+  Credential-bearing constructor input is rejected rather than merely hidden by
+  selected serializers.</li>
+</ul>
+<h3 id="fixed_7">Fixed<a class="headerlink" href="#fixed_7" title="Permanent link">&para;</a></h3>
+<ul>
+<li>The publish workflow now creates the matching GitHub release only after PyPI
+  succeeds, and its clean-environment smoke test installs the exact version that
+  the workflow built instead of permitting resolver fallback to an older one.</li>
+<li>The stable required <code>verify-all</code> context now fails visibly when any Python
+  matrix leg fails, avoiding a permanently pending required check after matrix
+  changes.</li>
+</ul>
+<h2 id="060-2026-08-31"><a href="https://github.com/zeroemployeeorg/zeocore/compare/v0.5.0...v0.6.0">0.6.0</a> - 2026-08-31<a class="headerlink" href="#060-2026-08-31" title="Permanent link">&para;</a></h2>
+<p>Two new integrations and the credential handling to support them safely.
+Short announcement: <a href="../RELEASE_NOTES/">RELEASE_NOTES.md</a>. Adopter path:
+install -&gt; <a href="../GET-STARTED/">GET-STARTED.md</a> token guide -&gt; construct an
+integration -&gt; post.</p>
+<h3 id="added_7">Added<a class="headerlink" href="#added_7" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Google Docs integration</strong> (<code>zeo_core.integrations.google.docs</code>): full
+  <code>documents.v1</code> surface -- <code>get_document</code>, <code>create_document</code>, <code>batch_update</code>,
+  plus <code>get_document_text</code> with a recursive body walk that includes tables.
+  Index-free <code>replace_text</code> / <code>append_text</code> are the headline editing methods;
+  the request builder reverse-sorts by index internally so earlier edits cannot
+  invalidate later ones.</li>
+<li><strong>Bluesky integration</strong> (<code>zeo_core.integrations.social.bluesky</code>), the first
+  provider under a new <code>integrations/social/</code> package. Authenticates with an
+  app password -- no OAuth, no developer app, no approval. Rich-text facets are
+  computed from UTF-8 byte offsets, so links and mentions survive emoji.</li>
+<li><strong>Google Sheets integration</strong> (<code>zeo_core.integrations.google.sheets</code>):
+  reading and writing cell ranges over the Sheets v4 API, same
+  <code>IntegrationResult</code> shape as every other integration.</li>
+<li><strong>Google Slides integration</strong> (<code>zeo_core.integrations.google.slides</code>):
+  presentation and page access over the Slides v1 API.</li>
+<li><strong>Tutorials for the integrations</strong>, under <a href="https://github.com/zeroemployeeorg/zeocore/tree/main/docs/tutorials">docs/tutorials/</a> and
+  indexed from <a href="../../">docs/README.md</a> --
+  <a href="../../tutorials/google-docs-integration/">Google Docs</a> and
+  <a href="../../tutorials/bluesky-integration/">Bluesky</a> join Calendar, Notion, MCP,
+  capability authoring, results-and-errors, and context/config/files. Every code
+  block in the two new ones was executed against the installed package before
+  being written, not transcribed from source.</li>
+<li><strong><code>make doctor</code></strong> -- a readiness check that reports what an environment is
+  missing rather than failing opaquely.</li>
+<li><strong><code>make release-check</code></strong> -- pre-tag gate over version identity, the Python
+  floor across every file that states it, the CHANGELOG entry, and index
+  availability on both real PyPI and TestPyPI, each probe carrying a positive
+  control so an unreachable index cannot read as a free filename.</li>
+<li><strong>Token-acquisition guide</strong> in <a href="../GET-STARTED/">GET-STARTED.md</a> for Bluesky,
+  LinkedIn, Google, Notion and GitHub: which portal, which product, which
+  scopes, and where the value goes. Flows that could not be verified are marked
+  as unverified rather than guessed.</li>
+<li><code>.env</code> is now actually loaded (<code>zeo_core.config.load_dotenv_file</code>). It was
+  documented as the home for secrets but inert.</li>
+</ul>
+<h3 id="changed_5">Changed<a class="headerlink" href="#changed_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>
+<p><strong>Python floor raised to 3.14</strong> (was 3.13). This is a <strong>breaking change</strong>: an
+  environment on 3.13 will no longer resolve new releases. It aligns zeocore with
+  sovereign-agent 1.1.0, which already requires 3.14. Verified before landing --
+  the full suite passes on 3.14 with the same 2954 tests and no behavioural
+  difference, and mypy is clean across 295 source files at the new floor.</p>
+</li>
+<li>
+<p><strong>Credential files move out of the working directory</strong> to an OS-appropriate
+  per-user location via <code>platformdirs</code>. A legacy credential is migrated once,
+  with an explicit notice; differing contents in both locations refuses and
+  instructs rather than guessing. Credential writes are <code>0600</code> and atomic.</p>
+</li>
+<li>OAuth credentials are now validated against <strong>granted</strong> scopes, not requested
+  ones. A cached token missing a scope previously reported valid and failed at
+  the first API call.</li>
+</ul>
+<h3 id="fixed_8">Fixed<a class="headerlink" href="#fixed_8" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>drive</code> and <code>calendar</code> resolved configuration in <code>__init__</code>, so constructing
+  either from a directory with no config file raised before a caller could
+  supply one. Both now defer to <code>initialize()</code>, matching <code>mail</code>. All five
+  integrations construct from a fresh directory.</li>
+<li><code>google_credentials.json</code> and <code>google_client_secret.json</code> were not gitignored
+  while the settings YAML was -- the settings file was protected and the live
+  token was not.</li>
+</ul>
+<h2 id="050-2026-08-23"><a href="https://github.com/zeroemployeeorg/zeocore/compare/v0.4.0...v0.5.0">0.5.0</a> - 2026-08-23<a class="headerlink" href="#050-2026-08-23" title="Permanent link">&para;</a></h2>
+<p>ZeoCore is the canonical capability-authoring and capability-contract
+library for the Zero Employee ecosystem. Sovereign Agent is <strong>not</strong> moved
+into this package. Short announcement: <a href="../RELEASE_NOTES/">RELEASE_NOTES.md</a>.
+Adopter path: install → <a href="https://github.com/zeroemployeeorg/zeocore/blob/main/examples/capability_authoring.py"><code>examples/capability_authoring.py</code></a>
+→ <a href="../GET-STARTED/#capabilities">GET-STARTED Capabilities</a> → HTTP/MCP examples.</p>
+<h3 id="added_8">Added<a class="headerlink" href="#added_8" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Canonical capability contracts: <code>CapabilityId</code> (<code>namespace.name@semver</code>),
+  <code>CapabilityDefinition</code>, <code>CapabilityManifest</code>, <code>CapabilityEffects</code> /
+  <code>ConcurrencyMode</code> / <code>EffectKind</code>, <code>CapabilityRequirements</code>, typed
+  <code>RequestGuard</code> / <code>GuardResult</code>, <code>CapabilityInvocationRecord</code> (digests +
+  redaction, not execution receipts), and <code>CapabilityOutcome</code> layered on
+  the existing three-way <code>CapabilityStatus</code>. See
+  <a href="../src/zeo_core/contracts/"><code>src/zeo_core/contracts/README.md</code></a>.</li>
+<li><code>@capability</code> function authoring, <code>CapabilityRegistry</code> (including
+  <code>zeo_core.capabilities</code> entry points), <code>invoke_sync</code> / <code>invoke_async</code>,
+  <code>tool_to_capability</code>, and <code>register_capability_operation</code> for HTTP/MCP.</li>
+<li>OpenAI function-tool projection in <code>zeo_core.adapters.llm_tools</code>
+  (<code>project_openai_tool</code>): refuses unsupported JSON Schema instead of
+  silently weakening it.</li>
+<li>Representative catalog capabilities under <code>zeo_core.tools.catalog</code>
+  (local add, filesystem checksum, GitHub file read, calendar create,
+  pandoc markdown-to-docx). Reference implementations, not a public API.</li>
+<li>Sovereign consumption contract pack (<code>zeo_core.contract_pack</code>, tests
+  under <code>tests/contract_pack/</code>) with no <code>sovereign_agent</code> import.</li>
+<li>Runnable examples: <code>capability_authoring.py</code>, <code>capability_guards.py</code>,
+  <code>tool_to_capability.py</code>, <code>llm_tools_usage.py</code>, rewritten
+  <code>http_adapter_usage.py</code>. Tutorial:
+  <a href="../../tutorials/capability-authoring/"><code>docs/tutorials/capability-authoring.md</code></a>.</li>
+<li>Symbol audit and replacement-readiness reports under <code>docs/reports/</code>
+  (maintainer/ecosystem, not end-user docs).</li>
+</ul>
+<h3 id="changed_6">Changed<a class="headerlink" href="#changed_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Package version aligned at <code>0.5.0</code> (<code>pyproject.toml</code> and
+  <code>zeo_core.__version__</code>). Contracts module version is <code>1.1.0</code>.</li>
+<li>Ecosystem Python ruling recorded: forthcoming Zero Employee releases
+  align on Python 3.13; ZeoCore does not restore 3.12 CI.</li>
+<li>README / GET-STARTED / <code>llms.txt</code> lead with <code>@capability</code> as the
+  canonical authoring surface. <code>BaseZeoTool</code> remains fully supported.</li>
+</ul>
+<h3 id="compatibility">Compatibility<a class="headerlink" href="#compatibility" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Existing <code>BaseZeoTool.run()</code>, HTTP, and MCP <code>register_tool</code> paths remain.</li>
+<li><code>CapabilityResult.ok</code> / <code>.skip</code> / <code>.fail</code> set default outcomes so
+  current tools need no changes. <code>.unavailable()</code> is the skip path for
+  missing declared services.</li>
+<li>Effects are declarations, not authorization. Human approval is not a
+  capability result state.</li>
+</ul>
+<h3 id="named-not-fixed">Named, not fixed<a class="headerlink" href="#named-not-fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>zeo_core.tools.compat.sovereign_style_capability</code> exists for
+  keyword-argument functions migrating from Sovereign Agent style. It is
+  transitional, not canonical. No deletion timeline in this release.</li>
+<li>LLM provider <code>chat()</code> still does not parse <code>tool_use</code> response blocks
+  into structured <code>tool_calls</code> (request-side tool-calling works). Same
+  gap as 0.4.x; <code>adapters.llm_tools</code> projects <em>ZeoCore</em> capabilities
+  outward and does not close that inbound parse gap.</li>
+</ul>
+<h2 id="040-2026-08-21"><a href="https://github.com/zeroemployeeorg/zeocore/compare/v0.3.0...v0.4.0">0.4.0</a> - 2026-08-21<a class="headerlink" href="#040-2026-08-21" title="Permanent link">&para;</a></h2>
+<h3 id="changed_7">Changed<a class="headerlink" href="#changed_7" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>.env</code> adopted as the documented home for secrets</strong> (RULING-356). Not a
+  runtime change — zeocore already merges <code>os.environ</code> over YAML config, so
+  this changes where a byte is typed, not what the process does with it. It
+  is adopted because YAML config files get committed by default and <code>.env</code>
+  files do not, and this library's stated audience is junior: defaults are
+  the whole product for that audience. A new <a href="https://github.com/zeroemployeeorg/zeocore/blob/main/.env.example"><code>.env.example</code></a>
+  ships at the repo root with placeholder values for <code>NOTION_TOKEN</code>,
+  <code>GITHUB_TOKEN</code>, <code>OPENAI_API_KEY</code>, and <code>ANTHROPIC_API_KEY</code>. <code>.env</code> is not
+  loaded on import — that stays the caller's shell/tooling, a deliberate
+  fence (see "Named, not fixed" below).</li>
+<li><strong><code>GET-STARTED.md</code> fixed — the highest-severity item in this release.</strong>
+  The documented "Creating Custom Configuration" walkthrough was teaching a
+  junior to construct a secret inline (<code>MyAppConfig(api_key="your-api-key")</code>)
+  and then <code>.model_dump()</code> it into a <code>ZeoConfig.custom</code> dict that gets
+  persisted to a committed YAML file. A second, previously-uncited instance
+  in the same file's "Configuration File Format" section embedded a literal
+  <code>api_key: "your-api-key"</code> in a worked YAML example. Both rewritten to read
+  the secret from the environment and keep it out of anything persisted to
+  disk. <code>README.md</code> was swept for the same shape; no instance found there.</li>
+<li><strong><code>.gitignore</code> now anchors the two repo-relative default config
+  locations</strong> (<code>/zeo_config.yaml</code>, <code>/config/zeo_config.yaml</code>, per
+  <code>config/loader.py:52-57</code>). Defense in depth: a junior who ignores the docs
+  and types a secret into config YAML is now stopped by a rule rather than
+  their own attention. Verified with <code>git check-ignore -v</code> / <code>git add
+  --dry-run</code>, not by reading the pattern.</li>
+</ul>
+<h3 id="fixed_9">Fixed<a class="headerlink" href="#fixed_9" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Credential files are now written <code>0600</code>.</strong> A <code>mode: int | None = None</code>
+  parameter threads through the fs write chain
+  (<code>write_json</code>/<code>write_yaml</code>/<code>write_bytes</code>/<code>write_text</code>, both the atomic and
+  non-atomic branches); default is preserve-current, so general-purpose
+  infra (pandoc/jupytext/gmail output, etc.) is unchanged. The three
+  credential writers (<code>google/auth.py</code>, <code>notion/auth.py</code>, <code>github/auth.py</code>)
+  now pass <code>mode=0o600</code> explicitly. The real defect: <code>_atomic_write</code>
+  preserved a pre-existing loose file mode forever, with no path to tighten
+  it, on every subsequent write. New files were already born <code>0600</code> under
+  this repo's own umask probe — this is not a create-at-<code>0644</code> fix; that
+  defect does not exist.</li>
+</ul>
+<h3 id="named-not-fixed-recorded-per-circle-of-control">Named, not fixed (recorded per circle-of-control)<a class="headerlink" href="#named-not-fixed-recorded-per-circle-of-control" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>The env-writeback opt-in</strong> (<code>zeo_core.integrations.llms.config.
+  LLMConfigProvider._setup_environment_variables</code>, <code>llms/config.py:228-273</code>)
+  copies an <code>api_key</code> found in loaded YAML config into <code>os.environ</code> when the
+  corresponding env var isn't already set. Real, and ranked, but sized this
+  round rather than changed: only <strong>one gated production call site</strong>
+  reaches it (<code>prompt/_internal/enhancer.py:27</code>, itself behind an explicit
+  <code>use_llm</code> opt-in at its only caller, <code>prompt/service.py:161</code>); the other
+  construction site, <code>llms/__init__.py:73</code>'s <code>create_integration()</code>, is dead
+  code — <code>modules/discovery.py</code> looks only for <code>create_plugin</code> and states so
+  in its own comment. <code>get_llm_client</code> (<code>llms/registry.py:41</code>), the
+  function GET-STARTED.md's own worked example actually uses, does not go
+  through this path at all. Default-OFF for this behaviour is still a
+  breaking change; this release only narrows the estimate from an
+  <code>[INFERRED]</code> broad surface to one enumerated, already-gated site.</li>
+<li><strong>Typed secret models (<code>SecretStr</code>) cannot be applied as-is.</strong> <code>ZeoConfig</code>
+  (<code>models.py:100-138</code>) has no secret-shaped field to type — <code>integrations</code>
+  and <code>custom</code> are both untyped <code>dict[str, Any]</code>, and secrets flow through
+  them structurally the same as any other config value. Adopting
+  <code>SecretStr</code> is a design decision about how to shape that dict, not a
+  drop-in annotation change, and stays open.</li>
+<li><strong>Two of the four default config locations are outside any repo-local
+  <code>.gitignore</code>'s reach.</strong> <code>config/loader.py:52-57</code> also names
+  <code>~/.zeo/config.yaml</code> and <code>/etc/zeo/config.yaml</code>; a secret typed into
+  either is not covered by this release's <code>.gitignore</code> patterns or by any
+  mechanism in this repo, because neither path is inside a git working
+  tree. <code>.env</code> remains the documented, gitignore-independent mitigation
+  regardless of which config location is in use.</li>
+</ul>
+<h2 id="030-2026-08-20"><a href="https://github.com/zeroemployeeorg/zeocore/releases/tag/v0.3.0">0.3.0</a> - 2026-08-20<a class="headerlink" href="#030-2026-08-20" title="Permanent link">&para;</a></h2>
+<h3 id="added_9">Added<a class="headerlink" href="#added_9" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Google Calendar integration</strong> (<code>zeo_core.integrations.google.calendar</code>,
+  <code>zeocore[calendar]</code> extra): read (<code>list_calendars</code>, <code>get_calendar</code>,
+  <code>list_events</code> with date-range filtering, <code>get_event</code>) and write
+  (<code>create_event</code>, <code>update_event</code>, <code>delete_event</code>) surface, reusing the
+  same OAuth (<code>InstalledAppFlow</code> + local-server) flow and
+  <code>GoogleAuthProvider</code>/<code>GoogleConfigProvider</code> the Drive and Gmail
+  integrations already use — no new auth or config mechanism. See
+  <a href="https://github.com/zeroemployeeorg/zeocore/blob/main/examples/calendar_usage.py"><code>examples/calendar_usage.py</code></a> and
+  <a href="../../tutorials/calendar-integration/"><code>docs/tutorials/calendar-integration.md</code></a>.</li>
+<li><code>zeo_core.integrations.google</code> now also re-exports <code>GoogleCalendarService</code>,
+  <code>Calendar</code>, and <code>CalendarEvent</code> at the shallow path (alongside the
+  existing <code>GoogleDriveService</code>/<code>GoogleMailService</code> re-exports).</li>
+</ul>
+<h3 id="named-not-fixed-recorded-per-circle-of-control_1">Named, not fixed (recorded per circle-of-control)<a class="headerlink" href="#named-not-fixed-recorded-per-circle-of-control_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>zeo_core.integrations.google.drive.operations/*</code> (<code>list_files.py</code>,
+  <code>upload.py</code>, <code>download.py</code>, <code>folder.py</code>, <code>permissions.py</code>) is dead code:
+  confirmed by a repo-wide grep that nothing outside drive's own test
+  suite imports it — <code>drive/service.py</code>'s public methods duplicate the
+  same logic inline rather than calling into <code>operations/</code>. Pre-existing,
+  not introduced by the Calendar integration (which does not replicate
+  this pattern), and out of this work's own scope to fix.</li>
+<li><code>GoogleDriveService</code>/<code>GoogleCalendarService</code>'s real <code>integration_id</code>
+  property (<code>"googledrive"</code>/<code>"googlecalendar"</code>, derived from
+  <code>name.lower().replace(" ", ".")</code>) does not match the dotted
+  <code>pyproject.toml</code> entry-point table key (<code>"google.drive"</code>/
+  <code>"google.calendar"</code>) — the two are different strings by a pre-existing
+  pattern (confirmed identical for <code>GoogleDriveService</code>), not a defect
+  introduced by the Calendar integration.</li>
+</ul>
+<h2 id="020-2026-08-20"><a href="https://github.com/zeroemployeeorg/zeocore/releases/tag/v0.2.0">0.2.0</a> - 2026-08-20<a class="headerlink" href="#020-2026-08-20" title="Permanent link">&para;</a></h2>
+<h3 id="breaking">BREAKING<a class="headerlink" href="#breaking" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Python floor raised from <code>&gt;=3.10</code> to <code>&gt;=3.13</code>.</strong> Python 3.10 is inside
+  its own final support window (security-only since October 2023, full
+  end-of-life October 2026); 3.13 is also the version the <code>ffmpeg</code> extra
+  (below) needed to resolve at all (<code>ffmpeg-zeo</code> requires Python &gt;=3.12).
+  If you're pinned to an older interpreter, stay on a pre-<code>0.2.0</code> release
+  of this package; otherwise upgrade before installing. CI's version
+  matrix was trimmed from <code>["3.10", "3.11", "3.12", "3.13"]</code> to
+  <code>["3.13"]</code> to match — the dropped legs could not pass regardless of
+  this change (3.10/3.11 fail <code>ffmpeg-zeo</code>'s own floor; keeping them past
+  the bump would test versions the package no longer claims to support).</li>
+</ul>
+<h3 id="added_10">Added<a class="headerlink" href="#added_10" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>MCP server adapter</strong> (<code>zeo_core.adapters.mcp</code>, <code>zeocore[mcp]</code>
+  extra): expose zeocore tools to Claude Code, Cursor, and other
+  MCP-native coding agents. Any <code>BaseZeoTool</code> becomes MCP-callable with
+  <strong>zero MCP-specific code</strong> from the tool author — <code>register_tool()</code>
+  mechanically derives the MCP tool definition from the tool's own
+  <code>run(request, ctx)</code> type hint and registers it into the same
+  <code>OperationRegistry</code> <code>zeo_core.adapters.http</code> already reads, so one
+  registration reaches both adapters. See
+  <a href="https://github.com/zeroemployeeorg/zeocore/blob/main/examples/mcp_server_usage.py"><code>examples/mcp_server_usage.py</code></a> and
+  GET-STARTED.md's "Exposing Tools as an MCP Server" section.</li>
+<li><strong>Notion integration</strong> (<code>zeo_core.integrations.notion</code>, <code>zeocore[notion]</code>
+  extra): full read (<code>get_page</code>, <code>list_page_blocks</code>, <code>search</code>,
+  <code>get_database</code>, <code>query_database</code>) and write (<code>create_page</code>,
+  <code>create_database_entry</code>, <code>update_page</code>, <code>append_blocks</code>) surface,
+  bearer-integration-token auth (Notion's own model, not OAuth). Handles
+  the <code>notion-client</code> SDK's 2025-09-03 database→data-source model change
+  transparently — callers still pass a <code>database_id</code>. See
+  <a href="https://github.com/zeroemployeeorg/zeocore/blob/main/examples/notion_usage.py"><code>examples/notion_usage.py</code></a>.</li>
+<li><strong>Jupytext integration</strong> (<code>zeo_core.integrations.jupytext</code>,
+  <code>zeocore[jupytext]</code> extra): <code>script_to_notebook()</code> (percent-format
+  <code>.py</code> → <code>.ipynb</code>, matching how <code>quackslides</code> uses jupytext today) and
+  <code>notebook_to_script()</code> (its natural inverse). See
+  <a href="https://github.com/zeroemployeeorg/zeocore/blob/main/examples/jupytext_usage.py"><code>examples/jupytext_usage.py</code></a>.</li>
+<li><strong>FFmpeg integration</strong> (<code>zeo_core.integrations.ffmpeg</code>,
+  <code>zeocore[ffmpeg]</code> extra): wraps the org's own <code>ffmpeg-zeo</code> PyPI package
+  (not the raw <code>ffmpeg</code> binary directly). <code>probe()</code>, <code>convert()</code>,
+  <code>transcode_h264()</code>, <code>extract_audio()</code>, <code>thumbnail()</code>. See
+  <a href="https://github.com/zeroemployeeorg/zeocore/blob/main/examples/ffmpeg_usage.py"><code>examples/ffmpeg_usage.py</code></a>.</li>
+<li><code>LLMOptions.cache_system_prompt</code>: marks the system prompt cacheable via
+  Anthropic's <code>cache_control: ephemeral</code> breakpoints. Provider-agnostic
+  field on the shared <code>LLMProviderProtocol</code>; a no-op on providers without
+  caching support (OpenAI, Ollama).</li>
+<li><code>llms.txt</code>: a condensed package summary for coding agents / LLM context
+  windows.</li>
+</ul>
+<h3 id="fixed_10">Fixed<a class="headerlink" href="#fixed_10" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Anthropic client's default model updated (both <code>clients/anthropic.py</code>
+  and <code>config.py</code>'s <code>AnthropicConfig.default_model</code>) — the previous
+  default, <code>claude-3-opus-20240229</code>, was retired 2026-01-05.</li>
+<li>Real Anthropic-shaped tool-use request passthrough:
+  <code>LLMOptions.tools</code> is converted to Anthropic's flat
+  <code>{name, description, input_schema}</code> shape and reaches the real request.
+  <strong>Known gap, not yet closed</strong>: response-side tool-call extraction is
+  incomplete — <code>chat()</code> only reads <code>response.content[0].text</code>, so a
+  <code>tool_use</code> response block is not parsed into structured output today.
+  See GET-STARTED.md's LLM providers section for the full detail.</li>
+<li><code>zeo_core.integrations.google</code> now re-exports <code>GoogleDriveService</code> and
+  <code>GoogleMailService</code> at the shallow path (previously only reachable at
+  <code>.google.drive</code>/<code>.google.mail</code>).</li>
+<li><code>CapabilityResult</code> re-exported from the top-level <code>zeo_core</code> package
+  (previously only reachable via <code>zeo_core.contracts</code>).</li>
+<li>GET-STARTED.md's configuration quick-start corrected (an unmarked
+  placeholder path was being presented as a runnable example); a real,
+  runnable <a href="https://github.com/zeroemployeeorg/zeocore/blob/main/examples/config_usage.py"><code>examples/config_usage.py</code></a> added.</li>
+<li><code>Makefile</code>'s <code>install-all</code> target was missing the <code>mcp</code>/<code>mcp-dev</code>
+  extras, silently skipping the MCP adapter's own dependencies on a
+  plain <code>make install-all</code> — fixed.</li>
+<li>An order-dependent test failure
+  (<code>test_configure_logger_attaches_real_file_handler</code>, passed in
+  isolation, failed under full-suite ordering) was root-caused to a
+  <code>functools.lru_cache</code>-backed filesystem-service singleton leaking a
+  stale working directory across tests, and fixed by scoping
+  <code>cache_clear()</code> around the affected test.</li>
+</ul>
+<h3 id="research-no-code-shipped">Research (no code shipped)<a class="headerlink" href="#research-no-code-shipped" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Database integration (BigQuery, Supabase, SQLite) was evaluated and
+  <strong>not built</strong> this round: BigQuery dropped (zero consumers anywhere in
+  the org); Supabase held (its only real consumer, <code>profrod-site</code>, is
+  TypeScript and architecturally unreachable from this Python package);
+  SQLite judged buildable but not urgent (<code>quackresearch</code> already
+  self-serves with hand-rolled <code>sqlite3</code>). The <code>zeo_core.integrations.database</code>
+  package directories exist as empty stubs — not yet implemented.</li>
+</ul>
+<h3 id="changed_8">Changed<a class="headerlink" href="#changed_8" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>CapabilityResult.machine_message</code> and <code>CapabilityError.code</code> now accept
+  <code>ZEO_&lt;AREA&gt;_&lt;DETAIL&gt;</code> (new preferred prefix, matching the <code>zeo_core</code>
+  package name) and <code>ZC_&lt;AREA&gt;_&lt;DETAIL&gt;</code> (short-form alias), in addition to
+  the legacy <code>QC_&lt;AREA&gt;_&lt;DETAIL&gt;</code> inherited from the pre-extraction
+  <code>quack_core</code> package. Previously only <code>QC_</code> was accepted, which
+  contradicted this file's own 0.1.0 "full mechanical rename" claim below
+  (see that entry's amendment) and had no documented reason for surviving
+  the rename. This is a backward-compatible widening, not a breaking
+  change: all 0.1.0 code using <code>QC_*</code> codes continues to validate
+  unchanged. All of this package's own internal call sites
+  (<code>tools/mixins/env_init.py</code>, <code>contracts/capabilities/demo/_impl.py</code>,
+  <code>examples/toolkit_usage.py</code>, <code>contracts/EXAMPLES.md</code>) were migrated to
+  <code>ZEO_*</code> to lead by example.</li>
+</ul>
+<h2 id="010-2026-08-17"><a href="https://github.com/zeroemployeeorg/zeocore/releases/tag/v0.1.0">0.1.0</a> - 2026-08-17<a class="headerlink" href="#010-2026-08-17" title="Permanent link">&para;</a></h2>
+<p>Initial extraction from the quackverse monorepo as a standalone,
+MIT-licensed package.</p>
+<h3 id="added_11">Added<a class="headerlink" href="#added_11" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>zeo_core.tools</code>: a capability-authoring framework (<code>BaseZeoTool</code>,
+  <code>ToolContext</code>, <code>ZeoToolProtocol</code>) with optional mixins
+  (<code>IntegrationEnabledMixin</code>, <code>LifecycleMixin</code>, <code>ToolEnvInitializerMixin</code>)
+  for writing doctrine-compliant tools.</li>
+<li><code>zeo_core.contracts</code>: typed data contracts (<code>CapabilityResult</code>, artifact
+  and manifest models, common enums and IDs).</li>
+<li><code>zeo_core.core</code>: filesystem operations (<code>core.fs</code>), path resolution
+  (<code>core.paths</code>), a typed error hierarchy (<code>core.errors</code>), MIME detection,
+  serialization helpers, logging, and an operation registry.</li>
+<li><code>zeo_core.config</code>: YAML/environment-variable configuration loading and
+  per-tool configuration models.</li>
+<li><code>zeo_core.integrations</code>: adapters for GitHub, Google Drive, Gmail, LLM
+  providers (OpenAI, Anthropic), Notion, and Pandoc.</li>
+<li><code>zeo_core.modules</code>: plugin discovery and explicit-loading registry.</li>
+<li><code>zeo_core.prompt</code>: prompt template selection and enhancement utilities.</li>
+<li><code>zeo_core.adapters</code>: an optional FastAPI-based HTTP adapter for exposing
+  tools over a REST API.</li>
+<li><code>examples/</code>: runnable, verified example scripts (<code>toolkit_usage.py</code>,
+  <code>minimal_tool.py</code>, <code>error_handling.py</code>).</li>
+<li><code>CONTRIBUTING.md</code>, <code>CODE_OF_CONDUCT.md</code> (Contributor Covenant v2.1).</li>
+</ul>
+<h3 id="changed_9">Changed<a class="headerlink" href="#changed_9" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Full mechanical rename from the monorepo's <code>quack_core</code> package to
+  <code>zeo_core</code> (PyPI distribution name: <code>zeocore</code>), including class names
+  (<code>Quack*</code> -&gt; <code>Zeo*</code>), environment variable prefixes, and config file
+  keys. <strong>Amendment (see Unreleased):</strong> this rename did not originally
+  extend to the <code>QC_*</code> machine-message/error-code prefix enforced by
+  <code>CapabilityResult</code>/<code>CapabilityError</code>'s validators, which kept rejecting
+  anything but <code>QC_</code> -- contradicting "full" above. Fixed by widening
+  those validators to also accept <code>ZEO_</code>/<code>ZC_</code>, rather than retroactively
+  editing this historical entry.</li>
+<li>Fixed a broken version-sourcing path and a production test-detection bug
+  found during the extraction (see git history for detail).</li>
+</ul>
+<h3 id="fixed_11">Fixed<a class="headerlink" href="#fixed_11" title="Permanent link">&para;</a></h3>
+<ul>
+<li>CI now runs the full test suite on every supported Python version
+  (3.10-3.13) on real GitHub Actions infrastructure. That surfaced three
+  real, previously-invisible cross-version bugs (this package's own
+  pre-release local development only ever ran on 3.13), all fixed and
+  independently verified across every supported version before release:</li>
+<li>A <code>pathlib.Path.__init__</code>/<code>__new__</code> split changed in CPython 3.12;
+    an autouse test fixture that monkeypatched <code>Path.__init__</code> only was
+    crashing the entire test suite on 3.10/3.11 with an <code>INTERNALERROR</code>.
+    Fixed by coercing on both <code>__new__</code> and <code>__init__</code>, matching whichever
+    one actually does the real work on a given Python version.</li>
+<li><code>unittest.mock</code>'s dotted-string <code>@patch(...)</code> target resolution
+    changed in 3.11 (<code>pkgutil.resolve_name</code> instead of an eager
+    <code>getattr</code>-walk). Three call sites depended on the newer resolution
+    semantics to reach their intended target; on 3.10 they silently
+    patched the wrong object, cascading into shared-state pollution across
+    unrelated test files.</li>
+<li><code>typing.Protocol.__instancecheck__</code>'s structural-membership check
+    changed in 3.12 (from plain <code>hasattr</code> to <code>inspect.getattr_static</code>,
+    which does not trigger <code>MagicMock</code>'s attribute auto-fabrication).
+    Five tests asserting that a bare, unconfigured <code>MagicMock()</code> does
+    <em>not</em> satisfy a runtime-checkable protocol passed on 3.12/3.13 but
+    failed on 3.10/3.11. Fixed by constructing the mocks with an explicit
+    <code>spec=</code>, which is version-stable and expresses the real test intent.</li>
+</ul>
+<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>The <code>BaseZeoToolPlugin</code> back-compat alias -- unused outside this repo's
+  own test suite, and this package has never had a public release, so no
+  back-compat was owed for it.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../RELEASE_NOTES/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Release notes">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Release notes
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../CONTRIBUTING/" class="md-footer__link md-footer__link--next" aria-label="Next: Contributing">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Contributing
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.action.edit", "content.code.copy", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.sections", "navigation.top", "search.highlight", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
