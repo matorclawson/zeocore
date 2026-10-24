@@ -1,0 +1,743 @@
+"""A reviewed post-build inventory as the signing manifest's digests (SOW-44 rev 2).
+
+The manifest keeps the reviewed structure; the inventory holds the digests;
+the result is the same pinned manifest the step has always signed.
+"""
+
+from __future__ import annotations
+
+import copy
+import io
+import json
+import tarfile
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+from zeo_core.cli.release import make_command
+from zeo_core.release.signing import (
+    LoadedManifest,
+    ManifestError,
+    PackError,
+    SigningRequest,
+    WorkDir,
+    create_request,
+    load,
+    open_request,
+    sign,
+    verify,
+)
+from zeo_core.release.signing.admission import (
+    GhCli,
+    Grant,
+    ReviewUnreadableError,
+    admit,
+)
+from zeo_core.release.signing.inventory import (
+    APPROVER_USER_ID,
+    SCHEMA,
+    InventoryError,
+    check_review,
+    parse,
+    pin_keys,
+)
+from zeo_core.release.signing.toolchain import Completed
+
+from .conftest import HOST, FakeToolchain
+from .test_service import FakeGitHub, Runner
+
+Release = Callable[..., LoadedManifest]
+
+
+def _lift(signing: dict[str, Any]) -> dict[str, str]:
+    """Pop every pin out of a pinned ``signing`` section, keyed as the inventory is."""
+    pins: dict[str, str] = {}
+
+    def main(entry: dict[str, Any], key: str) -> None:
+        declared = entry.get("main_executable")
+        if isinstance(declared, dict):
+            pins[key] = declared.pop("unsigned_sha256")
+
+    for item in signing.get("executables", []):
+        pins[f"executable:{item['name']}"] = item.pop("unsigned_sha256")
+    for bundle in signing.get("bundles", []):
+        name = bundle["name"]
+        pins[f"bundle:{name}:tree"] = bundle.pop("unsigned_tree_sha256")
+        main(bundle, f"bundle:{name}:main")
+        for nested in bundle.get("nested", []):
+            pins[f"bundle:{name}:nested:{nested['path']}"] = nested.pop(
+                "unsigned_sha256"
+            )
+            main(nested, f"bundle:{name}:nested:{nested['path']}:main")
+    return pins
+
+
+def _inventory(product: str, pins: dict[str, str], **changes: Any) -> bytes:  # noqa: ANN401
+    document: dict[str, Any] = {"schema": SCHEMA, "product": product, "pins": pins}
+    document.update(changes)
+    return json.dumps(document).encode()
+
+
+def _convert(loaded: LoadedManifest) -> tuple[dict[str, Any], dict[str, str]]:
+    """The pinned manifest's document with its pins lifted into an inventory."""
+    document = yaml.safe_load(loaded.manifest_path.read_bytes())
+    pins = _lift(document["signing"])
+    document["signing"]["pins"] = "inventory"
+    return document, pins
+
+
+def _written(loaded: LoadedManifest, document: dict[str, Any]) -> Path:
+    path = loaded.manifest_path.with_name("inventory-mode.yaml")
+    path.write_text(yaml.safe_dump(document))
+    return path
+
+
+def _same(a: LoadedManifest, b: LoadedManifest) -> bool:
+    return a.signing.model_dump(exclude={"pins"}) == b.signing.model_dump(
+        exclude={"pins"}
+    )
+
+
+def test_an_inventory_gives_the_same_pinned_manifest_for_executables(
+    release: Release,
+) -> None:
+    pinned = release({"name": "pomar"}, {"name": "pomar-host"})
+    document, pins = _convert(pinned)
+    path = _written(pinned, document)
+
+    loaded = load(path, _inventory("pomar", pins))
+
+    assert _same(loaded, pinned)
+    assert loaded.signing.pins == "inventory"
+    assert loaded.inventory_sha256 is not None
+
+
+def test_an_inventory_gives_the_same_pinned_manifest_for_a_bundle(
+    app: Callable[..., LoadedManifest],
+) -> None:
+    pinned = app(framework=True)
+    document, pins = _convert(pinned)
+    assert any(":nested:" in key for key in pins)
+    assert any(key.endswith(":main") for key in pins)
+    path = _written(pinned, document)
+
+    loaded = load(
+        path,
+        _inventory(pinned.signing.product, pins),
+    )
+
+    assert _same(loaded, pinned)
+    assert sorted(pin_keys(document["signing"])) == sorted(pins)
+
+
+def test_an_inventory_manifest_signs_and_verifies_like_a_pinned_one(
+    release: Release, tmp_path: Path
+) -> None:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    loaded = load(_written(pinned, document), _inventory("pomar", pins))
+    tools = FakeToolchain()
+    work = WorkDir(tmp_path / "work")
+
+    signed = sign(loaded, work, tools, HOST)
+    checked = verify(loaded, work, tools)
+
+    assert (signed.status, signed.reason) == ("done", "signed")
+    assert (checked.status, checked.reason) == ("done", "verified")
+
+
+def test_a_changed_artifact_no_longer_matches_its_inventory_pin(
+    release: Release, tmp_path: Path
+) -> None:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    loaded = load(_written(pinned, document), _inventory("pomar", pins))
+    (loaded.root / "bin" / "pomar").write_bytes(b"not what was reviewed")
+
+    signed = sign(loaded, WorkDir(tmp_path / "work"), FakeToolchain(), HOST)
+
+    assert signed.status != "done"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda pins: pins.pop("executable:pomar"),
+        lambda pins: pins.update({"executable:other": "a" * 64}),
+        lambda pins: pins.update({"executable:pomar": "xyz"}),
+    ],
+    ids=["missing pin", "unexpected pin", "not a digest"],
+)
+def test_an_inventory_that_does_not_match_the_manifest_refuses(
+    release: Release, mutate: Callable[[dict[str, str]], object]
+) -> None:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    mutate(pins)
+    with pytest.raises(ManifestError):
+        load(_written(pinned, document), _inventory("pomar", pins))
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"not json",
+        b"[]",
+        json.dumps({"schema": "other/v1", "product": "pomar", "pins": {}}).encode(),
+        json.dumps({"product": "pomar", "pins": {}}).encode(),
+        json.dumps(
+            {"schema": SCHEMA, "product": "pomar", "pins": {}, "extra": 1}
+        ).encode(),
+    ],
+    ids=["not json", "not an object", "wrong schema", "no schema", "extra field"],
+)
+def test_an_unreadable_inventory_refuses(release: Release, content: bytes) -> None:
+    pinned = release({"name": "pomar"})
+    document, _ = _convert(pinned)
+    with pytest.raises(ManifestError):
+        load(_written(pinned, document), content)
+
+
+def test_an_inventory_for_another_product_refuses(release: Release) -> None:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    with pytest.raises(ManifestError, match="another product"):
+        load(_written(pinned, document), _inventory("other", pins))
+
+
+def test_inventory_mode_without_an_inventory_refuses(release: Release) -> None:
+    pinned = release({"name": "pomar"})
+    document, _ = _convert(pinned)
+    with pytest.raises(ManifestError, match="none was given"):
+        load(_written(pinned, document))
+
+
+def test_a_manifest_that_pins_its_own_digests_refuses_an_inventory(
+    release: Release,
+) -> None:
+    pinned = release({"name": "pomar"})
+    _, pins = _convert(pinned)
+    with pytest.raises(ManifestError, match="second source of pins"):
+        load(pinned.manifest_path, _inventory("pomar", pins))
+
+
+def test_a_pin_left_in_an_inventory_mode_manifest_refuses(release: Release) -> None:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    document["signing"]["executables"][0]["unsigned_sha256"] = "b" * 64
+    with pytest.raises(ManifestError, match="already pins"):
+        load(_written(pinned, document), _inventory("pomar", pins))
+
+
+def test_the_inventory_does_not_change_the_manifest_it_was_applied_to(
+    release: Release,
+) -> None:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    before = copy.deepcopy(document)
+    load(_written(pinned, document), _inventory("pomar", pins))
+    assert document == before
+    assert parse(_inventory("pomar", pins)).pins == pins
+
+
+class _Github:
+    """What the host reads back; each field is one thing GitHub could say."""
+
+    def __init__(
+        self,
+        *,
+        merged: bool = True,
+        held: bytes | None = b"inventory",
+        creators: list[int] | None = None,
+    ) -> None:
+        self.merged = merged
+        self.held = held
+        self.creators = [APPROVER_USER_ID] if creators is None else creators
+        self.asked: list[str] = []
+
+    def default_branch(self, repo: str) -> str:
+        return "main"
+
+    def file_at(self, repo: str, commit: str, path: str) -> bytes | None:
+        self.asked.append(path)
+        return self.held
+
+    def is_ancestor(self, repo: str, commit: str, branch: str) -> bool:
+        return self.merged
+
+    def approval_creators(self, repo: str, commit: str, context: str) -> list[int]:
+        assert context == "council/approve"
+        return self.creators
+
+
+def _review(github: _Github, content: bytes = b"inventory") -> str | None:
+    return check_review(
+        github,
+        repo="zeroemployeeorg/pomar",
+        commit="a" * 40,
+        path="release/inventory/1.2.3.json",
+        content=content,
+    )
+
+
+def test_a_merged_inventory_with_the_approvers_status_is_reviewed() -> None:
+    github = _Github()
+    assert _review(github) is None
+    assert github.asked == ["release/inventory/1.2.3.json"]
+
+
+@pytest.mark.parametrize(
+    ("github", "content", "why"),
+    [
+        (_Github(merged=False), b"inventory", "not merged"),
+        (_Github(held=None), b"inventory", "no inventory"),
+        (_Github(held=b"other bytes"), b"inventory", "not the one in the commit"),
+        (_Github(), b"other bytes", "not the one in the commit"),
+        (_Github(creators=[]), b"inventory", "adopted approver"),
+        (_Github(creators=[1, 2]), b"inventory", "adopted approver"),
+    ],
+    ids=[
+        "unmerged",
+        "absent",
+        "differs from the commit",
+        "caller bytes differ",
+        "no approval",
+        "approval by someone else",
+    ],
+)
+def test_inventory_evidence_that_is_not_the_adopted_review_refuses(
+    github: _Github, content: bytes, why: str
+) -> None:
+    reason = _review(github, content)
+    assert reason is not None and why in reason
+
+
+def test_a_status_with_the_right_name_from_another_account_is_not_a_review() -> None:
+    assert _review(_Github(creators=[APPROVER_USER_ID + 1])) is not None
+
+
+def test_parse_reports_inventory_errors_as_inventory_errors() -> None:
+    with pytest.raises(InventoryError):
+        parse(b"{")
+
+
+# -- the inventory travels with the request, and admission holds it to its review --
+
+NODE = "eng-uk-0006.tail29b7b0.ts.net"
+REPO = "zeroemployeeorg/pomar"
+COMMIT = "c" * 40
+INVENTORY_PATH = "release/inventory/1.2.3.json"
+GRANTS = {NODE: {"pomar": Grant(REPO, frozenset({"ac.zeo.pomar.pomar"}))}}
+
+
+def _inventory_pack(
+    release: Release,
+    tmp_path: Path,
+    **request: Any,  # noqa: ANN401
+) -> tuple[Path, LoadedManifest, bytes]:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    content = _inventory("pomar", pins)
+    loaded = load(_written(pinned, document), content)
+    described = {
+        "pack_version": 1,
+        "product": "pomar",
+        "repo": REPO,
+        "commit": COMMIT,
+        "manifest_path": "release.yaml",
+        "inventory_path": INVENTORY_PATH,
+        **request,
+    }
+    out = tmp_path / "request.tar"
+    create_request(loaded, SigningRequest(**described), out)
+    return out, loaded, content
+
+
+def _members(pack: Path) -> dict[str, bytes]:
+    with tarfile.open(pack) as tar:
+        return {
+            m.name: tar.extractfile(m).read()  # type: ignore[union-attr]
+            for m in tar.getmembers()
+            if m.isreg()
+        }
+
+
+def _repacked(pack: Path, out: Path, **changes: bytes | None) -> Path:
+    """The pack with some members replaced or, given None, dropped."""
+    members = _members(pack)
+    for name, data in changes.items():
+        if data is None:
+            members.pop(name.replace("__", "."), None)
+        else:
+            members[name.replace("__", ".")] = data
+    with tarfile.open(out, "w") as tar:
+        for name, data in sorted(members.items()):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    return out
+
+
+def test_the_inventory_rides_in_the_pack_and_comes_out_unchanged(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, loaded, content = _inventory_pack(release, tmp_path)
+
+    assert _members(pack)["inventory.json"] == content
+    opened = open_request(pack, tmp_path / "opened")
+
+    assert opened.inventory_bytes == content
+    assert opened.request.inventory_path == INVENTORY_PATH
+    assert opened.manifest.signing == loaded.signing
+
+
+def test_a_request_with_no_inventory_is_byte_for_byte_what_it_always_was(
+    release: Release, tmp_path: Path
+) -> None:
+    built = release({"name": "pomar"})
+    request = SigningRequest(
+        pack_version=1,
+        product="pomar",
+        repo=REPO,
+        commit=COMMIT,
+        manifest_path="release.yaml",
+    )
+    out = tmp_path / "plain.tar"
+    create_request(built, request, out)
+
+    members = _members(out)
+    assert "inventory.json" not in members
+    assert b"inventory_path" not in members["request.json"]
+    assert json.loads(members["request.json"]) == {
+        "pack_version": 1,
+        "product": "pomar",
+        "repo": REPO,
+        "commit": COMMIT,
+        "manifest_path": "release.yaml",
+    }
+
+
+def test_an_inventory_manifest_needs_its_inventory_path_in_the_request(
+    release: Release, tmp_path: Path
+) -> None:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    loaded = load(_written(pinned, document), _inventory("pomar", pins))
+    bare = SigningRequest(
+        pack_version=1,
+        product="pomar",
+        repo=REPO,
+        commit=COMMIT,
+        manifest_path="release.yaml",
+    )
+    with pytest.raises(PackError, match="needs its inventory"):
+        create_request(loaded, bare, tmp_path / "a.tar")
+
+
+def test_a_manifest_with_its_own_pins_takes_no_inventory_path(
+    release: Release, tmp_path: Path
+) -> None:
+    built = release({"name": "pomar"})
+    described = SigningRequest(
+        pack_version=1,
+        product="pomar",
+        repo=REPO,
+        commit=COMMIT,
+        manifest_path="release.yaml",
+        inventory_path=INVENTORY_PATH,
+    )
+    with pytest.raises(PackError, match="no other manifest takes them"):
+        create_request(built, described, tmp_path / "b.tar")
+
+
+def test_a_pack_that_lacks_the_inventory_its_request_names_refuses(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, _, _ = _inventory_pack(release, tmp_path)
+    cut = _repacked(pack, tmp_path / "cut.tar", inventory__json=None)
+    with pytest.raises(PackError):
+        open_request(cut, tmp_path / "opened-cut")
+
+
+def test_a_pack_with_an_inventory_its_request_does_not_name_refuses(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, _, _ = _inventory_pack(release, tmp_path)
+    plain = json.dumps(
+        {
+            "pack_version": 1,
+            "product": "pomar",
+            "repo": REPO,
+            "commit": COMMIT,
+            "manifest_path": "release.yaml",
+        }
+    ).encode()
+    swapped = _repacked(pack, tmp_path / "swap.tar", request__json=plain)
+    with pytest.raises(PackError):
+        open_request(swapped, tmp_path / "opened-swap")
+
+
+def test_a_swapped_inventory_in_the_pack_no_longer_matches_the_artifacts(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, _, content = _inventory_pack(release, tmp_path)
+    document = json.loads(content)
+    document["pins"]["executable:pomar"] = "f" * 64
+    swapped = _repacked(
+        pack, tmp_path / "swapped.tar", inventory__json=json.dumps(document).encode()
+    )
+    with pytest.raises(PackError, match="differs from the manifest"):
+        open_request(swapped, tmp_path / "opened-swapped")
+
+
+class _ApprovingGithub(FakeGitHub):
+    def __init__(self, *, creators: list[int] | None = None) -> None:
+        super().__init__()
+        self.creators = [APPROVER_USER_ID] if creators is None else creators
+
+    def approval_creators(self, repo: str, commit: str, context: str) -> list[int]:
+        assert context == "council/approve"
+        return self.creators
+
+
+def _reviewed_inventory(
+    loaded: LoadedManifest,
+    content: bytes,
+    **kw: Any,  # noqa: ANN401
+) -> _ApprovingGithub:
+    github = _ApprovingGithub(**kw)
+    github.files[(REPO, COMMIT, "release.yaml")] = loaded.manifest_path.read_bytes()
+    github.files[(REPO, COMMIT, INVENTORY_PATH)] = content
+    github.merged.add(COMMIT)
+    return github
+
+
+def test_an_inventory_with_the_approvers_review_is_admitted(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, loaded, content = _inventory_pack(release, tmp_path)
+    opened = open_request(pack, tmp_path / "opened")
+    assert admit(opened, NODE, _reviewed_inventory(loaded, content), GRANTS) is None
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        ({"creators": []}, "adopted approver"),
+        ({"creators": [APPROVER_USER_ID + 1]}, "adopted approver"),
+    ],
+    ids=["no approval", "approved by another account"],
+)
+def test_an_inventory_without_the_approvers_review_is_refused(
+    release: Release, tmp_path: Path, change: dict[str, Any], why: str
+) -> None:
+    pack, loaded, content = _inventory_pack(release, tmp_path)
+    opened = open_request(pack, tmp_path / "opened")
+
+    refusal = admit(
+        opened, NODE, _reviewed_inventory(loaded, content, **change), GRANTS
+    )
+
+    assert refusal is not None
+    assert (refusal.status, refusal.reason) == ("refused", "inventory_unreviewed")
+    assert why in refusal.message
+
+
+def test_an_inventory_not_in_the_commits_tree_is_refused(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, loaded, content = _inventory_pack(release, tmp_path)
+    opened = open_request(pack, tmp_path / "opened")
+    github = _reviewed_inventory(loaded, content)
+    del github.files[(REPO, COMMIT, INVENTORY_PATH)]
+
+    refusal = admit(opened, NODE, github, GRANTS)
+
+    assert refusal is not None and refusal.reason == "inventory_unreviewed"
+
+
+def test_an_inventory_that_differs_from_the_commits_is_refused(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, loaded, content = _inventory_pack(release, tmp_path)
+    opened = open_request(pack, tmp_path / "opened")
+    github = _reviewed_inventory(loaded, content)
+    github.files[(REPO, COMMIT, INVENTORY_PATH)] = content + b" "
+
+    refusal = admit(opened, NODE, github, GRANTS)
+
+    assert refusal is not None and refusal.reason == "inventory_unreviewed"
+
+
+def test_a_reader_that_cannot_read_approvals_holds_the_request(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, loaded, content = _inventory_pack(release, tmp_path)
+    opened = open_request(pack, tmp_path / "opened")
+    plain = FakeGitHub()
+    plain.files = {
+        (REPO, COMMIT, "release.yaml"): loaded.manifest_path.read_bytes(),
+        (REPO, COMMIT, INVENTORY_PATH): content,
+    }
+    plain.merged.add(COMMIT)
+
+    refusal = admit(opened, NODE, plain, GRANTS)
+
+    assert refusal is not None
+    assert (refusal.status, refusal.reason) == ("held", "review_unreadable")
+
+
+def _statuses(*entries: tuple[str, str, int]) -> Completed:
+    body = [
+        {"context": context, "state": state, "creator": {"id": creator}}
+        for context, state, creator in entries
+    ]
+    return Completed(0, json.dumps(body).encode(), b"")
+
+
+def test_gh_reads_who_approved_a_commit() -> None:
+    gh = GhCli(
+        Runner(
+            _statuses(("council/approve", "success", APPROVER_USER_ID)),
+            _statuses(
+                ("council/approve", "failure", APPROVER_USER_ID),
+                ("council/approve", "success", APPROVER_USER_ID),
+            ),
+            _statuses(
+                ("ci/other", "success", APPROVER_USER_ID),
+                ("council/approve", "success", 7),
+            ),
+            _statuses(("ci/other", "success", APPROVER_USER_ID)),
+            Completed(1, b"", b"gh: Not Found (HTTP 404)"),
+        )
+    )
+    context = "council/approve"
+    assert gh.approval_creators(REPO, COMMIT, context) == [APPROVER_USER_ID]
+    # The latest status for the context decides: a later failure supersedes.
+    assert gh.approval_creators(REPO, COMMIT, context) == []
+    # Another context is not the approval, and the approval is who made it.
+    assert gh.approval_creators(REPO, COMMIT, context) == [7]
+    assert gh.approval_creators(REPO, COMMIT, context) == []
+    assert gh.approval_creators(REPO, COMMIT, context) == []
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        Completed(0, b"not json", b""),
+        Completed(0, b"{}", b""),
+        Completed(0, json.dumps([{}] * 100).encode(), b""),
+        Completed(1, b"", b"HTTP 500"),
+    ],
+    ids=["not json", "not a list", "a full page", "server error"],
+)
+def test_gh_approvals_it_cannot_read_are_unreadable(answer: Completed) -> None:
+    with pytest.raises(ReviewUnreadableError):
+        GhCli(Runner(answer)).approval_creators(REPO, COMMIT, "council/approve")
+
+
+# -- the release command ---------------------------------------------------------
+
+
+def _run(
+    command: Callable[[list[str], bytes], tuple[int, dict[str, Any]]],
+    args: list[str],
+    request: dict[str, str],
+) -> tuple[int, dict[str, Any]]:
+    return command(args, json.dumps(request).encode())
+
+
+def test_the_command_signs_an_inventory_manifest_with_its_inventory_file(
+    release: Release, tmp_path: Path
+) -> None:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    manifest = _written(pinned, document)
+    inventory = tmp_path / "inventory.json"
+    inventory.write_bytes(_inventory("pomar", pins))
+    tools = FakeToolchain()  # one instance: it remembers what it signed
+    command = make_command(lambda: tools, {"ZEOCORE_SIGNING_HOST": HOST})
+    request = {
+        "manifest": str(manifest),
+        "inventory": str(inventory),
+        "work_dir": str(tmp_path / "work"),
+    }
+
+    status, answer = _run(command, ["sign"], request)
+    assert (status, answer["ok"], answer["outcome"]) == (0, True, "signed")
+    status, answer = _run(command, ["verify"], request)
+    assert (status, answer["outcome"]) == (0, "verified")
+
+
+def test_the_command_refuses_an_inventory_manifest_with_no_inventory_file(
+    release: Release, tmp_path: Path
+) -> None:
+    pinned = release({"name": "pomar"})
+    document, _ = _convert(pinned)
+    command = make_command(FakeToolchain, {"ZEOCORE_SIGNING_HOST": HOST})
+    request = {
+        "manifest": str(_written(pinned, document)),
+        "work_dir": str(tmp_path / "work"),
+    }
+
+    status, answer = _run(command, ["sign"], request)
+
+    assert (status, answer["outcome"]) == (2, "invalid_request")
+    assert "none was given" in answer["message"]
+
+
+def test_the_command_refuses_an_unreadable_inventory_file(
+    release: Release, tmp_path: Path
+) -> None:
+    pinned = release({"name": "pomar"})
+    document, _ = _convert(pinned)
+    command = make_command(FakeToolchain, {"ZEOCORE_SIGNING_HOST": HOST})
+    request = {
+        "manifest": str(_written(pinned, document)),
+        "inventory": str(tmp_path / "absent.json"),
+        "work_dir": str(tmp_path / "work"),
+    }
+
+    status, answer = _run(command, ["sign"], request)
+
+    assert (status, answer["outcome"]) == (2, "invalid_request")
+    assert "can't be read" in answer["message"]
+
+
+def test_the_command_names_its_optional_fields_when_the_request_is_wrong() -> None:
+    status, answer = make_command(FakeToolchain, {})(
+        ["pack"], json.dumps({"manifest": "x"}).encode()
+    )
+    assert (status, answer["outcome"]) == (2, "invalid_request")
+    assert "optionally inventory, inventory_path" in answer["message"]
+
+
+def test_the_command_packs_an_inventory_request(
+    release: Release, tmp_path: Path
+) -> None:
+    pinned = release({"name": "pomar"})
+    document, pins = _convert(pinned)
+    inventory = tmp_path / "inventory.json"
+    inventory.write_bytes(_inventory("pomar", pins))
+    out = tmp_path / "request.tar"
+    command = make_command(FakeToolchain, {})
+
+    status, answer = _run(
+        command,
+        ["pack"],
+        {
+            "manifest": str(_written(pinned, document)),
+            "inventory": str(inventory),
+            "inventory_path": INVENTORY_PATH,
+            "repo": REPO,
+            "commit": COMMIT,
+            "manifest_path": "release.yaml",
+            "out": str(out),
+        },
+    )
+
+    assert (status, answer["outcome"]) == (0, "packed")
+    assert _members(out)["inventory.json"] == inventory.read_bytes()

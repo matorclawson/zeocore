@@ -133,6 +133,15 @@ _FIELDS: Final = {
     "receive": {"manifest", "response", "work_dir"},
     "tree-digest": {"path"},
 }
+#: Fields a verb may also take. ``inventory`` is the file of a reviewed build
+#: inventory, for a manifest with ``pins: inventory``; ``inventory_path`` is
+#: where that file sits in the repository at ``commit`` (SOW-44 rev 2).
+_OPTIONAL: Final = {
+    "sign": {"inventory"},
+    "verify": {"inventory"},
+    "receive": {"inventory"},
+    "pack": {"inventory", "inventory_path"},
+}
 
 
 def _refused(error: PackError) -> Answer:
@@ -152,6 +161,7 @@ def _pack(loaded: LoadedManifest, request: dict[str, str]) -> Answer:
             repo=request["repo"],
             commit=request["commit"],
             manifest_path=request["manifest_path"],
+            inventory_path=request.get("inventory_path"),
         )
     except ValueError as error:
         return invalid(
@@ -354,13 +364,17 @@ def _parse(verb: str, stdin: bytes) -> dict[str, str] | Answer:
         return invalid(str(error))
     if (
         not isinstance(request, dict)
-        or set(request) != _FIELDS[verb]
+        or not _FIELDS[verb]
+        <= set(request)
+        <= _FIELDS[verb] | _OPTIONAL.get(verb, set())
         or not all(isinstance(value, str) and value for value in request.values())
     ):
+        optional = sorted(_OPTIONAL.get(verb, set()))
         return invalid(
             own_action(
                 f"stdin has the wrong fields; pipe a JSON object with exactly: "
                 f"{', '.join(sorted(_FIELDS[verb]))}"
+                + (f", and optionally {', '.join(optional)}" if optional else "")
             )
         )
     return request
@@ -510,6 +524,19 @@ def _pypi(
     return _PYPI_EXIT[outcome.status], body
 
 
+def _load_manifest(request: dict[str, str]) -> LoadedManifest | Answer:
+    """The manifest the request names, with its reviewed inventory if it has one."""
+    try:
+        inventory = (
+            Path(request["inventory"]).read_bytes() if "inventory" in request else None
+        )
+        return load(Path(request["manifest"]), inventory)
+    except OSError:
+        return invalid("the inventory can't be read")
+    except ManifestError as error:
+        return invalid(str(error))
+
+
 def _signing(
     args: Sequence[str],
     stdin: bytes,
@@ -534,10 +561,9 @@ def _signing(
         return _serve(request, environ, serve_with)
     if verb == "tree-digest":
         return _tree(request)
-    try:
-        loaded = load(Path(request["manifest"]))
-    except ManifestError as error:
-        return invalid(str(error))
+    loaded = _load_manifest(request)
+    if isinstance(loaded, tuple):
+        return loaded
     if verb == "pack":
         return _pack(loaded, request)
     if verb == "receive":

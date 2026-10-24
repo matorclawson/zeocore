@@ -221,6 +221,67 @@ refused as unreviewed is admitted once its commit merges.
 The rule is the operator's to sign. The service does not run against the
 ZEO Runtime key until the code-signing ruling that carries it is signed.
 
+## Digests from a reviewed build inventory
+
+By default the manifest pins every digest it signs, and a person writes the new
+digests into `release.yaml` for each release. With `pins: inventory` in the
+`signing` section the manifest keeps only the reviewed structure (paths,
+identifiers, audience, entitlements) and carries no digest; the digests come
+from an inventory file made after the build.
+
+```yaml
+signing:
+  release_manifest: 2
+  pins: inventory
+  product: pomar
+  # executables / bundles as usual, without any unsigned_*sha256 field
+```
+
+The inventory is JSON, schema `zeo.build-inventory/v1`, with the product and
+one digest for every pin the manifest needs. Its keys are exact:
+`executable:<name>`, `bundle:<name>:tree`, `bundle:<name>:main`,
+`bundle:<name>:nested:<path>` and `bundle:<name>:nested:<path>:main`. A key
+the manifest does not need, a key it needs and the inventory lacks, an inventory
+for another product, and a pin left in the manifest all refuse. A manifest that
+pins its own digests refuses an inventory, so there is never a second source of
+pins. After loading, the result is the same fully pinned manifest the step has
+always signed: nothing downstream changes.
+
+The inventory is a file in the owner repository, `release/inventory/<version>.json`,
+and goes through an ordinary pull request. It is trusted only as far as the
+evidence for it. The signing service reads GitHub itself and admits the request
+only when the commit is on the default branch, the commit's own tree holds
+exactly these bytes at the path the request names (`inventory_path`), and the
+latest `council/approve` status on that commit was created by the adopted
+approver (the App's bot user id, not any account that happens to use the same
+context name) and is a success. A later failure supersedes an earlier success.
+Anything else is `inventory_unreviewed` (refused), and a GitHub that cannot be
+read, or a reader that cannot read approvals, is `review_unreadable` (held).
+The review is of the digests against the head-bound build receipt, not a
+rebuild.
+
+On the command line, `sign`, `verify` and `receive` take an optional `inventory`
+(the file), and `pack` takes `inventory` and `inventory_path` (where it sits in
+the repository at `commit`). The pack carries the inventory as `inventory.json`
+beside the manifest. A request with neither is byte for byte what it always was.
+
+### The release event after the seal
+
+The release event (`zeo.release-event/v1`, made after signing from the signed
+hashes) is authenticated, if at all, after the seal and never before it.
+`zeo_core.release.signing.event_auth` is the verifier side of that step. It
+refuses unless the seal's `verify` passed, unless the event is the unchanged
+canonical document (the codec of `.github/release/event.py`, with exactly its
+fields and a digest that matches its payload), and unless whatever
+authenticated it authenticated exactly that payload.
+
+It does not sign. The producer's only adopted authentication is a code
+signature and the tailnet identity of the caller; it has none for a JSON
+payload, and using a signing key for one is a new key purpose that belongs to
+the operator. Until a mechanism is adopted the default, `Unadopted`, answers
+`held` with `event_authentication_unadopted`. No key, service or second signer
+is added here.
+
 ## What verify checks
 
 A valid Apple signature alone is not enough. For every executable:
@@ -269,6 +330,7 @@ held or refused.
 | `signing_keychain_locked` | 11 | "unlock the login keychain". Reported only when the keychain's settings say so, never guessed from a codesign error |
 | `signing_attempt_unreconciled` | 13 | an attempt's answer was lost. Nothing is signed again until the candidate is reconciled |
 | `signing_identity_missing`, `signing_failed_unknown`, `journal_unreadable`, `signing_host_*`, `notarisation_unbuilt`, `legacy_policy_unpinned`, `verify_unreadable`, `signing_in_progress` | 20 | held |
+| `inventory_unreviewed` | 20 | refused: the inventory is not the reviewed one (unmerged, not in the commit's tree, differs from it, or no approval by the adopted approver) |
 | `not_signed`, `identity_mismatch`, `wrong_audience`, `entitlements_mismatch`, `companion_unsigned`, `input_mismatch`, `signed_digest_mismatch`, `receipt_mismatch`, `receipt_invalid`, `entitlements_invalid`, `platform_signature_unadopted`, `legacy_policy_verify_only`, `bundle_unsafe`, `nested_unlisted`, `nested_missing`, `main_executable_listed`, `main_executable_invalid`, `bundle_identifier_mismatch` | 20 | refused |
 
 ## Custody

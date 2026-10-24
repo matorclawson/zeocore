@@ -19,6 +19,8 @@ from typing import Annotated, Final, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from .inventory import InventoryError, apply, parse, sha256_of
+
 CURRENT: Final = "current"
 #: Verify-only policies, named so that rollback can verify them. Nothing new
 #: is ever signed under them (SOW-20 §3).
@@ -210,6 +212,10 @@ def _overlaps(one: str, other: str) -> bool:
 class SigningManifest(_Strict):
     release_manifest: Literal[1, 2]
     product: Product
+    #: Where the digests are written: in this file (the default), or in a
+    #: reviewed build inventory, in which case this file carries none
+    #: (ZEOCORE-SOW-44 rev 2, a). Either way the loaded manifest is pinned.
+    pins: Literal["manifest", "inventory"] = "manifest"
     executables: tuple[Executable, ...] = Field(default=(), max_length=64)
     bundles: tuple[Bundle, ...] = Field(default=(), max_length=16)
 
@@ -275,13 +281,22 @@ class LoadedManifest(BaseModel):
     root: Path
     sha256: Sha256
     manifest_path: Path
+    #: The inventory's sha256 and bytes when the pins came from one, else None.
+    inventory_sha256: Sha256 | None = None
+    inventory_bytes: bytes | None = None
 
     def resolve(self, relative: str) -> Path:
         return self.root / relative
 
 
-def load(path: Path) -> LoadedManifest:
-    """Read ``release.yaml`` and its ``signing`` section, strictly."""
+def load(path: Path, inventory: bytes | None = None) -> LoadedManifest:
+    """Read ``release.yaml`` and its ``signing`` section, strictly.
+
+    With ``pins: inventory`` the digests come from ``inventory``, the bytes of
+    a ``zeo.build-inventory/v1`` file, and from nowhere else; a manifest that
+    pins its own digests refuses an inventory, so there is never a second
+    source of pins.
+    """
     try:
         content = path.read_bytes()
     except OSError as error:
@@ -292,8 +307,26 @@ def load(path: Path) -> LoadedManifest:
         raise ManifestError("the manifest is not valid YAML") from None
     if not isinstance(document, dict) or not isinstance(document.get("signing"), dict):
         raise ManifestError("the manifest has no signing section")
+    section = document["signing"]
+    inventory_sha: str | None = None
+    if section.get("pins", "manifest") == "inventory":
+        if inventory is None:
+            raise ManifestError(
+                "the manifest takes its digests from a reviewed inventory, "
+                "and none was given"
+            )
+        try:
+            section = apply(section, parse(inventory))
+        except InventoryError as error:
+            raise ManifestError(f"the inventory can't be used: {error}") from None
+        inventory_sha = sha256_of(inventory)
+    elif inventory is not None:
+        raise ManifestError(
+            "this manifest pins its own digests; an inventory would be a "
+            "second source of pins"
+        )
     try:
-        signing = SigningManifest.model_validate(document["signing"])
+        signing = SigningManifest.model_validate(section)
     except ValueError as error:
         raise ManifestError(f"the signing section is invalid: {error}") from None
     return LoadedManifest(
@@ -301,4 +334,6 @@ def load(path: Path) -> LoadedManifest:
         root=path.resolve().parent,
         sha256=hashlib.sha256(content).hexdigest(),
         manifest_path=path.resolve(),
+        inventory_sha256=inventory_sha,
+        inventory_bytes=inventory,
     )

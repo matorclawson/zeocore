@@ -17,9 +17,10 @@ import json
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Final, Protocol, cast
 from urllib.parse import quote
 
+from .inventory import ApprovalReads, ReviewReads, check_review
 from .pack import OpenedRequest
 from .toolchain import Runner, run_tool
 
@@ -181,6 +182,32 @@ class GhCli:
             ]
         )
 
+    def approval_creators(self, repo: str, commit: str, context: str) -> list[int]:
+        """Who created ``context``'s latest status on ``commit``, if it passed.
+
+        GitHub lists a commit's statuses newest first, so only the first one
+        for the context counts: a later failure supersedes an earlier success.
+        A full page is held as unreadable rather than guessed at.
+        """
+        body = self._api([f"repos/{repo}/commits/{commit}/statuses?per_page=100"])
+        if body is None:
+            return []
+        try:
+            statuses = json.loads(body)
+        except ValueError:
+            raise ReviewUnreadableError("GitHub answered with something else") from None
+        if not isinstance(statuses, list) or len(statuses) >= 100:
+            raise ReviewUnreadableError("GitHub's statuses are unreadable")
+        for status in statuses:
+            if not isinstance(status, dict) or status.get("context") != context:
+                continue
+            creator = status.get("creator")
+            if status.get("state") == "success" and isinstance(creator, dict):
+                identifier = creator.get("id")
+                return [identifier] if isinstance(identifier, int) else []
+            return []
+        return []
+
     def is_ancestor(self, repo: str, commit: str, branch: str) -> bool:
         answer = self._json(f"repos/{repo}/compare/{quote(branch)}...{commit}")
         if answer is None:
@@ -263,4 +290,31 @@ def admit(
             "manifest_unreviewed",
             "the manifest is not the one merged to the default branch",
         )
+    return _inventory_refusal(opened, grant.repo, github)
+
+
+def _inventory_refusal(
+    opened: OpenedRequest, repo: str, github: GitHubReads
+) -> Refusal | None:
+    """None unless the request's inventory lacks the review it must have.
+
+    The inventory is held to the same standard as the manifest: GitHub is read
+    for it, never the caller (ZEOCORE-SOW-44 rev 2, D1).
+    """
+    if opened.inventory_bytes is None or opened.request.inventory_path is None:
+        return None
+    if not isinstance(github, ApprovalReads):
+        return Refusal("held", "review_unreadable", "approvals can't be read here")
+    try:
+        why = check_review(
+            cast(ReviewReads, github),
+            repo=repo,
+            commit=opened.request.commit,
+            path=opened.request.inventory_path,
+            content=opened.inventory_bytes,
+        )
+    except ReviewUnreadableError:
+        return Refusal("held", "review_unreadable", "GitHub could not be read")
+    if why is not None:
+        return Refusal("refused", "inventory_unreviewed", why)
     return None
