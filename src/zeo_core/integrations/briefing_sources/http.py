@@ -163,7 +163,10 @@ class PublicSourceHTTP:
             timeout=10,
             headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"},
         )
+        # One request at a time PER HOST (the pacing and the budget are per host);
+        # different hosts run together. The state lock only guards tiny bookkeeping.
         self._lock = RLock()
+        self._host_locks: dict[str, RLock] = {}
         self._cache: dict[str, tuple[float, Fetched]] = {}
         self._cooldown: dict[str, float] = {}
         self._last: dict[str, float] = {}
@@ -248,7 +251,7 @@ class PublicSourceHTTP:
                 raise ValueError
             return host, u.path
         except (ValueError, TypeError, KeyError):
-            self.refused += 1
+            self._count_refused()
             raise SourceUnavailableError("source_request_refused") from None
 
     def _rate_limit(
@@ -283,16 +286,30 @@ class PublicSourceHTTP:
             ][:100]
         return _project_json(host, path, json.loads(chunks))
 
+    def _count_refused(self) -> None:
+        with self._lock:  # a read-modify-write: exact under many threads
+            self.refused += 1
+
+    def _host_lock(self, host: str) -> RLock:
+        with self._lock:
+            return self._host_locks.setdefault(host, RLock())
+
     def fetch(
         self, method: str, url: str, *, body: dict[str, Any] | None = None
     ) -> Fetched:
-        with self._lock:
-            return self._fetch(method, url, body=body)
+        host, path = self._guard(method, url, body)  # refused before any lock or wait
+        with self._host_lock(host):
+            return self._fetch(method, url, host, path, body=body)
 
     def _fetch(
-        self, method: str, url: str, *, body: dict[str, Any] | None = None
+        self,
+        method: str,
+        url: str,
+        host: str,
+        path: str,
+        *,
+        body: dict[str, Any] | None = None,
     ) -> Fetched:
-        host, path = self._guard(method, url, body)
         key = method + url + json.dumps(body, sort_keys=True, separators=(",", ":"))
         now = self._monotonic()
         if self._cooldown.get(host, 0) > now:
@@ -335,7 +352,7 @@ class PublicSourceHTTP:
                 )
                 if response.status_code != 200 and not created_routeset:
                     if 300 <= response.status_code < 400:
-                        self.refused += 1
+                        self._count_refused()
                     raise SourceUnavailableError("source_unavailable")
                 chunks = self._bounded_body(response, deadline)
                 data = self._decode(host, path, chunks)

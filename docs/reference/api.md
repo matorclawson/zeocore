@@ -994,7 +994,7 @@ under "Breaking" in [CHANGELOG.md](../../CHANGELOG.md). From 1.0.0 it needs a
 major version. A wire-incompatible change to a runtime-host-v1 model also
 raises `RUNTIME_HOST_PROTOCOL_VERSION`.
 
-The executable [schemas and canonical vectors](../../contracts/runtime-host-v1/)
+The executable [schemas and canonical vectors](../../tests/fixtures/runtime-host-v1/)
 and [protocol guide](../how-to/runtime-host.md) define this candidate surface.
 It ships in 0.11.0; joint Runtime/ZEOconnect interoperability acceptance is still required.
 Do not treat it as an unauthenticated replacement for direct Python invocation.

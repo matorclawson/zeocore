@@ -1,1 +1,0 @@
-exported by zeomerger: decide v1 (60f6c05), pass v1 (dfc914b), register v1 (58eb5a6), decide v2 and pass v2 (c00bcae), pass v3 (dfe0f86, not-sent), pass v4 (4eb8950, retry reason and a third pass); each case checked against the Go core before writing; the newest version of each kind supersedes the older

@@ -267,10 +267,25 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.release.outputs.tag }}
     steps:
+      # Checkout first: it cleans the tree, so it would delete a download.
+      - name: Check out the released commit, with its tags
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
       - name: Download this merge's release notes
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-notes
+
+      - name: Download the build the release event names
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Write the release event (version, commit, tree, notes and file digests)
+        run: python3 .github/release/event.py "${TAG}" release-notes.md dist --repository "${GITHUB_REPOSITORY}" > release-event.json
 
       - name: Create the release, or accept it from an earlier attempt
         run: |
@@ -278,7 +293,7 @@ jobs:
             echo "${TAG}'s release already exists: a re-run"
             exit 0
           fi
-          gh release create "${TAG}" \
+          gh release create "${TAG}" release-event.json \
             --repo "${GITHUB_REPOSITORY}" \
             --title "zeocore ${TAG#v}" \
             --notes-file release-notes.md \
