@@ -26,8 +26,16 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from .inventory import inventory_path
 from .manifest import Bundle, LoadedManifest, ManifestError, load
 from .step import WorkDir, sha256_file
 from .tree import TreeError, contained_target, listing, tree_sha256
@@ -65,8 +73,33 @@ class SigningRequest(BaseModel):
     commit: Commit
     manifest_path: ManifestPath
     #: Where the reviewed build inventory sits in the repository at ``commit``,
-    #: for a manifest with ``pins: inventory`` and for no other (SOW-44 rev 2).
+    #: and the release it is for, for a manifest with ``pins: inventory`` and
+    #: for no other (SOW-44 rev 2). The path is always
+    #: ``release/inventory/<version>.json``.
     inventory_path: ManifestPath | None = None
+    version: (
+        Annotated[str, StringConstraints(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")] | None
+    ) = None
+
+    @field_validator("manifest_path", "inventory_path")
+    @classmethod
+    def _plain_path(cls, value: str | None) -> str | None:
+        """A repository path with no empty, ``.`` or ``..`` segment."""
+        if value is not None and any(
+            part in ("", ".", "..") for part in value.split("/")
+        ):
+            raise ValueError("a path has no empty, '.' or '..' segment")
+        return value
+
+    @model_validator(mode="after")
+    def _inventory_is_bound_to_a_version(self) -> SigningRequest:
+        if (self.inventory_path is None) != (self.version is None):
+            raise ValueError("inventory_path and version go together")
+        if self.version is not None and self.inventory_path != inventory_path(
+            self.version
+        ):
+            raise ValueError(f"the inventory's path is {inventory_path(self.version)}")
+        return self
 
 
 def _member(name: str, data: bytes, mode: int) -> tuple[tarfile.TarInfo, bytes]:
@@ -131,13 +164,16 @@ def create_request(loaded: LoadedManifest, request: SigningRequest, out: Path) -
     if request.product != loaded.signing.product:
         raise PackError("request_invalid", "the request names another product")
     wants_inventory = loaded.signing.pins == "inventory"
-    if wants_inventory != (request.inventory_path is not None) or wants_inventory != (
-        loaded.inventory_bytes is not None
+    if (
+        wants_inventory != (request.inventory_path is not None)
+        or wants_inventory != (loaded.inventory_bytes is not None)
+        or request.version != loaded.inventory_version
     ):
         raise PackError(
             "request_invalid",
-            "a manifest with pins: inventory needs its inventory and the "
-            "inventory's path in the repository, and no other manifest takes them",
+            "a manifest with pins: inventory needs its inventory, the "
+            "inventory's path and its own version in the request, and no other "
+            "manifest takes them",
         )
     members = [
         _member(
@@ -299,10 +335,12 @@ def open_request(pack: Path, dest: Path) -> OpenedRequest:
         loaded = load(written[MANIFEST_FILE], inventory)
     except (ValidationError, ManifestError) as error:
         raise PackError("request_invalid", f"the request is invalid: {error}") from None
-    if (request.inventory_path is not None) != (inventory is not None):
+    if (request.inventory_path is not None) != (inventory is not None) or (
+        request.version != loaded.inventory_version
+    ):
         raise PackError(
             "request_invalid",
-            "the request names an inventory the pack lacks, or the reverse",
+            "the request's inventory, path and version do not agree with the pack",
         )
     if request.product != loaded.signing.product:
         raise PackError("request_invalid", "the request names another product")

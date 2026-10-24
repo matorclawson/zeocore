@@ -6,11 +6,16 @@ the result is the same pinned manifest the step has always signed.
 
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
 import io
 import json
 import tarfile
 from collections.abc import Callable
+from dataclasses import replace
+from datetime import UTC, datetime
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -39,11 +44,16 @@ from zeo_core.release.signing.admission import (
 from zeo_core.release.signing.inventory import (
     APPROVER_USER_ID,
     SCHEMA,
+    ChangedFile,
     InventoryError,
+    Status,
     check_review,
+    git_blob_sha,
+    inventory_path,
     parse,
     pin_keys,
 )
+from zeo_core.release.signing.service import SigningService
 from zeo_core.release.signing.toolchain import Completed
 
 from .conftest import HOST, FakeToolchain
@@ -76,7 +86,12 @@ def _lift(signing: dict[str, Any]) -> dict[str, str]:
 
 
 def _inventory(product: str, pins: dict[str, str], **changes: Any) -> bytes:  # noqa: ANN401
-    document: dict[str, Any] = {"schema": SCHEMA, "product": product, "pins": pins}
+    document: dict[str, Any] = {
+        "schema": SCHEMA,
+        "product": product,
+        "version": "1.2.3",
+        "pins": pins,
+    }
     document.update(changes)
     return json.dumps(document).encode()
 
@@ -243,6 +258,9 @@ def test_the_inventory_does_not_change_the_manifest_it_was_applied_to(
     assert parse(_inventory("pomar", pins)).pins == pins
 
 
+VERSION = "1.2.3"
+
+
 class _Github:
     """What the host reads back; each field is one thing GitHub could say."""
 
@@ -251,11 +269,19 @@ class _Github:
         *,
         merged: bool = True,
         held: bytes | None = b"inventory",
-        creators: list[int] | None = None,
+        statuses: list[Status] | None = None,
+        changed: list[ChangedFile] | None | str = "default",
     ) -> None:
         self.merged = merged
         self.held = held
-        self.creators = [APPROVER_USER_ID] if creators is None else creators
+        self.statuses = (
+            [Status("success", APPROVER_USER_ID)] if statuses is None else statuses
+        )
+        self.changed = (
+            [ChangedFile(inventory_path(VERSION), "added", git_blob_sha(b"inventory"))]
+            if changed == "default"
+            else changed
+        )
         self.asked: list[str] = []
 
     def default_branch(self, repo: str) -> str:
@@ -268,25 +294,37 @@ class _Github:
     def is_ancestor(self, repo: str, commit: str, branch: str) -> bool:
         return self.merged
 
-    def approval_creators(self, repo: str, commit: str, context: str) -> list[int]:
+    def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
         assert context == "council/approve"
-        return self.creators
+        return self.statuses
+
+    def merged_pr_files(self, repo: str, commit: str) -> list[ChangedFile] | None:
+        return self.changed  # type: ignore[return-value]
 
 
-def _review(github: _Github, content: bytes = b"inventory") -> str | None:
+def _review(
+    github: _Github,
+    content: bytes = b"inventory",
+    *,
+    path: str | None = None,
+    version: str = VERSION,
+) -> str | None:
     return check_review(
         github,
         repo="zeroemployeeorg/pomar",
         commit="a" * 40,
-        path="release/inventory/1.2.3.json",
+        path=inventory_path(version) if path is None else path,
+        version=version,
         content=content,
     )
 
 
-def test_a_merged_inventory_with_the_approvers_status_is_reviewed() -> None:
+def test_a_merged_inventory_added_by_its_own_reviewed_pull_request_is_reviewed() -> (
+    None
+):
     github = _Github()
     assert _review(github) is None
-    assert github.asked == ["release/inventory/1.2.3.json"]
+    assert github.asked == [inventory_path(VERSION)]
 
 
 @pytest.mark.parametrize(
@@ -296,8 +334,14 @@ def test_a_merged_inventory_with_the_approvers_status_is_reviewed() -> None:
         (_Github(held=None), b"inventory", "no inventory"),
         (_Github(held=b"other bytes"), b"inventory", "not the one in the commit"),
         (_Github(), b"other bytes", "not the one in the commit"),
-        (_Github(creators=[]), b"inventory", "adopted approver"),
-        (_Github(creators=[1, 2]), b"inventory", "adopted approver"),
+        (_Github(statuses=[]), b"inventory", "adopted approver"),
+        (
+            _Github(statuses=[Status("success", APPROVER_USER_ID + 1)]),
+            b"inventory",
+            "adopted approver",
+        ),
+        (_Github(changed=None), b"inventory", "no merged pull request"),
+        (_Github(changed=[]), b"inventory", "did not add or change"),
     ],
     ids=[
         "unmerged",
@@ -306,6 +350,8 @@ def test_a_merged_inventory_with_the_approvers_status_is_reviewed() -> None:
         "caller bytes differ",
         "no approval",
         "approval by someone else",
+        "no pull request",
+        "pull request changed nothing",
     ],
 )
 def test_inventory_evidence_that_is_not_the_adopted_review_refuses(
@@ -315,8 +361,62 @@ def test_inventory_evidence_that_is_not_the_adopted_review_refuses(
     assert reason is not None and why in reason
 
 
-def test_a_status_with_the_right_name_from_another_account_is_not_a_review() -> None:
-    assert _review(_Github(creators=[APPROVER_USER_ID + 1])) is not None
+def test_a_path_that_is_not_the_versions_own_is_refused() -> None:
+    reason = _review(_Github(), path="release/inventory/0.0.1.json")
+    assert reason is not None and "is not release/inventory/1.2.3.json" in reason
+    reason = _review(_Github(), path="tests/fixtures/inventory.json")
+    assert reason is not None and "is not release/inventory/1.2.3.json" in reason
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        ChangedFile(inventory_path(VERSION), "added", "0" * 40),  # another blob
+        ChangedFile(inventory_path(VERSION), "removed", git_blob_sha(b"inventory")),
+        ChangedFile(inventory_path(VERSION), "renamed", git_blob_sha(b"inventory")),
+        ChangedFile(
+            "release/inventory/0.0.1.json", "added", git_blob_sha(b"inventory")
+        ),
+    ],
+    ids=["other blob", "removed", "renamed", "another file"],
+)
+def test_the_pull_request_must_have_added_or_changed_exactly_this_blob(
+    entry: ChangedFile,
+) -> None:
+    reason = _review(_Github(changed=[entry]))
+    assert reason is not None and "did not add or change" in reason
+
+
+def test_a_changed_inventory_in_the_pull_request_counts_too() -> None:
+    changed = [
+        ChangedFile(inventory_path(VERSION), "modified", git_blob_sha(b"inventory"))
+    ]
+    assert _review(_Github(changed=changed)) is None
+
+
+@pytest.mark.parametrize(
+    "statuses",
+    [
+        # a later failure, error or pending supersedes an earlier success
+        [Status("failure", APPROVER_USER_ID), Status("success", APPROVER_USER_ID)],
+        [Status("error", APPROVER_USER_ID), Status("success", APPROVER_USER_ID)],
+        [Status("pending", APPROVER_USER_ID), Status("success", APPROVER_USER_ID)],
+        # a newer success by someone else sits over the approver's older one
+        [Status("success", 7), Status("success", APPROVER_USER_ID)],
+        # an id that is not an integer matches nobody
+        [Status("success", None)],
+    ],
+    ids=[
+        "failure after",
+        "error after",
+        "pending after",
+        "other account newer",
+        "no id",
+    ],
+)
+def test_only_the_latest_approval_status_decides(statuses: list[Status]) -> None:
+    reason = _review(_Github(statuses=statuses))
+    assert reason is not None and "adopted approver" in reason
 
 
 def test_parse_reports_inventory_errors_as_inventory_errors() -> None:
@@ -324,12 +424,33 @@ def test_parse_reports_inventory_errors_as_inventory_errors() -> None:
         parse(b"{")
 
 
+def test_an_inventory_that_repeats_a_key_is_refused() -> None:
+    """json keeps the last of two equal keys; the reviewed digest is the used one."""
+    content = (
+        b'{"schema": "zeo.build-inventory/v1", "product": "pomar", "version": "1.2.3",'
+        b' "pins": {"executable:pomar": "'
+        + b"a" * 64
+        + b'", "executable:pomar": "'
+        + b"b" * 64
+        + b'"}}'
+    )
+    with pytest.raises(InventoryError, match="repeats a key"):
+        parse(content)
+
+
+@pytest.mark.parametrize("version", ["1.2", "v1.2.3", "1.2.3.4", "../1.2.3", ""])
+def test_an_inventory_version_is_a_plain_release_number(version: str) -> None:
+    content = _inventory("pomar", {}, version=version)
+    with pytest.raises(InventoryError):
+        parse(content)
+
+
 # -- the inventory travels with the request, and admission holds it to its review --
 
 NODE = "eng-uk-0006.tail29b7b0.ts.net"
 REPO = "zeroemployeeorg/pomar"
 COMMIT = "c" * 40
-INVENTORY_PATH = "release/inventory/1.2.3.json"
+INVENTORY_PATH = inventory_path(VERSION)
 GRANTS = {NODE: {"pomar": Grant(REPO, frozenset({"ac.zeo.pomar.pomar"}))}}
 
 
@@ -349,6 +470,7 @@ def _inventory_pack(
         "commit": COMMIT,
         "manifest_path": "release.yaml",
         "inventory_path": INVENTORY_PATH,
+        "version": VERSION,
         **request,
     }
     out = tmp_path / "request.tar"
@@ -381,6 +503,19 @@ def _repacked(pack: Path, out: Path, **changes: bytes | None) -> Path:
     return out
 
 
+def _plain_request(**extra: object) -> bytes:
+    return json.dumps(
+        {
+            "pack_version": 1,
+            "product": "pomar",
+            "repo": REPO,
+            "commit": COMMIT,
+            "manifest_path": "release.yaml",
+            **extra,
+        }
+    ).encode()
+
+
 def test_the_inventory_rides_in_the_pack_and_comes_out_unchanged(
     release: Release, tmp_path: Path
 ) -> None:
@@ -391,6 +526,7 @@ def test_the_inventory_rides_in_the_pack_and_comes_out_unchanged(
 
     assert opened.inventory_bytes == content
     assert opened.request.inventory_path == INVENTORY_PATH
+    assert opened.request.version == VERSION
     assert opened.manifest.signing == loaded.signing
 
 
@@ -411,16 +547,11 @@ def test_a_request_with_no_inventory_is_byte_for_byte_what_it_always_was(
     members = _members(out)
     assert "inventory.json" not in members
     assert b"inventory_path" not in members["request.json"]
-    assert json.loads(members["request.json"]) == {
-        "pack_version": 1,
-        "product": "pomar",
-        "repo": REPO,
-        "commit": COMMIT,
-        "manifest_path": "release.yaml",
-    }
+    assert b'"version"' not in members["request.json"]
+    assert json.loads(members["request.json"]) == json.loads(_plain_request())
 
 
-def test_an_inventory_manifest_needs_its_inventory_path_in_the_request(
+def test_an_inventory_manifest_needs_its_path_and_version_in_the_request(
     release: Release, tmp_path: Path
 ) -> None:
     pinned = release({"name": "pomar"})
@@ -437,6 +568,18 @@ def test_an_inventory_manifest_needs_its_inventory_path_in_the_request(
         create_request(loaded, bare, tmp_path / "a.tar")
 
 
+def test_a_request_for_another_version_than_the_inventorys_refuses(
+    release: Release, tmp_path: Path
+) -> None:
+    with pytest.raises(PackError, match="needs its inventory"):
+        _inventory_pack(
+            release,
+            tmp_path,
+            version="9.9.9",
+            inventory_path=inventory_path("9.9.9"),
+        )
+
+
 def test_a_manifest_with_its_own_pins_takes_no_inventory_path(
     release: Release, tmp_path: Path
 ) -> None:
@@ -448,9 +591,50 @@ def test_a_manifest_with_its_own_pins_takes_no_inventory_path(
         commit=COMMIT,
         manifest_path="release.yaml",
         inventory_path=INVENTORY_PATH,
+        version=VERSION,
     )
     with pytest.raises(PackError, match="no other manifest takes them"):
         create_request(built, described, tmp_path / "b.tar")
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"inventory_path": "release/inventory/1.2.3.json"},
+        {"version": "1.2.3"},
+        {"inventory_path": "release/inventory/9.9.9.json", "version": "1.2.3"},
+        {"inventory_path": "tests/inv.json", "version": "1.2.3"},
+    ],
+    ids=["path alone", "version alone", "path of another version", "any other path"],
+)
+def test_a_request_binds_the_inventory_path_to_its_version(
+    extra: dict[str, str],
+) -> None:
+    with pytest.raises(ValueError):
+        SigningRequest.model_validate_json(_plain_request(**extra))
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["../release.yaml", "a/../b.yaml", "./release.yaml", "a//b.yaml", "a/./b.yaml"],
+)
+def test_a_repository_path_has_no_empty_dot_or_dotdot_segment(path: str) -> None:
+    with pytest.raises(ValueError):
+        SigningRequest.model_validate_json(
+            json.dumps(
+                {
+                    "pack_version": 1,
+                    "product": "pomar",
+                    "repo": REPO,
+                    "commit": COMMIT,
+                    "manifest_path": path,
+                }
+            ).encode()
+        )
+    with pytest.raises(ValueError):
+        SigningRequest.model_validate_json(
+            _plain_request(inventory_path=path, version=VERSION)
+        )
 
 
 def test_a_pack_that_lacks_the_inventory_its_request_names_refuses(
@@ -466,18 +650,19 @@ def test_a_pack_with_an_inventory_its_request_does_not_name_refuses(
     release: Release, tmp_path: Path
 ) -> None:
     pack, _, _ = _inventory_pack(release, tmp_path)
-    plain = json.dumps(
-        {
-            "pack_version": 1,
-            "product": "pomar",
-            "repo": REPO,
-            "commit": COMMIT,
-            "manifest_path": "release.yaml",
-        }
-    ).encode()
-    swapped = _repacked(pack, tmp_path / "swap.tar", request__json=plain)
+    swapped = _repacked(pack, tmp_path / "swap.tar", request__json=_plain_request())
     with pytest.raises(PackError):
         open_request(swapped, tmp_path / "opened-swap")
+
+
+def test_a_pack_whose_request_names_another_version_refuses(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, _, _ = _inventory_pack(release, tmp_path)
+    other = _plain_request(inventory_path=inventory_path("9.9.9"), version="9.9.9")
+    swapped = _repacked(pack, tmp_path / "other.tar", request__json=other)
+    with pytest.raises(PackError):
+        open_request(swapped, tmp_path / "opened-other")
 
 
 def test_a_swapped_inventory_in_the_pack_no_longer_matches_the_artifacts(
@@ -494,13 +679,31 @@ def test_a_swapped_inventory_in_the_pack_no_longer_matches_the_artifacts(
 
 
 class _ApprovingGithub(FakeGitHub):
-    def __init__(self, *, creators: list[int] | None = None) -> None:
-        super().__init__()
-        self.creators = [APPROVER_USER_ID] if creators is None else creators
+    """The host's reads, with a reviewed inventory in the commit by default."""
 
-    def approval_creators(self, repo: str, commit: str, context: str) -> list[int]:
+    def __init__(
+        self,
+        content: bytes,
+        *,
+        statuses: list[Status] | None = None,
+        changed: list[ChangedFile] | None | str = "default",
+    ) -> None:
+        super().__init__()
+        self.statuses = (
+            [Status("success", APPROVER_USER_ID)] if statuses is None else statuses
+        )
+        self.changed = (
+            [ChangedFile(INVENTORY_PATH, "added", git_blob_sha(content))]
+            if changed == "default"
+            else changed
+        )
+
+    def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
         assert context == "council/approve"
-        return self.creators
+        return self.statuses
+
+    def merged_pr_files(self, repo: str, commit: str) -> list[ChangedFile] | None:
+        return self.changed  # type: ignore[return-value]
 
 
 def _reviewed_inventory(
@@ -508,7 +711,7 @@ def _reviewed_inventory(
     content: bytes,
     **kw: Any,  # noqa: ANN401
 ) -> _ApprovingGithub:
-    github = _ApprovingGithub(**kw)
+    github = _ApprovingGithub(content, **kw)
     github.files[(REPO, COMMIT, "release.yaml")] = loaded.manifest_path.read_bytes()
     github.files[(REPO, COMMIT, INVENTORY_PATH)] = content
     github.merged.add(COMMIT)
@@ -526,10 +729,27 @@ def test_an_inventory_with_the_approvers_review_is_admitted(
 @pytest.mark.parametrize(
     ("change", "why"),
     [
-        ({"creators": []}, "adopted approver"),
-        ({"creators": [APPROVER_USER_ID + 1]}, "adopted approver"),
+        ({"statuses": []}, "adopted approver"),
+        ({"statuses": [Status("success", APPROVER_USER_ID + 1)]}, "adopted approver"),
+        (
+            {
+                "statuses": [
+                    Status("failure", APPROVER_USER_ID),
+                    Status("success", APPROVER_USER_ID),
+                ]
+            },
+            "adopted approver",
+        ),
+        ({"changed": None}, "no merged pull request"),
+        ({"changed": []}, "did not add or change"),
     ],
-    ids=["no approval", "approved by another account"],
+    ids=[
+        "no approval",
+        "approved by another account",
+        "superseded by a failure",
+        "no pull request",
+        "the pull request did not touch it",
+    ],
 )
 def test_an_inventory_without_the_approvers_review_is_refused(
     release: Release, tmp_path: Path, change: dict[str, Any], why: str
@@ -590,7 +810,120 @@ def test_a_reader_that_cannot_read_approvals_holds_the_request(
     assert (refusal.status, refusal.reason) == ("held", "review_unreadable")
 
 
-def _statuses(*entries: tuple[str, str, int]) -> Completed:
+def test_the_manifests_mode_decides_whether_an_inventory_is_needed(
+    release: Release, tmp_path: Path
+) -> None:
+    """Keyed on the manifest, not on what the request happens to carry."""
+    pack, loaded, content = _inventory_pack(release, tmp_path)
+    opened = open_request(pack, tmp_path / "opened")
+    github = _reviewed_inventory(loaded, content)
+
+    without = replace(opened, inventory_bytes=None)
+    refusal = admit(without, NODE, github, GRANTS)
+    assert refusal is not None and refusal.reason == "request_invalid"
+
+    plain_pack, plain = _pack_plain(release, tmp_path)
+    plain_opened = open_request(plain_pack, tmp_path / "opened-plain")
+    carrying = replace(plain_opened, inventory_bytes=content)
+    refusal = admit(carrying, NODE, _plain_github(plain), GRANTS)
+    assert refusal is not None and refusal.reason == "request_invalid"
+
+
+def _pack_plain(release: Release, tmp_path: Path) -> tuple[Path, LoadedManifest]:
+    built = release({"name": "pomar"})
+    request = SigningRequest(
+        pack_version=1,
+        product="pomar",
+        repo=REPO,
+        commit=COMMIT,
+        manifest_path="release.yaml",
+    )
+    out = tmp_path / "plain-mode.tar"
+    create_request(built, request, out)
+    return out, built
+
+
+def _plain_github(built: LoadedManifest) -> FakeGitHub:
+    github = FakeGitHub()
+    github.files[(REPO, COMMIT, "release.yaml")] = built.manifest_path.read_bytes()
+    github.merged.add(COMMIT)
+    return github
+
+
+def test_a_plain_request_with_a_plain_manifest_is_unaffected(
+    release: Release, tmp_path: Path
+) -> None:
+    built = release({"name": "pomar"})
+    request = SigningRequest(
+        pack_version=1,
+        product="pomar",
+        repo=REPO,
+        commit=COMMIT,
+        manifest_path="release.yaml",
+    )
+    out = tmp_path / "plain.tar"
+    create_request(built, request, out)
+    opened = open_request(out, tmp_path / "opened-plain")
+    github = FakeGitHub()
+    github.files[(REPO, COMMIT, "release.yaml")] = built.manifest_path.read_bytes()
+    github.merged.add(COMMIT)
+
+    assert admit(opened, NODE, github, GRANTS) is None
+
+
+def test_the_inventory_is_named_in_the_receipts_the_response_and_the_journal(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, loaded, content = _inventory_pack(release, tmp_path)
+    clock = [datetime(2026, 10, 24, 9, 0, tzinfo=UTC)]
+    service = SigningService(
+        tmp_path / "state",
+        FakeToolchain(),
+        _reviewed_inventory(loaded, content),
+        HOST,
+        allowlist=GRANTS,
+        now=lambda: clock[0],
+    )
+    try:
+        reply = service.handle(NODE, pack.read_bytes())
+    finally:
+        service.close()
+
+    digest = hashlib.sha256(content).hexdigest()
+    assert reply.status is HTTPStatus.OK
+    assert reply.inventory_sha256 == digest
+    with tarfile.open(fileobj=io.BytesIO(reply.body)) as tar:
+        member = tar.extractfile("receipts/sign-pomar.json")
+        assert member is not None
+        assert json.loads(member.read())["inventory_sha256"] == digest
+    journal = (tmp_path / "state" / "requests.jsonl").read_text().splitlines()
+    assert json.loads(journal[-1])["inventory_sha256"] == digest
+
+
+def test_a_refused_inventory_request_names_the_inventory_in_its_answer(
+    release: Release, tmp_path: Path
+) -> None:
+    pack, loaded, content = _inventory_pack(release, tmp_path)
+    clock = [datetime(2026, 10, 24, 9, 0, tzinfo=UTC)]
+    service = SigningService(
+        tmp_path / "state",
+        FakeToolchain(),
+        _reviewed_inventory(loaded, content, statuses=[]),
+        HOST,
+        allowlist=GRANTS,
+        now=lambda: clock[0],
+    )
+    try:
+        reply = service.handle(NODE, pack.read_bytes())
+    finally:
+        service.close()
+
+    body = json.loads(reply.body)
+    assert body["outcome"] == "inventory_unreviewed"
+    assert body["inventory_sha256"] == hashlib.sha256(content).hexdigest()
+
+
+def _statuses(*entries: tuple[str, str, object]) -> Completed:
     body = [
         {"context": context, "state": state, "creator": {"id": creator}}
         for context, state, creator in entries
@@ -598,30 +931,28 @@ def _statuses(*entries: tuple[str, str, int]) -> Completed:
     return Completed(0, json.dumps(body).encode(), b"")
 
 
-def test_gh_reads_who_approved_a_commit() -> None:
+def test_gh_reads_the_approval_statuses_newest_first_for_exactly_the_context() -> None:
     gh = GhCli(
         Runner(
-            _statuses(("council/approve", "success", APPROVER_USER_ID)),
             _statuses(
+                ("ci/other", "success", 1),
                 ("council/approve", "failure", APPROVER_USER_ID),
+                ("council/approve-shadow", "success", APPROVER_USER_ID),
                 ("council/approve", "success", APPROVER_USER_ID),
+                ("council/approve", "success", "341600801"),
             ),
-            _statuses(
-                ("ci/other", "success", APPROVER_USER_ID),
-                ("council/approve", "success", 7),
-            ),
-            _statuses(("ci/other", "success", APPROVER_USER_ID)),
             Completed(1, b"", b"gh: Not Found (HTTP 404)"),
+            _statuses(*[("council/approve", "pending", 1)] * 99),
         )
     )
     context = "council/approve"
-    assert gh.approval_creators(REPO, COMMIT, context) == [APPROVER_USER_ID]
-    # The latest status for the context decides: a later failure supersedes.
-    assert gh.approval_creators(REPO, COMMIT, context) == []
-    # Another context is not the approval, and the approval is who made it.
-    assert gh.approval_creators(REPO, COMMIT, context) == [7]
-    assert gh.approval_creators(REPO, COMMIT, context) == []
-    assert gh.approval_creators(REPO, COMMIT, context) == []
+    assert gh.approval_statuses(REPO, COMMIT, context) == [
+        Status("failure", APPROVER_USER_ID),
+        Status("success", APPROVER_USER_ID),
+        Status("success", None),  # an id sent as a string matches nobody
+    ]
+    assert gh.approval_statuses(REPO, COMMIT, context) == []
+    assert len(gh.approval_statuses(REPO, COMMIT, context)) == 99
 
 
 @pytest.mark.parametrize(
@@ -631,12 +962,123 @@ def test_gh_reads_who_approved_a_commit() -> None:
         Completed(0, b"{}", b""),
         Completed(0, json.dumps([{}] * 100).encode(), b""),
         Completed(1, b"", b"HTTP 500"),
+        Completed(0, b"[" + b" " * (9 * 1024 * 1024) + b"]", b""),
     ],
-    ids=["not json", "not a list", "a full page", "server error"],
+    ids=["not json", "not a list", "a full page", "server error", "answer too large"],
 )
 def test_gh_approvals_it_cannot_read_are_unreadable(answer: Completed) -> None:
     with pytest.raises(ReviewUnreadableError):
-        GhCli(Runner(answer)).approval_creators(REPO, COMMIT, "council/approve")
+        GhCli(Runner(answer)).approval_statuses(REPO, COMMIT, "council/approve")
+
+
+def _file(data: bytes, **changes: object) -> Completed:
+    body: dict[str, object] = {
+        "type": "file",
+        "encoding": "base64",
+        "size": len(data),
+        "content": base64.b64encode(data).decode(),
+        **changes,
+    }
+    return Completed(0, json.dumps(body).encode(), b"")
+
+
+def test_gh_reads_a_small_file_from_the_json_form() -> None:
+    runner = Runner(
+        _file(b"manifest bytes"), Completed(1, b"", b"gh: Not Found (HTTP 404)")
+    )
+    gh = GhCli(runner)
+    assert gh.file_at(REPO, COMMIT, "release.yaml") == b"manifest bytes"
+    assert gh.file_at(REPO, COMMIT, "absent.yaml") is None
+    assert runner.calls[0][2].endswith(f"contents/release.yaml?ref={COMMIT}")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        _file(b"x" * (2 * 1024 * 1024)),
+        _file(b"x", size=5),
+        _file(b"x", encoding="none"),
+        _file(b"x", type="dir"),
+        _file(b"x", content=3),
+        Completed(0, b"[]", b""),
+    ],
+    ids=[
+        "over 1 MiB",
+        "size disagrees",
+        "not base64",
+        "a directory",
+        "no content",
+        "a list",
+    ],
+)
+def test_gh_files_it_cannot_read_whole_and_small_are_unreadable(
+    answer: Completed,
+) -> None:
+    with pytest.raises(ReviewUnreadableError):
+        GhCli(Runner(answer)).file_at(REPO, COMMIT, "inventory.json")
+
+
+def _pull(
+    number: int = 12, merge: str = COMMIT, merged: object = "2026-10-24"
+) -> dict[str, object]:
+    return {"number": number, "merge_commit_sha": merge, "merged_at": merged}
+
+
+def _files(count: int, start: int = 0) -> Completed:
+    body = [
+        {"filename": f"f{start + n}", "status": "added", "sha": "a" * 40}
+        for n in range(count)
+    ]
+    return Completed(0, json.dumps(body).encode(), b"")
+
+
+def test_gh_reads_the_files_of_the_pull_request_that_produced_the_commit() -> None:
+    runner = Runner(
+        Completed(0, json.dumps([_pull(11, "d" * 40), _pull()]).encode(), b""),
+        _files(100),
+        _files(3, 100),
+    )
+    files = GhCli(runner).merged_pr_files(REPO, COMMIT)
+
+    assert files is not None and len(files) == 103
+    assert files[0] == ChangedFile("f0", "added", "a" * 40)
+    assert runner.calls[1][2].endswith("pulls/12/files?per_page=100&page=1")
+    assert runner.calls[2][2].endswith("pulls/12/files?per_page=100&page=2")
+
+
+@pytest.mark.parametrize(
+    "pulls",
+    [
+        [],
+        [_pull(merge="d" * 40)],
+        [_pull(merged=None)],
+        [_pull(1), _pull(2)],
+    ],
+    ids=["none", "another merge commit", "never merged", "two claim it"],
+)
+def test_gh_finds_no_pull_request_unless_exactly_one_merged_into_the_commit(
+    pulls: list[dict[str, object]],
+) -> None:
+    runner = Runner(Completed(0, json.dumps(pulls).encode(), b""))
+    assert GhCli(runner).merged_pr_files(REPO, COMMIT) is None
+
+
+def test_gh_holds_a_pull_request_it_cannot_read_in_full() -> None:
+    pulls = Completed(0, json.dumps([_pull()]).encode(), b"")
+    too_many = Runner(pulls, *[_files(100, n * 100) for n in range(30)])
+    with pytest.raises(ReviewUnreadableError):
+        GhCli(too_many).merged_pr_files(REPO, COMMIT)
+    odd = Runner(pulls, Completed(0, b'[{"filename": 3}]', b""))
+    with pytest.raises(ReviewUnreadableError):
+        GhCli(odd).merged_pr_files(REPO, COMMIT)
+
+
+@pytest.mark.parametrize("status", ["ahead", "diverged"])
+def test_a_commit_ahead_of_or_diverged_from_the_default_branch_is_not_merged(
+    status: str,
+) -> None:
+    runner = Runner(Completed(0, json.dumps({"status": status}).encode(), b""))
+    assert GhCli(runner).is_ancestor(REPO, COMMIT, "main") is False
 
 
 # -- the release command ---------------------------------------------------------
@@ -712,7 +1154,7 @@ def test_the_command_names_its_optional_fields_when_the_request_is_wrong() -> No
         ["pack"], json.dumps({"manifest": "x"}).encode()
     )
     assert (status, answer["outcome"]) == (2, "invalid_request")
-    assert "optionally inventory, inventory_path" in answer["message"]
+    assert "optionally inventory, inventory_path, version" in answer["message"]
 
 
 def test_the_command_packs_an_inventory_request(
@@ -732,6 +1174,7 @@ def test_the_command_packs_an_inventory_request(
             "manifest": str(_written(pinned, document)),
             "inventory": str(inventory),
             "inventory_path": INVENTORY_PATH,
+            "version": VERSION,
             "repo": REPO,
             "commit": COMMIT,
             "manifest_path": "release.yaml",

@@ -140,7 +140,7 @@ _OPTIONAL: Final = {
     "sign": {"inventory"},
     "verify": {"inventory"},
     "receive": {"inventory"},
-    "pack": {"inventory", "inventory_path"},
+    "pack": {"inventory", "inventory_path", "version"},
 }
 
 
@@ -162,6 +162,7 @@ def _pack(loaded: LoadedManifest, request: dict[str, str]) -> Answer:
             commit=request["commit"],
             manifest_path=request["manifest_path"],
             inventory_path=request.get("inventory_path"),
+            version=request.get("version"),
         )
     except ValueError as error:
         return invalid(

@@ -26,6 +26,7 @@ import copy
 import hashlib
 import json
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Annotated, Any, Final, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
@@ -44,20 +45,47 @@ class InventoryError(ValueError):
     """The inventory can't be used: answered as invalid, before anything runs."""
 
 
+Version = Annotated[str, StringConstraints(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")]
+
+
 class Inventory(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=False)
 
     schema_id: str = Field(alias="schema")
     product: str
+    #: The release this inventory is for; its path is derived from it.
+    version: Version
     pins: dict[str, Sha256]
 
 
+def inventory_path(version: str) -> str:
+    """The one path an inventory for ``version`` may have in the repository."""
+    return f"release/inventory/{version}.json"
+
+
+def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """A JSON object with a repeated key is refused: the last would win."""
+    found: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in found:
+            raise ValueError(f"the key {key!r} appears twice")
+        found[key] = value
+    return found
+
+
+def strict_json(content: bytes) -> object:
+    """JSON that refuses a repeated key, so the reviewed value is the used one."""
+    return json.loads(content, object_pairs_hook=_no_duplicates)
+
+
 def parse(content: bytes) -> Inventory:
-    """Read an inventory strictly: its schema, its product and its pins."""
+    """Read an inventory strictly: schema, product, version and pins."""
     try:
-        document = json.loads(content)
+        document = strict_json(content)
     except ValueError:
-        raise InventoryError("the inventory is not valid JSON") from None
+        raise InventoryError(
+            "the inventory is not valid JSON, or repeats a key"
+        ) from None
     if not isinstance(document, dict):
         raise InventoryError("the inventory is not a JSON object")
     try:
@@ -152,17 +180,39 @@ def apply(signing: Mapping[str, Any], inventory: Inventory) -> dict[str, Any]:
     return filled
 
 
-@runtime_checkable
-class ApprovalReads(Protocol):
-    """A GitHub reader that can also say who approved a commit."""
+@dataclass(frozen=True)
+class Status:
+    """One commit status, as GitHub lists it: its state and who created it."""
 
-    def approval_creators(self, repo: str, commit: str, context: str) -> list[int]:
-        """The creator id of ``context``'s LATEST status on ``commit`` if it
-        is a success, else an empty list."""
+    state: str
+    creator: int | None  # None when GitHub gave no integer id: it never matches
+
+
+@dataclass(frozen=True)
+class ChangedFile:
+    """One file of the pull request that produced the commit."""
+
+    filename: str
+    status: str
+    blob_sha: str
+
+
+@runtime_checkable
+class EvidenceReads(Protocol):
+    """A GitHub reader that can also say who approved a commit and what its
+    pull request changed."""
+
+    def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
+        """``context``'s statuses on ``commit``, NEWEST FIRST."""
+        ...
+
+    def merged_pr_files(self, repo: str, commit: str) -> list[ChangedFile] | None:
+        """The files of the one merged pull request whose merge commit is
+        ``commit``; None when there is no such pull request."""
         ...
 
 
-class ReviewReads(Protocol):
+class ReviewReads(EvidenceReads, Protocol):
     """What the host reads back from GitHub about the inventory's review."""
 
     def default_branch(self, repo: str) -> str: ...
@@ -171,13 +221,16 @@ class ReviewReads(Protocol):
 
     def is_ancestor(self, repo: str, commit: str, branch: str) -> bool: ...
 
-    def approval_creators(self, repo: str, commit: str, context: str) -> list[int]:
-        """The creator ids of ``context``'s SUCCESS statuses on ``commit``."""
-        ...
-
 
 def sha256_of(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def git_blob_sha(content: bytes) -> str:
+    """The git blob id of ``content``: what GitHub lists for a changed file."""
+    return hashlib.sha1(  # noqa: S324 - git's own object id, not a security digest
+        b"blob %d\0" % len(content) + content
+    ).hexdigest()
 
 
 def check_review(
@@ -186,17 +239,23 @@ def check_review(
     repo: str,
     commit: str,
     path: str,
+    version: str,
     content: bytes,
     approver: int = APPROVER_USER_ID,
 ) -> str | None:
     """None when the inventory was reviewed; otherwise the reason it was not.
 
-    Every condition is read from GitHub by the host: the commit is merged to
-    the default branch, the commit's own tree holds these exact bytes at this
-    path, and the council's approval on that commit was made by the adopted
-    approver. A status that only carries the right name, from anyone else,
-    does not count.
+    Every condition is read from GitHub by the host: the path is the one for
+    this version; the commit is merged to the default branch; its tree holds
+    these exact bytes there; the pull request that produced the commit ADDED or
+    CHANGED that very file (an inventory already in the tree, an older
+    release's or one that arrived without review, is not reviewed by an
+    approval of some later commit); and the LATEST ``council/approve`` status
+    on the commit is a success created by the adopted approver. A status that
+    only carries the right name, from anyone else, does not count.
     """
+    if path != inventory_path(version):
+        return f"the inventory's path is not {inventory_path(version)}"
     branch = github.default_branch(repo)
     if not github.is_ancestor(repo, commit, branch):
         return "the commit is not merged to the default branch"
@@ -205,8 +264,22 @@ def check_review(
         return "the commit has no inventory at that path"
     if held != content:
         return "the inventory is not the one in the commit"
-    creators = github.approval_creators(repo, commit, APPROVE_CONTEXT)
-    if approver not in creators:
+    changed = github.merged_pr_files(repo, commit)
+    if changed is None:
+        return "no merged pull request produced this commit"
+    blob = git_blob_sha(content)
+    if not any(
+        item.filename == path
+        and item.status in ("added", "modified")
+        and item.blob_sha == blob
+        for item in changed
+    ):
+        return "the commit's own pull request did not add or change this inventory"
+    statuses = github.approval_statuses(repo, commit, APPROVE_CONTEXT)
+    if not statuses or (statuses[0].state, statuses[0].creator) != (
+        "success",
+        approver,
+    ):
         return f"no {APPROVE_CONTEXT} by the adopted approver on this commit"
     return None
 
@@ -214,13 +287,18 @@ def check_review(
 __all__ = [
     "APPROVER_USER_ID",
     "SCHEMA",
+    "ChangedFile",
+    "EvidenceReads",
     "Inventory",
     "InventoryError",
-    "ApprovalReads",
     "ReviewReads",
+    "Status",
     "apply",
     "check_review",
+    "git_blob_sha",
+    "inventory_path",
     "parse",
     "pin_keys",
     "sha256_of",
+    "strict_json",
 ]

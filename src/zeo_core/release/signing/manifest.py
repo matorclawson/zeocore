@@ -284,6 +284,7 @@ class LoadedManifest(BaseModel):
     #: The inventory's sha256 and bytes when the pins came from one, else None.
     inventory_sha256: Sha256 | None = None
     inventory_bytes: bytes | None = None
+    inventory_version: str | None = None
 
     def resolve(self, relative: str) -> Path:
         return self.root / relative
@@ -309,6 +310,7 @@ def load(path: Path, inventory: bytes | None = None) -> LoadedManifest:
         raise ManifestError("the manifest has no signing section")
     section = document["signing"]
     inventory_sha: str | None = None
+    inventory_version: str | None = None
     if section.get("pins", "manifest") == "inventory":
         if inventory is None:
             raise ManifestError(
@@ -316,7 +318,9 @@ def load(path: Path, inventory: bytes | None = None) -> LoadedManifest:
                 "and none was given"
             )
         try:
-            section = apply(section, parse(inventory))
+            parsed = parse(inventory)
+            section = apply(section, parsed)
+            inventory_version = parsed.version
         except InventoryError as error:
             raise ManifestError(f"the inventory can't be used: {error}") from None
         inventory_sha = sha256_of(inventory)
@@ -336,4 +340,5 @@ def load(path: Path, inventory: bytes | None = None) -> LoadedManifest:
         manifest_path=path.resolve(),
         inventory_sha256=inventory_sha,
         inventory_bytes=inventory,
+        inventory_version=inventory_version,
     )

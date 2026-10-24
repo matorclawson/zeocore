@@ -237,8 +237,9 @@ signing:
   # executables / bundles as usual, without any unsigned_*sha256 field
 ```
 
-The inventory is JSON, schema `zeo.build-inventory/v1`, with the product and
-one digest for every pin the manifest needs. Its keys are exact:
+The inventory is JSON, schema `zeo.build-inventory/v1`, with the product, the
+release `version` (`1.2.3`) and one digest for every pin the manifest needs. A
+key that appears twice in the file refuses: the reviewed value is the used one. Its keys are exact:
 `executable:<name>`, `bundle:<name>:tree`, `bundle:<name>:main`,
 `bundle:<name>:nested:<path>` and `bundle:<name>:nested:<path>:main`. A key
 the manifest does not need, a key it needs and the inventory lacks, an inventory
@@ -250,37 +251,53 @@ always signed: nothing downstream changes.
 The inventory is a file in the owner repository, `release/inventory/<version>.json`,
 and goes through an ordinary pull request. It is trusted only as far as the
 evidence for it. The signing service reads GitHub itself and admits the request
-only when the commit is on the default branch, the commit's own tree holds
-exactly these bytes at the path the request names (`inventory_path`), and the
-latest `council/approve` status on that commit was created by the adopted
-approver (the App's bot user id, not any account that happens to use the same
-context name) and is a success. A later failure supersedes an earlier success.
+only when:
+
+- the request's `inventory_path` is exactly `release/inventory/<version>.json`
+  for the request's `version`, which is also the inventory's own `version`;
+- the commit is on the default branch and its tree holds exactly these bytes at
+  that path;
+- the pull request that produced the commit added or changed that very file,
+  with that blob (an inventory already in the tree, an older release's or one
+  that arrived without review, is not reviewed by a later commit's approval);
+- the latest `council/approve` status on the commit was created by the adopted
+  approver (the App's bot user id, not any account that happens to use the same
+  context name) and is a success. A later pending, error or failure supersedes
+  an earlier success, and so does a newer success by another account.
+
 Anything else is `inventory_unreviewed` (refused), and a GitHub that cannot be
 read, or a reader that cannot read approvals, is `review_unreadable` (held).
 The review is of the digests against the head-bound build receipt, not a
 rebuild.
 
+The repository paths a request names (`manifest_path`, `inventory_path`) have no
+empty, `.` or `..` segment. Files the service reads from GitHub are read in
+their JSON form and refused above 1 MiB; an answer above 8 MiB, or a pull
+request with too many files to read in full, is `review_unreadable`.
+
 On the command line, `sign`, `verify` and `receive` take an optional `inventory`
-(the file), and `pack` takes `inventory` and `inventory_path` (where it sits in
-the repository at `commit`). The pack carries the inventory as `inventory.json`
-beside the manifest. A request with neither is byte for byte what it always was.
+(the file), and `pack` takes `inventory`, `inventory_path` and `version`. The
+pack carries the inventory as `inventory.json` beside the manifest. A request
+with none of them is byte for byte what it always was. The inventory's hash is
+named in every receipt, in the service's answer and in its journal.
 
 ### The release event after the seal
 
 The release event (`zeo.release-event/v1`, made after signing from the signed
 hashes) is authenticated, if at all, after the seal and never before it.
 `zeo_core.release.signing.event_auth` is the verifier side of that step. It
-refuses unless the seal's `verify` passed, unless the event is the unchanged
+refuses unless the seal's `verify` passed and unless the event is the unchanged
 canonical document (the codec of `.github/release/event.py`, with exactly its
-fields and a digest that matches its payload), and unless whatever
-authenticated it authenticated exactly that payload.
+fields, no repeated key and a digest that matches its payload).
 
-It does not sign. The producer's only adopted authentication is a code
-signature and the tailnet identity of the caller; it has none for a JSON
+It never answers "authenticated". The producer's only adopted authentication is
+a code signature and the tailnet identity of the caller; it has none for a JSON
 payload, and using a signing key for one is a new key purpose that belongs to
-the operator. Until a mechanism is adopted the default, `Unadopted`, answers
-`held` with `event_authentication_unadopted`. No key, service or second signer
-is added here.
+the operator. So a well-formed event after a verified seal is `held` with
+`event_authentication_unadopted`, and nothing can be injected to change that: a
+returned hash is not an authentication. When a mechanism is adopted, the check
+that replaces this one verifies a signature against a pinned key. No key,
+service or second signer is added here.
 
 ## What verify checks
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import importlib.util
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -20,8 +21,6 @@ import pytest
 from zeo_core.release.signing import Outcome
 from zeo_core.release.signing.event_auth import (
     EVENT_SCHEMA,
-    AuthorityUnavailableError,
-    CanonicalEvent,
     EventRefusalError,
     authenticate_event,
     canonical,
@@ -50,19 +49,6 @@ def _event(**changes: Any) -> dict[str, Any]:  # noqa: ANN401
 
 def _bytes(document: dict[str, Any]) -> bytes:
     return json.dumps(document, indent=2, sort_keys=True).encode()
-
-
-class _Authenticator:
-    def __init__(self, answer: str | None = None, *, down: bool = False) -> None:
-        self.answer = answer
-        self.down = down
-        self.calls: list[CanonicalEvent] = []
-
-    def authenticate(self, event: CanonicalEvent) -> str:
-        self.calls.append(event)
-        if self.down:
-            raise AuthorityUnavailableError("the authority is unreachable")
-        return event.event_sha256 if self.answer is None else self.answer
 
 
 def test_the_codec_is_the_one_the_release_event_is_written_with() -> None:
@@ -137,7 +123,7 @@ def test_an_event_that_is_not_an_object_is_refused(content: bytes) -> None:
         read_event(content)
 
 
-def test_without_an_adopted_mechanism_the_port_holds() -> None:
+def test_a_well_formed_event_after_a_verified_seal_is_held() -> None:
     outcome = authenticate_event(_bytes(_event()), VERIFIED)
     assert (outcome.status, outcome.reason) == (
         "held",
@@ -145,25 +131,15 @@ def test_without_an_adopted_mechanism_the_port_holds() -> None:
     )
 
 
-def test_an_authority_that_is_down_holds() -> None:
-    outcome = authenticate_event(_bytes(_event()), VERIFIED, _Authenticator(down=True))
-    assert (outcome.status, outcome.reason) == (
-        "held",
-        "event_authentication_unadopted",
-    )
-
-
-def test_an_authenticator_that_authenticated_this_payload_is_accepted() -> None:
-    authenticator = _Authenticator()
-    outcome = authenticate_event(_bytes(_event()), VERIFIED, authenticator)
-
-    assert (outcome.status, outcome.reason) == ("done", "event_authenticated")
-    assert len(authenticator.calls) == 1
-
-
-def test_an_authenticator_that_authenticated_something_else_is_refused() -> None:
-    outcome = authenticate_event(_bytes(_event()), VERIFIED, _Authenticator("9" * 64))
-    assert (outcome.status, outcome.reason) == ("refused", "event_payload_mismatch")
+def test_nothing_can_be_injected_to_turn_the_hold_into_an_authentication() -> None:
+    """The port takes the event and the seal's outcome and nothing else, so a
+    returned hash can never stand in for a signature."""
+    assert list(inspect.signature(authenticate_event).parameters) == [
+        "content",
+        "sealed",
+    ]
+    with pytest.raises(TypeError):
+        authenticate_event(_bytes(_event()), VERIFIED, object())  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize(
@@ -175,22 +151,25 @@ def test_an_authenticator_that_authenticated_something_else_is_refused() -> None
     ],
     ids=["signed but unverified", "not signed", "held"],
 )
-def test_an_event_is_never_authenticated_ahead_of_a_verified_seal(
-    sealed: Outcome,
-) -> None:
-    authenticator = _Authenticator()
-    outcome = authenticate_event(_bytes(_event()), sealed, authenticator)
-
+def test_an_event_is_never_looked_at_ahead_of_a_verified_seal(sealed: Outcome) -> None:
+    outcome = authenticate_event(_bytes(_event()), sealed)
     assert (outcome.status, outcome.reason) == ("refused", "seal_unverified")
-    assert authenticator.calls == []  # nothing was asked of the authority
 
 
-def test_an_invalid_event_is_refused_before_the_authority_is_asked() -> None:
-    authenticator = _Authenticator()
+def test_an_invalid_event_is_refused() -> None:
     tampered = _event()
     tampered["commit"] = "0" * 40
-
-    outcome = authenticate_event(_bytes(tampered), VERIFIED, authenticator)
-
+    outcome = authenticate_event(_bytes(tampered), VERIFIED)
     assert (outcome.status, outcome.reason) == ("refused", "event_invalid")
-    assert authenticator.calls == []
+
+
+def test_an_event_that_repeats_a_key_is_refused() -> None:
+    """json keeps the last of two equal keys; the reviewed value is the used one."""
+    document = _event()
+    text = json.dumps(document, indent=2)
+    repeated = text.replace(
+        '"tag": "v1.2.4"', '"tag": "v0.0.1",\n  "tag": "v1.2.4"', 1
+    ).encode()
+    assert repeated != text.encode()
+    with pytest.raises(EventRefusalError, match="repeats a key"):
+        read_event(repeated)
