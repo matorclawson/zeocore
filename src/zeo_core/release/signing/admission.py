@@ -149,6 +149,11 @@ class GitHubReads(Protocol):
         ...
 
 
+def _ref(side: object, key: str) -> object:
+    """``head.sha`` or ``base.ref`` of a pull request, or None."""
+    return side.get(key) if isinstance(side, dict) else None
+
+
 class GhCli:
     """GitHub reads through the ``gh`` CLI, so no token passes through zeocore."""
 
@@ -257,15 +262,19 @@ class GhCli:
             )
         return found
 
-    def merged_pr_files(self, repo: str, commit: str) -> list[ChangedFile] | None:
-        """The files of the merged pull request whose merge commit is ``commit``.
+    def merged_pr_files(
+        self, repo: str, head: str, branch: str
+    ) -> list[ChangedFile] | None:
+        """The files of the pull request merged into ``branch`` whose head is ``head``.
 
-        None when there is not exactly one such pull request. The files are
-        read page by page, and a pull request too large to read in full is
-        held as unreadable rather than judged from part of it.
+        ``head`` is the commit the council approved; the merge commit the merger
+        makes is another commit and is never the one asked about. None when
+        there is not exactly one such pull request. The files are read page by
+        page, and a pull request too large to read in full is held as
+        unreadable rather than judged from part of it.
         """
         pulls = self._list(
-            self._api([f"repos/{repo}/commits/{commit}/pulls?per_page=100"])
+            self._api([f"repos/{repo}/commits/{head}/pulls?per_page=100"])
         )
         if len(pulls) >= 100:
             raise ReviewUnreadableError("GitHub's pull requests are unreadable")
@@ -273,8 +282,9 @@ class GhCli:
             p
             for p in pulls
             if isinstance(p, dict)
-            and p.get("merge_commit_sha") == commit
             and p.get("merged_at")
+            and _ref(p.get("head"), "sha") == head
+            and _ref(p.get("base"), "ref") == branch
         ]
         if len(merged) != 1 or not isinstance(merged[0], dict):
             return None

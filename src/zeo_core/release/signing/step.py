@@ -1006,7 +1006,10 @@ def _inventory_of(loaded: LoadedManifest) -> dict[str, Any]:
     """The inventory the pins came from, when they came from one (SOW-44 rev 2)."""
     if loaded.inventory_sha256 is None:
         return {}
-    return {"inventory_sha256": loaded.inventory_sha256}
+    return {
+        "inventory_sha256": loaded.inventory_sha256,
+        "inventory_version": loaded.inventory_version,
+    }
 
 
 def _common(

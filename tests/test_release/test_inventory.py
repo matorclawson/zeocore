@@ -298,7 +298,9 @@ class _Github:
         assert context == "council/approve"
         return self.statuses
 
-    def merged_pr_files(self, repo: str, commit: str) -> list[ChangedFile] | None:
+    def merged_pr_files(
+        self, repo: str, head: str, branch: str
+    ) -> list[ChangedFile] | None:
         return self.changed  # type: ignore[return-value]
 
 
@@ -340,7 +342,7 @@ def test_a_merged_inventory_added_by_its_own_reviewed_pull_request_is_reviewed()
             b"inventory",
             "adopted approver",
         ),
-        (_Github(changed=None), b"inventory", "no merged pull request"),
+        (_Github(changed=None), b"inventory", "no single merged pull request"),
         (_Github(changed=[]), b"inventory", "did not add or change"),
     ],
     ids=[
@@ -702,7 +704,9 @@ class _ApprovingGithub(FakeGitHub):
         assert context == "council/approve"
         return self.statuses
 
-    def merged_pr_files(self, repo: str, commit: str) -> list[ChangedFile] | None:
+    def merged_pr_files(
+        self, repo: str, head: str, branch: str
+    ) -> list[ChangedFile] | None:
         return self.changed  # type: ignore[return-value]
 
 
@@ -740,7 +744,7 @@ def test_an_inventory_with_the_approvers_review_is_admitted(
             },
             "adopted approver",
         ),
-        ({"changed": None}, "no merged pull request"),
+        ({"changed": None}, "no single merged pull request"),
         ({"changed": []}, "did not add or change"),
     ],
     ids=[
@@ -895,7 +899,9 @@ def test_the_inventory_is_named_in_the_receipts_the_response_and_the_journal(
     with tarfile.open(fileobj=io.BytesIO(reply.body)) as tar:
         member = tar.extractfile("receipts/sign-pomar.json")
         assert member is not None
-        assert json.loads(member.read())["inventory_sha256"] == digest
+        receipt = json.loads(member.read())
+        assert receipt["inventory_sha256"] == digest
+        assert receipt["inventory_version"] == VERSION
     journal = (tmp_path / "state" / "requests.jsonl").read_text().splitlines()
     assert json.loads(journal[-1])["inventory_sha256"] == digest
 
@@ -1018,10 +1024,23 @@ def test_gh_files_it_cannot_read_whole_and_small_are_unreadable(
         GhCli(Runner(answer)).file_at(REPO, COMMIT, "inventory.json")
 
 
+MERGE_COMMIT = "e" * 40  # the merger's own merge commit: never the approved head
+
+
 def _pull(
-    number: int = 12, merge: str = COMMIT, merged: object = "2026-10-24"
+    number: int = 12,
+    head: str = COMMIT,
+    base: str = "main",
+    merged: object = "2026-10-24",
 ) -> dict[str, object]:
-    return {"number": number, "merge_commit_sha": merge, "merged_at": merged}
+    """A pull request as GitHub lists it for a commit: head, base, merge commit."""
+    return {
+        "number": number,
+        "head": {"sha": head},
+        "base": {"ref": base},
+        "merge_commit_sha": MERGE_COMMIT,
+        "merged_at": merged,
+    }
 
 
 def _files(count: int, start: int = 0) -> Completed:
@@ -1032,16 +1051,17 @@ def _files(count: int, start: int = 0) -> Completed:
     return Completed(0, json.dumps(body).encode(), b"")
 
 
-def test_gh_reads_the_files_of_the_pull_request_that_produced_the_commit() -> None:
+def test_gh_reads_the_files_of_the_pull_request_whose_head_was_approved() -> None:
     runner = Runner(
         Completed(0, json.dumps([_pull(11, "d" * 40), _pull()]).encode(), b""),
         _files(100),
         _files(3, 100),
     )
-    files = GhCli(runner).merged_pr_files(REPO, COMMIT)
+    files = GhCli(runner).merged_pr_files(REPO, COMMIT, "main")
 
     assert files is not None and len(files) == 103
     assert files[0] == ChangedFile("f0", "added", "a" * 40)
+    assert runner.calls[0][2].endswith(f"commits/{COMMIT}/pulls?per_page=100")
     assert runner.calls[1][2].endswith("pulls/12/files?per_page=100&page=1")
     assert runner.calls[2][2].endswith("pulls/12/files?per_page=100&page=2")
 
@@ -1050,27 +1070,82 @@ def test_gh_reads_the_files_of_the_pull_request_that_produced_the_commit() -> No
     "pulls",
     [
         [],
-        [_pull(merge="d" * 40)],
+        [_pull(head="d" * 40)],
         [_pull(merged=None)],
+        [_pull(base="other")],
         [_pull(1), _pull(2)],
     ],
-    ids=["none", "another merge commit", "never merged", "two claim it"],
+    ids=["none", "another head", "never merged", "another base", "two claim it"],
 )
-def test_gh_finds_no_pull_request_unless_exactly_one_merged_into_the_commit(
+def test_gh_finds_no_pull_request_unless_exactly_one_merged_with_that_head(
     pulls: list[dict[str, object]],
 ) -> None:
     runner = Runner(Completed(0, json.dumps(pulls).encode(), b""))
-    assert GhCli(runner).merged_pr_files(REPO, COMMIT) is None
+    assert GhCli(runner).merged_pr_files(REPO, COMMIT, "main") is None
+
+
+def test_the_merge_commit_is_not_the_commit_that_was_approved() -> None:
+    """Asking for the merge commit's pull request finds nothing: the approval
+    and the pull request's head are one commit, the merge commit is another."""
+    pulls = Completed(0, json.dumps([_pull()]).encode(), b"")
+    assert GhCli(Runner(pulls)).merged_pr_files(REPO, MERGE_COMMIT, "main") is None
 
 
 def test_gh_holds_a_pull_request_it_cannot_read_in_full() -> None:
     pulls = Completed(0, json.dumps([_pull()]).encode(), b"")
     too_many = Runner(pulls, *[_files(100, n * 100) for n in range(30)])
     with pytest.raises(ReviewUnreadableError):
-        GhCli(too_many).merged_pr_files(REPO, COMMIT)
+        GhCli(too_many).merged_pr_files(REPO, COMMIT, "main")
     odd = Runner(pulls, Completed(0, b'[{"filename": 3}]', b""))
     with pytest.raises(ReviewUnreadableError):
-        GhCli(odd).merged_pr_files(REPO, COMMIT)
+        GhCli(odd).merged_pr_files(REPO, COMMIT, "main")
+
+
+def test_a_real_merge_is_reviewed_through_the_real_github_call_shapes() -> None:
+    """The head is approved, the merger's merge commit M is another commit.
+
+    Every read goes through GhCli's real endpoints and answers; nothing is
+    faked above them. The approval and the pull request are read on the head,
+    never on M, and M is only ever the pull request's merge_commit_sha.
+    """
+    inventory = b"the reviewed inventory"
+    path = inventory_path(VERSION)
+    runner = Runner(
+        Completed(0, b'{"default_branch": "main"}', b""),
+        Completed(0, b'{"status": "behind"}', b""),
+        _file(inventory),
+        Completed(0, json.dumps([_pull()]).encode(), b""),
+        Completed(
+            0,
+            json.dumps(
+                [
+                    {
+                        "filename": path,
+                        "status": "added",
+                        "sha": git_blob_sha(inventory),
+                    }
+                ]
+            ).encode(),
+            b"",
+        ),
+        _statuses(("council/approve", "success", APPROVER_USER_ID)),
+    )
+
+    reason = check_review(
+        GhCli(runner),
+        repo=REPO,
+        commit=COMMIT,
+        path=path,
+        version=VERSION,
+        content=inventory,
+    )
+
+    assert reason is None
+    read = " ".join(call[2] for call in runner.calls)
+    assert MERGE_COMMIT not in read
+    assert f"commits/{COMMIT}/pulls" in read
+    assert f"commits/{COMMIT}/statuses" in read
+    assert f"compare/main...{COMMIT}" in read
 
 
 @pytest.mark.parametrize("status", ["ahead", "diverged"])

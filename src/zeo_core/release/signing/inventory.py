@@ -206,9 +206,12 @@ class EvidenceReads(Protocol):
         """``context``'s statuses on ``commit``, NEWEST FIRST."""
         ...
 
-    def merged_pr_files(self, repo: str, commit: str) -> list[ChangedFile] | None:
-        """The files of the one merged pull request whose merge commit is
-        ``commit``; None when there is no such pull request."""
+    def merged_pr_files(
+        self, repo: str, head: str, branch: str
+    ) -> list[ChangedFile] | None:
+        """The files of the one pull request that was merged into ``branch``
+        and whose head, the commit the council approved, is ``head``; None
+        when there is not exactly one such pull request."""
         ...
 
 
@@ -245,14 +248,18 @@ def check_review(
 ) -> str | None:
     """None when the inventory was reviewed; otherwise the reason it was not.
 
-    Every condition is read from GitHub by the host: the path is the one for
-    this version; the commit is merged to the default branch; its tree holds
-    these exact bytes there; the pull request that produced the commit ADDED or
-    CHANGED that very file (an inventory already in the tree, an older
-    release's or one that arrived without review, is not reviewed by an
-    approval of some later commit); and the LATEST ``council/approve`` status
-    on the commit is a success created by the adopted approver. A status that
-    only carries the right name, from anyone else, does not count.
+    ``commit`` is the APPROVED HEAD of the pull request: the council posts its
+    approval on a pull request's head, and the merger then merges with a merge
+    commit of its own, so the approval is on the head and never on the merge
+    commit. Every condition is read from GitHub by the host: the path is the
+    one for this version; the head is merged to the default branch; its tree
+    holds these exact bytes there; the one pull request merged into the default
+    branch with this head ADDED or CHANGED that very file (an inventory already
+    in the tree, an older release's or one that arrived without review, is not
+    reviewed by an approval of some later head); and the LATEST
+    ``council/approve`` status on the head is a success created by the adopted
+    approver. A status that only carries the right name, from anyone else, does
+    not count.
     """
     if path != inventory_path(version):
         return f"the inventory's path is not {inventory_path(version)}"
@@ -264,9 +271,9 @@ def check_review(
         return "the commit has no inventory at that path"
     if held != content:
         return "the inventory is not the one in the commit"
-    changed = github.merged_pr_files(repo, commit)
+    changed = github.merged_pr_files(repo, commit, branch)
     if changed is None:
-        return "no merged pull request produced this commit"
+        return "no single merged pull request has this commit as its head"
     blob = git_blob_sha(content)
     if not any(
         item.filename == path

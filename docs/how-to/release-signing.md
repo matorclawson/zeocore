@@ -255,12 +255,16 @@ only when:
 
 - the request's `inventory_path` is exactly `release/inventory/<version>.json`
   for the request's `version`, which is also the inventory's own `version`;
-- the commit is on the default branch and its tree holds exactly these bytes at
-  that path;
-- the pull request that produced the commit added or changed that very file,
-  with that blob (an inventory already in the tree, an older release's or one
-  that arrived without review, is not reviewed by a later commit's approval);
-- the latest `council/approve` status on the commit was created by the adopted
+- the request's `commit` is the pull request's APPROVED HEAD, not the merge
+  commit the merger makes: the council approves a head, and the merge commit is
+  another commit that carries no approval. The head is on the default branch and
+  its tree holds exactly these bytes at that path;
+- the one pull request merged into the default branch with that head added or
+  changed that very file, with that blob (an inventory already in the tree, an
+  older release's or one that arrived without review, is not reviewed by a
+  later head's approval; a file that was renamed into place is refused, add it
+  at its own path);
+- the latest `council/approve` status on the head was created by the adopted
   approver (the App's bot user id, not any account that happens to use the same
   context name) and is a success. A later pending, error or failure supersedes
   an earlier success, and so does a newer success by another account.
@@ -271,15 +275,20 @@ The review is of the digests against the head-bound build receipt, not a
 rebuild.
 
 The repository paths a request names (`manifest_path`, `inventory_path`) have no
-empty, `.` or `..` segment. Files the service reads from GitHub are read in
-their JSON form and refused above 1 MiB; an answer above 8 MiB, or a pull
-request with too many files to read in full, is `review_unreadable`.
+empty, `.` or `..` segment. Every file the service reads from GitHub, the
+manifest included, is read in its JSON form, which states its size first; one
+above 1 MiB is held as `review_unreadable`, where the raw form used to read it
+(a manifest over 1 MiB is now held). An answer above 8 MiB, or a pull request
+with too many files to read in full, is `review_unreadable` too. The 8 MiB check
+runs after `gh` has returned, so it limits what is accepted, not the memory
+`gh` uses; the 1 MiB check is the one that keeps a huge file from being fetched.
 
 On the command line, `sign`, `verify` and `receive` take an optional `inventory`
 (the file), and `pack` takes `inventory`, `inventory_path` and `version`. The
 pack carries the inventory as `inventory.json` beside the manifest. A request
-with none of them is byte for byte what it always was. The inventory's hash is
-named in every receipt, in the service's answer and in its journal.
+with none of them is byte for byte what it always was. The inventory's hash and
+version are named in every receipt; its hash is also in the service's answer and
+in its journal.
 
 ### The release event after the seal
 
