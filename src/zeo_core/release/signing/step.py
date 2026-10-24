@@ -1002,6 +1002,16 @@ class _Run:
         return receipt
 
 
+def _inventory_of(loaded: LoadedManifest) -> dict[str, Any]:
+    """The inventory the pins came from, when they came from one (SOW-44 rev 2)."""
+    if loaded.inventory_sha256 is None:
+        return {}
+    return {
+        "inventory_sha256": loaded.inventory_sha256,
+        "inventory_version": loaded.inventory_version,
+    }
+
+
 def _common(
     loaded: LoadedManifest, name: str, identifier: str, audience: Audience
 ) -> dict[str, Any]:
@@ -1009,6 +1019,7 @@ def _common(
         "receipt_version": RECEIPT_VERSION,
         "step": "sign",
         "manifest_sha256": loaded.sha256,
+        **_inventory_of(loaded),
         "product": loaded.signing.product,
         "name": name,
         "identifier": identifier,
@@ -1054,6 +1065,7 @@ def _receipt(
         "receipt_version": RECEIPT_VERSION,
         "step": "sign",
         "manifest_sha256": loaded.sha256,
+        **_inventory_of(loaded),
         "product": loaded.signing.product,
         "name": item.name,
         "identifier": item.identifier,

@@ -26,8 +26,16 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from .inventory import inventory_path
 from .manifest import Bundle, LoadedManifest, ManifestError, load
 from .step import WorkDir, sha256_file
 from .tree import TreeError, contained_target, listing, tree_sha256
@@ -37,6 +45,7 @@ PACK_VERSION: Final = 1
 MAX_PACK_BYTES: Final = 512 * 1024 * 1024
 REQUEST_FILE: Final = "request.json"
 MANIFEST_FILE: Final = "release.yaml"
+INVENTORY_FILE: Final = "inventory.json"
 
 Repo = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")]
 Commit = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
@@ -63,6 +72,34 @@ class SigningRequest(BaseModel):
     repo: Repo
     commit: Commit
     manifest_path: ManifestPath
+    #: Where the reviewed build inventory sits in the repository at ``commit``,
+    #: and the release it is for, for a manifest with ``pins: inventory`` and
+    #: for no other (SOW-44 rev 2). The path is always
+    #: ``release/inventory/<version>.json``.
+    inventory_path: ManifestPath | None = None
+    version: (
+        Annotated[str, StringConstraints(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")] | None
+    ) = None
+
+    @field_validator("manifest_path", "inventory_path")
+    @classmethod
+    def _plain_path(cls, value: str | None) -> str | None:
+        """A repository path with no empty, ``.`` or ``..`` segment."""
+        if value is not None and any(
+            part in ("", ".", "..") for part in value.split("/")
+        ):
+            raise ValueError("a path has no empty, '.' or '..' segment")
+        return value
+
+    @model_validator(mode="after")
+    def _inventory_is_bound_to_a_version(self) -> SigningRequest:
+        if (self.inventory_path is None) != (self.version is None):
+            raise ValueError("inventory_path and version go together")
+        if self.version is not None and self.inventory_path != inventory_path(
+            self.version
+        ):
+            raise ValueError(f"the inventory's path is {inventory_path(self.version)}")
+        return self
 
 
 def _member(name: str, data: bytes, mode: int) -> tuple[tarfile.TarInfo, bytes]:
@@ -126,10 +163,26 @@ def create_request(loaded: LoadedManifest, request: SigningRequest, out: Path) -
     """Write the request pack and return its id. Inputs are checked first."""
     if request.product != loaded.signing.product:
         raise PackError("request_invalid", "the request names another product")
+    wants_inventory = loaded.signing.pins == "inventory"
+    if (
+        wants_inventory != (request.inventory_path is not None)
+        or wants_inventory != (loaded.inventory_bytes is not None)
+        or request.version != loaded.inventory_version
+    ):
+        raise PackError(
+            "request_invalid",
+            "a manifest with pins: inventory needs its inventory, the "
+            "inventory's path and its own version in the request, and no other "
+            "manifest takes them",
+        )
     members = [
-        _member(REQUEST_FILE, request.model_dump_json().encode(), 0o644),
+        _member(
+            REQUEST_FILE, request.model_dump_json(exclude_none=True).encode(), 0o644
+        ),
         _member(MANIFEST_FILE, loaded.manifest_path.read_bytes(), 0o644),
     ]
+    if loaded.inventory_bytes is not None:
+        members.append(_member(INVENTORY_FILE, loaded.inventory_bytes, 0o644))
     for relative, expected, mode in _listed(loaded):
         path = loaded.resolve(relative)
         if not path.is_file() or sha256_file(path) != expected:
@@ -264,6 +317,7 @@ class OpenedRequest:
     request: SigningRequest
     manifest: LoadedManifest
     manifest_bytes: bytes
+    inventory_bytes: bytes | None = None
 
 
 def open_request(pack: Path, dest: Path) -> OpenedRequest:
@@ -275,16 +329,28 @@ def open_request(pack: Path, dest: Path) -> OpenedRequest:
         raise PackError("request_invalid", "the pack has no request or manifest")
     try:
         request = SigningRequest.model_validate_json(written[REQUEST_FILE].read_bytes())
-        loaded = load(written[MANIFEST_FILE])
+        inventory = (
+            written[INVENTORY_FILE].read_bytes() if INVENTORY_FILE in written else None
+        )
+        loaded = load(written[MANIFEST_FILE], inventory)
     except (ValidationError, ManifestError) as error:
         raise PackError("request_invalid", f"the request is invalid: {error}") from None
+    if (request.inventory_path is not None) != (inventory is not None) or (
+        request.version != loaded.inventory_version
+    ):
+        raise PackError(
+            "request_invalid",
+            "the request's inventory, path and version do not agree with the pack",
+        )
     if request.product != loaded.signing.product:
         raise PackError("request_invalid", "the request names another product")
     listed = {relative: expected for relative, expected, _ in _listed(loaded)}
     roots = [bundle.path for bundle in loaded.signing.bundles]
     unlisted = {
         name
-        for name in set(written) - set(listed) - {REQUEST_FILE, MANIFEST_FILE}
+        for name in set(written)
+        - set(listed)
+        - {REQUEST_FILE, MANIFEST_FILE, INVENTORY_FILE}
         if not any(_inside(name, root) for root in roots)
     }
     if unlisted:
@@ -300,6 +366,7 @@ def open_request(pack: Path, dest: Path) -> OpenedRequest:
         request=request,
         manifest=loaded,
         manifest_bytes=written[MANIFEST_FILE].read_bytes(),
+        inventory_bytes=inventory,
     )
 
 
