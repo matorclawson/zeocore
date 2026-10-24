@@ -1,0 +1,737 @@
+{
+  "$defs": {
+    "Check": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "attribution",
+            "quote_budget",
+            "language",
+            "house_style",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/Location"
+        },
+        "reason": {
+          "maxLength": 512,
+          "title": "Reason",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "not_checked"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "kind",
+        "required",
+        "status",
+        "location",
+        "reason"
+      ],
+      "title": "Check",
+      "type": "object"
+    },
+    "Claim": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceReference"
+          },
+          "maxLength": 16,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "location": {
+          "$ref": "#/$defs/Location"
+        },
+        "text_sha256": {
+          "description": "SHA256 of exact claim text in draft LF view",
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Text Sha256",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "supported",
+            "unsupported",
+            "contradicted",
+            "needs_human",
+            "not_checkable"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "text_sha256",
+        "location",
+        "evidence_refs",
+        "verdict"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "DraftArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 128,
+          "pattern": "^[a-z0-9.+-]+/[a-z0-9.+-]+$",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA256 of exact draft representation bytes",
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "media_type",
+        "sha256"
+      ],
+      "title": "DraftArtifact",
+      "type": "object"
+    },
+    "EvidenceReference": {
+      "additionalProperties": false,
+      "description": "Declared support in visible Markdown; reference syntax is not resolution.",
+      "properties": {
+        "attribution": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Attribution"
+        },
+        "expected_digest": {
+          "description": "Must equal cited markdown_sha256",
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Digest",
+          "type": "string"
+        },
+        "item_id": {
+          "maxLength": 67,
+          "pattern": "^li_[0-9a-f]{64}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/Location"
+        },
+        "markdown_sha256": {
+          "description": "SHA256 of exact LF UTF-8 item revision",
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Markdown Sha256",
+          "type": "string"
+        },
+        "publisher": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Publisher"
+        },
+        "quoted_code_points": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Quoted Code Points",
+          "type": "integer"
+        },
+        "raw_ref_id": {
+          "description": "Opaque rr_ id, format only; never outward",
+          "maxLength": 67,
+          "pattern": "^rr_[0-9a-f]{64}$",
+          "title": "Raw Ref Id",
+          "type": "string"
+        },
+        "retained_sha256": {
+          "description": "SHA256 of exact retained RAW bytes",
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Retained Sha256",
+          "type": "string"
+        },
+        "visible": {
+          "title": "Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "markdown_sha256",
+        "expected_digest",
+        "raw_ref_id",
+        "retained_sha256",
+        "location",
+        "visible",
+        "quoted_code_points",
+        "attribution",
+        "publisher"
+      ],
+      "title": "EvidenceReference",
+      "type": "object"
+    },
+    "Excerpt": {
+      "additionalProperties": false,
+      "description": "Exact evidence cache; decomposed Unicode is retained byte-for-byte.",
+      "properties": {
+        "sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sha256",
+        "text"
+      ],
+      "title": "Excerpt",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "finding_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/Location"
+        },
+        "message": {
+          "maxLength": 1024,
+          "title": "Message",
+          "type": "string"
+        },
+        "proposed_edit": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Proposed Edit"
+        },
+        "resolved": {
+          "title": "Resolved",
+          "type": "boolean"
+        },
+        "responsible_owner": {
+          "enum": [
+            "author",
+            "editor",
+            "source",
+            "proofreader"
+          ],
+          "title": "Responsible Owner",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "blocker",
+            "major",
+            "minor",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "check_id",
+        "severity",
+        "responsible_owner",
+        "location",
+        "message",
+        "proposed_edit",
+        "resolved"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "ItemRevision": {
+      "additionalProperties": false,
+      "description": "Opaque format-only reference, not proof that an item/revision exists.",
+      "properties": {
+        "item_id": {
+          "maxLength": 67,
+          "pattern": "^li_[0-9a-f]{64}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "markdown_sha256": {
+          "description": "SHA256 of exact LF UTF-8 Markdown",
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Markdown Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "markdown_sha256"
+      ],
+      "title": "ItemRevision",
+      "type": "object"
+    },
+    "Location": {
+      "additionalProperties": false,
+      "description": "Codepoint range in an exact LF UTF-8 view, not byte/UTF16 offsets.",
+      "properties": {
+        "end": {
+          "$ref": "#/$defs/Position"
+        },
+        "start": {
+          "$ref": "#/$defs/Position"
+        },
+        "view_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "View Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "view_sha256",
+        "start",
+        "end"
+      ],
+      "title": "Location",
+      "type": "object"
+    },
+    "Position": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Column",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "line",
+        "column"
+      ],
+      "title": "Position",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model"
+        },
+        "reviewer": {
+          "maxLength": 256,
+          "title": "Reviewer",
+          "type": "string"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session"
+        },
+        "unavailable_reason": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unavailable Reason"
+        }
+      },
+      "required": [
+        "reviewer",
+        "model",
+        "session",
+        "unavailable_reason"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "QuoteTotal": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "maxLength": 67,
+          "pattern": "^li_[0-9a-f]{64}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "markdown_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Markdown Sha256",
+          "type": "string"
+        },
+        "quote_budget": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Quote Budget",
+          "type": "integer"
+        },
+        "quoted_code_points": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Quoted Code Points",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "item_id",
+        "markdown_sha256",
+        "quote_budget",
+        "quoted_code_points"
+      ],
+      "title": "QuoteTotal",
+      "type": "object"
+    },
+    "ScorerRun": {
+      "additionalProperties": false,
+      "description": "Deterministic run declarations, separate from human/model editorial checks.",
+      "properties": {
+        "input_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Sha256",
+          "type": "string"
+        },
+        "policy_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Sha256",
+          "type": "string"
+        },
+        "tool_version_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Tool Version Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input_sha256",
+        "tool_version_sha256",
+        "policy_sha256"
+      ],
+      "title": "ScorerRun",
+      "type": "object"
+    },
+    "Subject": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/DraftArtifact"
+          },
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "draft_issue_digest": {
+          "description": "SHA256 RFC8785 exact {from_name,subject,plain_text,html} strings",
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Draft Issue Digest",
+          "type": "string"
+        },
+        "item_revisions": {
+          "items": {
+            "$ref": "#/$defs/ItemRevision"
+          },
+          "maxLength": 500,
+          "title": "Item Revisions",
+          "type": "array"
+        },
+        "selection_id": {
+          "anyOf": [
+            {
+              "maxLength": 68,
+              "pattern": "^sel_[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Opaque sel_ identifier, format only; unresolved is not verified",
+          "title": "Selection Id"
+        }
+      },
+      "required": [
+        "draft_issue_digest",
+        "artifacts",
+        "selection_id",
+        "item_revisions"
+      ],
+      "title": "Subject",
+      "type": "object"
+    }
+  },
+  "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/proof.report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Internal shape only. No current read receipt, lifecycle or verified flag.\n\nEvery field is immutable and included in the RFC8785 identity except\nproof_id itself. No missing/null field is silently inferred to be checked.",
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/Check"
+      },
+      "maxLength": 200,
+      "title": "Checks",
+      "type": "array"
+    },
+    "claim_total": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Claim Total",
+      "type": "integer"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "maxLength": 500,
+      "title": "Claims",
+      "type": "array"
+    },
+    "created_at": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "title": "Created At",
+      "type": "string"
+    },
+    "editorial_decision": {
+      "enum": [
+        "pass",
+        "changes_required",
+        "blocked"
+      ],
+      "title": "Editorial Decision",
+      "type": "string"
+    },
+    "evidence_digests": {
+      "items": {
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxLength": 16000,
+      "title": "Evidence Digests",
+      "type": "array"
+    },
+    "excerpt_cache": {
+      "items": {
+        "$ref": "#/$defs/Excerpt"
+      },
+      "maxLength": 500,
+      "title": "Excerpt Cache",
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "maxLength": 500,
+      "title": "Findings",
+      "type": "array"
+    },
+    "house_style_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "House Style Sha256",
+      "type": "string"
+    },
+    "inventory_complete": {
+      "title": "Inventory Complete",
+      "type": "boolean"
+    },
+    "per_item_quote_totals": {
+      "items": {
+        "$ref": "#/$defs/QuoteTotal"
+      },
+      "maxLength": 500,
+      "title": "Per Item Quote Totals",
+      "type": "array"
+    },
+    "producer": {
+      "const": "dt-proofreader",
+      "title": "Producer",
+      "type": "string"
+    },
+    "proof_id": {
+      "maxLength": 68,
+      "pattern": "^prf_[0-9a-f]{64}$",
+      "title": "Proof Id",
+      "type": "string"
+    },
+    "reviewer": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "schema": {
+      "const": "zeo.proof-report/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "scorer_runs": {
+      "items": {
+        "$ref": "#/$defs/ScorerRun"
+      },
+      "maxLength": 32,
+      "title": "Scorer Runs",
+      "type": "array"
+    },
+    "sow": {
+      "maxLength": 256,
+      "title": "Sow",
+      "type": "string"
+    },
+    "subject": {
+      "$ref": "#/$defs/Subject"
+    },
+    "supersedes": {
+      "anyOf": [
+        {
+          "maxLength": 68,
+          "pattern": "^prf_[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Supersedes"
+    }
+  },
+  "required": [
+    "schema",
+    "proof_id",
+    "producer",
+    "created_at",
+    "sow",
+    "reviewer",
+    "subject",
+    "claim_total",
+    "inventory_complete",
+    "claims",
+    "checks",
+    "findings",
+    "evidence_digests",
+    "per_item_quote_totals",
+    "excerpt_cache",
+    "house_style_sha256",
+    "scorer_runs",
+    "editorial_decision",
+    "supersedes"
+  ],
+  "title": "ProofReport",
+  "type": "object"
+}

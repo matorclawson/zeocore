@@ -44,6 +44,7 @@ SCHEMAS: Final[dict[str, str]] = {
     "ui.result-card": "zeo_core.contracts.ui.card:UiCardResult",
     "ui.widget-upsert": "zeo_core.contracts.ui.widgets:WidgetUpsert",
     "ui.widget-data-ref": "zeo_core.contracts.ui.widgets:DataRef",
+    "proof.report": "zeo_core.contracts.proof.report:ProofReport",
     "revolut.account": "zeo_core.integrations.revolut.models:Account",
     # TransactionQuery waits for its wire alias ("from", contract §6): its
     # schema today would name the Python field "from_".
@@ -54,7 +55,10 @@ SCHEMAS: Final[dict[str, str]] = {
 #: Names other than the registered one that select the same contract. The wire tag
 #: of a UI result is ``zeo.ui-result/v1``; ``zeocore validate`` and ``zeocore schema``
 #: accept it for the one-card subset (zeocore-SOW-42).
-ALIASES: Final[dict[str, str]] = {"zeo.ui-result/v1": "ui.result-card"}
+ALIASES: Final[dict[str, str]] = {
+    "zeo.ui-result/v1": "ui.result-card",
+    "zeo.proof-report/v1": "proof.report",
+}
 
 #: Contracts whose limits are properties of the bytes as received: ``zeocore
 #: validate`` hands them the raw stdin, not a parsed value.

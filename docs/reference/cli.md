@@ -226,6 +226,23 @@ A change to these rules is a new `cli_protocol`, announced like a contract chang
 | `revolut.account` | Revolut `Account` |
 | `revolut.transaction-page` | Revolut `TransactionPage` |
 | `ui.result-card` | `UiCardResult`: `zeo.ui-result/v1` with one read-only card (zeocore-SOW-42); `zeo.ui-result/v1` names it too |
+| `proof.report` | Internal `ProofReport`, alias `zeo.proof-report/v1` (sow: zeocore-SOW-45). A valid structure is not verified supporting evidence or current clearance. |
+
+The proof report is internal, not the library-owned outward proof-view. Its
+`prf_` identity hashes RFC8785 of all immutable fields except `proof_id`; the
+returned-byte digest includes that field. The draft binding hashes RFC8785 of
+the exact four strings `from_name`, `subject`, `plain_text`, `html`, without
+Unicode normalization. Item/selection/RAW identifiers are format-checked opaque
+references, never resolved by this model. Markdown hashes bind exact LF UTF-8
+revision bytes, retained hashes exact RAW bytes, and artifact hashes their exact
+representation bytes. Unknown or unresolved evidence stays unchecked, never
+verified because its identifier parsed. Current lifecycle, stop/read outcomes
+and fresh receipts are separate: an unperformed check is `not_checked`; F.7
+requires source `as_of` no older than 60 seconds and a receipt no older than
+300 seconds at send. This static schema performs no reads or freshness checks
+and authorizes neither creating nor sending a draft. Metadata is NFC with pinned
+Unicode16 codepoint checks; a host predating Unicode16 conservatively refuses
+metadata characters unknown to its normalization database. Evidence is unchanged.
 
 - **`ui.result-card` is the one-card subset of `zeo.ui-result/v1`.** The wire tag
   `zeo.ui-result/v1` selects it in `zeocore validate` and `zeocore schema`. The document
