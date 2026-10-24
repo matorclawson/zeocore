@@ -29,6 +29,7 @@ class DependencyChecker:
         "hashlib",
         "re",
         "__future__",
+        "unicodedata",
     }
 
     # pydantic_core: pydantic's own engine, home of PydanticCustomError (stable codes)

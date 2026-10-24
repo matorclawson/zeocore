@@ -25,11 +25,11 @@ passing report remains structurally valid while its current use is refused.
 from __future__ import annotations
 
 import hashlib
+import json
 import unicodedata
 from datetime import datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Literal, Self
 
-import rfc8785
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -52,9 +52,52 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def canonical_digest(value: Any) -> str:  # noqa: ANN401 -- RFC8785 recursive JSON
-    """RFC8785 JSON identity; unlike the transport's exact-byte digest."""
-    return sha256(rfc8785.dumps(value))
+def _canonical_value(value: object) -> object:
+    """The report's JCS subset: scalar strings, safe integers, bool/null, arrays.
+
+    Object keys sort by UTF-16 code units, NOT Python Unicode code points.
+    Floats and non-JSON objects are refused, never rounded or stringified.
+    """
+    if value is None or type(value) is bool:
+        return value
+    if isinstance(value, int) and type(value) is int:
+        if not -(2**53 - 1) <= value <= 2**53 - 1:
+            raise ValueError("canonical integer outside exact JSON range")
+        return value
+    if isinstance(value, str) and type(value) is str:
+        try:
+            value.encode("utf-8", errors="strict")
+        except UnicodeError as error:
+            raise ValueError("canonical string is not Unicode scalar text") from error
+        return value
+    if isinstance(value, (list, tuple)) and type(value) in (list, tuple):
+        return [_canonical_value(item) for item in value]
+    if isinstance(value, dict) and type(value) is dict:
+        result: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or type(key) is not str:
+                raise ValueError("canonical object keys must be strings")
+            _canonical_value(key)
+            result[key] = _canonical_value(item)
+        return dict(
+            sorted(result.items(), key=lambda pair: pair[0].encode("utf-16-be"))
+        )
+    raise ValueError("unsupported canonical JSON value; floats are forbidden")
+
+
+def canonical_bytes(value: object) -> bytes:
+    """RFC8785 bytes for the contract's restricted, float-free JSON domain."""
+    return json.dumps(
+        _canonical_value(value),
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def canonical_digest(value: object) -> str:
+    """RFC8785 identity; distinct from the transport's exact-byte digest."""
+    return sha256(canonical_bytes(value))
 
 
 def draft_issue_digest(

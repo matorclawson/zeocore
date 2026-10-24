@@ -24,6 +24,7 @@ from zeo_core.contracts.proof import report as module
 from zeo_core.contracts.proof.report import (
     Excerpt,
     Location,
+    canonical_bytes,
     canonical_digest,
     draft_issue_digest,
     sha256,
@@ -477,3 +478,62 @@ def test_other_handmade_validators_are_load_bearing(  # noqa: C901 -- explicit m
         mutant.__dict__["ProofReport"].model_validate(value).proof_id
         == value["proof_id"]
     )
+
+
+def test_jcs_utf16_key_order_and_string_escaping_have_a_pinned_digest() -> None:
+    value = {
+        "\ue000": "bmp",
+        "😀": "astral",
+        "a": 'line\n\t"\\\b\f\r',
+        "n": 9007199254740991,
+        "ok": True,
+        "none": None,
+    }
+    assert (
+        canonical_digest(value)
+        == "561bc55353bf7cc22d2ecc72b7ba45dbc55606c52f800727b95c5b297f6cbe32"
+    )
+    # A normal sort_keys=True uses codepoint order, which is wrong here.
+    wrong = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    assert canonical_bytes(value) != wrong
+    assert (
+        canonical_bytes({"a": [{"😀": 1, "\ue000": 2}]})
+        == '{"a":[{"😀":1,"\ue000":2}]}'.encode()
+    )
+    assert document()["proof_id"] == "prf_" + canonical_digest(
+        {k: v for k, v in document().items() if k != "proof_id"}
+    )
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        1.0,
+        -0.0,
+        float("nan"),
+        float("inf"),
+        2**53,
+        -(2**53),
+        {1: "bad"},
+        {"key": object()},
+        "\ud800",
+        {"\ud800": 1},
+        {1, 2},
+    ],
+)
+def test_canonical_subset_refuses_floats_unsafe_integers_and_non_json(
+    bad: object,
+) -> None:
+    with pytest.raises(ValueError):
+        canonical_bytes(bad)
+
+
+def test_report_id_fixture_pin_is_not_regenerated_by_the_implementation() -> None:
+    value = document()
+    assert (
+        value["proof_id"]
+        == "prf_5d8568e2d3e56d5cb4554331a961382ec0cebffa247432b2c66c1cec63c2eb08"
+    )
+    assert ProofReport.model_validate(value).proof_id == value["proof_id"]
