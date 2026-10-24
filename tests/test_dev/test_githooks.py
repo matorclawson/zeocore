@@ -253,6 +253,67 @@ class TestThePrePushHook:
         assert done.returncode == 0
         assert record.read_text().strip() == "args: verify"
 
+    def test_a_work_in_progress_backup_is_not_gated(self, tmp_path: Path) -> None:
+        stdin = f"refs/heads/x {SHA} refs/heads/zeocore/wip/hook-20261024 {ZEROS}\n"
+        done, record = self._push(tmp_path, exit_code=3, stdin=stdin)
+        assert done.returncode == 0, done.stderr
+        assert not record.exists()
+
+    def test_a_backup_does_not_have_to_be_the_checked_out_commit(
+        self, tmp_path: Path
+    ) -> None:
+        other = "1" * 40
+        stdin = f"refs/heads/x {other} refs/heads/zeocore/wip/topic {ZEROS}\n"
+        done, record = self._push(tmp_path, exit_code=3, stdin=stdin)
+        assert done.returncode == 0, done.stderr
+        assert not record.exists()
+
+    def test_backups_and_deletions_together_are_not_gated(self, tmp_path: Path) -> None:
+        stdin = (
+            f"(delete) {ZEROS} refs/heads/zeocore/old {SHA}\n"
+            f"refs/heads/x {SHA} refs/heads/zeocore/wip/a {ZEROS}\n"
+            f"refs/heads/y {SHA} refs/heads/zeocore/wip/b {ZEROS}\n"
+        )
+        done, record = self._push(tmp_path, exit_code=3, stdin=stdin)
+        assert done.returncode == 0, done.stderr
+        assert not record.exists()
+
+    def test_one_ref_that_is_not_a_backup_gates_the_whole_push(
+        self, tmp_path: Path
+    ) -> None:
+        stdin = (
+            f"refs/heads/x {SHA} refs/heads/zeocore/wip/a {ZEROS}\n"
+            f"refs/heads/main {SHA} refs/heads/main {ZEROS}\n"
+        )
+        done, record = self._push(tmp_path, exit_code=3, stdin=stdin)
+        assert done.returncode == 1
+        assert record.read_text().strip() == "args: verify"
+
+    @pytest.mark.parametrize(
+        "remote",
+        [
+            "refs/heads/main",
+            "refs/heads/zeocore/topic",
+            "refs/heads/wip/topic",  # no seat before wip
+            "refs/heads/zeocore/wip",  # no topic
+            "refs/heads/zeocore/wip/",  # empty topic
+            "refs/heads/zeocore/wip/a/b",  # nested topic
+            "refs/heads/zeocore/wip/.hidden",
+            "refs/heads/zeocore/notwip/topic",
+            "refs/heads/zeocore/wipe/topic",
+            "refs/heads//wip/topic",  # empty seat
+            "refs/tags/zeocore/wip/topic",  # a tag is not a branch
+            "refs/tags/wip/topic",  # would read as seat "tags" if tags counted
+            "refs/for/zeocore/wip/topic",
+            "zeocore/wip/topic",  # not a full ref
+        ],
+    )
+    def test_anything_else_is_still_gated(self, tmp_path: Path, remote: str) -> None:
+        stdin = f"refs/heads/x {SHA} {remote} {ZEROS}\n"
+        done, record = self._push(tmp_path, exit_code=3, stdin=stdin)
+        assert done.returncode == 1
+        assert record.read_text().strip() == "args: verify"
+
     def test_make_never_sees_the_environment_git_hands_a_hook(
         self, tmp_path: Path
     ) -> None:
