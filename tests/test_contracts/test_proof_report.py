@@ -572,3 +572,142 @@ def test_over500_with_three_claims_kills_the_nonempty_inventory_mutant(
     parsed = mutant.__dict__["ProofReport"].model_validate(value)
     assert len(parsed.claims) == 3 and parsed.claim_total == 600
     assert parsed.editorial_decision == "blocked"
+
+
+def test_every_published_array_has_item_bounds() -> None:
+    arrays: list[dict[str, Any]] = []
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            if value.get("type") == "array":
+                arrays.append(value)
+                assert "maxItems" in value
+                assert "maxLength" not in value and "minLength" not in value
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    schema = render_schema("proof.report")
+    visit(schema)
+    assert len(arrays) == 10
+    assert schema["$defs"]["Subject"]["properties"]["artifacts"]["minItems"] == 1
+    assert sorted(a["maxItems"] for a in arrays) == [
+        16,
+        32,
+        64,
+        200,
+        500,
+        500,
+        500,
+        500,
+        500,
+        16000,
+    ]
+
+
+def test_runtime_artifact_cap_isolated_from_other_invariants() -> None:
+    subject = document()["subject"]
+    artifact = subject["artifacts"][0]
+    subject["artifacts"] = [{**artifact, "artifact_id": f"a{i}"} for i in range(64)]
+    assert len(module.Subject.model_validate(subject).artifacts) == 64
+    subject["artifacts"].append({**artifact, "artifact_id": "a64"})
+    with pytest.raises(ValidationError, match="64"):
+        module.Subject.model_validate(subject)
+    subject["artifacts"] = []
+    with pytest.raises(ValidationError, match="1"):
+        module.Subject.model_validate(subject)
+
+
+def _without_guard(message: str, monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    tree = ast.parse(Path(module.__file__).read_text())
+    changed = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and any(
+            isinstance(child, ast.Constant) and child.value == message
+            for statement in node.body
+            for child in ast.walk(statement)
+        ):
+            node.test = ast.Constant(value=False)
+            changed += 1
+    assert changed == 1
+    ast.fix_missing_locations(tree)
+    mutant = types.ModuleType("zeo_core.contracts.proof._guard_mutant")
+    monkeypatch.setitem(sys.modules, mutant.__name__, mutant)
+    exec(compile(tree, "<drop-one-guard>", "exec"), mutant.__dict__)  # noqa: S102 -- fixed source, targeted guard mutant
+    return mutant
+
+
+@pytest.mark.parametrize("bad", ["\x01", "\u200b", "\u202e", "\u0378", "\ud800"])
+def test_metadata_codepoint_guard_is_load_bearing(
+    bad: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(ValueError, match="codepoint refused"):
+        module._short(bad)
+    mutant = _without_guard("metadata codepoint refused", monkeypatch)
+    assert mutant.__dict__["_short"](bad) == bad
+
+
+def test_no_evidence_guard_is_load_bearing(monkeypatch: pytest.MonkeyPatch) -> None:
+    claim = supported()["claims"][0]
+    claim.update(evidence_refs=[], verdict="not_checkable")
+    with pytest.raises(ValidationError, match="without evidence"):
+        module.Claim.model_validate(claim)
+    mutant = _without_guard("a claim without evidence is unsupported", monkeypatch)
+    assert mutant.__dict__["Claim"].model_validate(claim).verdict == "not_checkable"
+
+
+def test_partial_inventory_guard_is_load_bearing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value = supported()
+    value.update(claim_total=0, inventory_complete=False, editorial_decision="blocked")
+    seal(value)
+    with pytest.raises(ValidationError, match="partial inventory"):
+        ProofReport.model_validate(value)
+    mutant = _without_guard("partial inventory exceeds declared total", monkeypatch)
+    assert len(mutant.__dict__["ProofReport"].model_validate(value).claims) > 0
+
+
+def test_strict_byte_entry_refuses_duplicate_keys_at_every_depth() -> None:
+    from zeo_core.contracts.proof import parse_proof_report
+
+    raw = (FIXTURES / "valid-minimal.json").read_bytes()
+    assert parse_proof_report(raw).proof_id == document()["proof_id"]
+    for bad in [b'{"x":1,"x":2}', b'{"outer":{"x":1,"x":2}}']:
+        with pytest.raises(ValueError, match="duplicate JSON key"):
+            parse_proof_report(bad)
+    for bad in [b'{"x":NaN}', b'{"x":Infinity}', b"\xff"]:
+        with pytest.raises(ValueError):
+            parse_proof_report(bad)
+    with pytest.raises(ValueError, match="bytes"):
+        parse_proof_report("{}")  # type: ignore[arg-type]
+
+
+def test_supported_mixed_visibility_has_visible_support() -> None:
+    claim = supported()["claims"][0]
+    visible = claim["evidence_refs"][0]
+    claim["evidence_refs"] = [visible, {**visible, "visible": False}]
+    assert module.Claim.model_validate(claim).verdict == "supported"
+    claim["evidence_refs"] = [{**visible, "visible": False}]
+    with pytest.raises(ValidationError, match="hidden-only"):
+        module.Claim.model_validate(claim)
+
+
+def test_model_valid_report_can_exceed_cli_transport_cap() -> None:
+    from zeo_core.contracts.proof import parse_proof_report
+
+    value = document()
+    text = "x" * 4096
+    value["excerpt_cache"] = [{"sha256": sha256(text.encode()), "text": text}] * 500
+    raw = canonical_bytes(seal(value))
+    assert len(raw) > 1_048_576
+    assert len(parse_proof_report(raw).excerpt_cache) == 500
+    result = subprocess.run(
+        [sys.executable, "-m", "zeo_core.cli", "validate", "proof.report"],
+        input=raw,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 2

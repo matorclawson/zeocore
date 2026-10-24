@@ -64,7 +64,7 @@
           "items": {
             "$ref": "#/$defs/EvidenceReference"
           },
-          "maxLength": 16,
+          "maxItems": 16,
           "title": "Evidence Refs",
           "type": "array"
         },
@@ -228,7 +228,7 @@
     },
     "Excerpt": {
       "additionalProperties": false,
-      "description": "Exact evidence cache; decomposed Unicode is retained byte-for-byte.",
+      "description": "Digest-keyed exact text cache, not independent source/span verification.\n\nA cache entry is self-addressed; no source binding is inferred from it.\nEvidence refs bind whole item revisions separately. Resolving an excerpt\nagainst those bytes and its location remains a producer responsibility.",
       "properties": {
         "sha256": {
           "maxLength": 64,
@@ -529,8 +529,8 @@
           "items": {
             "$ref": "#/$defs/DraftArtifact"
           },
-          "maxLength": 64,
-          "minLength": 1,
+          "maxItems": 64,
+          "minItems": 1,
           "title": "Artifacts",
           "type": "array"
         },
@@ -546,7 +546,7 @@
           "items": {
             "$ref": "#/$defs/ItemRevision"
           },
-          "maxLength": 500,
+          "maxItems": 500,
           "title": "Item Revisions",
           "type": "array"
         },
@@ -584,7 +584,7 @@
       "items": {
         "$ref": "#/$defs/Check"
       },
-      "maxLength": 200,
+      "maxItems": 200,
       "title": "Checks",
       "type": "array"
     },
@@ -598,7 +598,7 @@
       "items": {
         "$ref": "#/$defs/Claim"
       },
-      "maxLength": 500,
+      "maxItems": 500,
       "title": "Claims",
       "type": "array"
     },
@@ -623,7 +623,7 @@
         "pattern": "^[0-9a-f]{64}$",
         "type": "string"
       },
-      "maxLength": 16000,
+      "maxItems": 16000,
       "title": "Evidence Digests",
       "type": "array"
     },
@@ -631,7 +631,7 @@
       "items": {
         "$ref": "#/$defs/Excerpt"
       },
-      "maxLength": 500,
+      "maxItems": 500,
       "title": "Excerpt Cache",
       "type": "array"
     },
@@ -639,7 +639,7 @@
       "items": {
         "$ref": "#/$defs/Finding"
       },
-      "maxLength": 500,
+      "maxItems": 500,
       "title": "Findings",
       "type": "array"
     },
@@ -658,7 +658,7 @@
       "items": {
         "$ref": "#/$defs/QuoteTotal"
       },
-      "maxLength": 500,
+      "maxItems": 500,
       "title": "Per Item Quote Totals",
       "type": "array"
     },
@@ -685,7 +685,7 @@
       "items": {
         "$ref": "#/$defs/ScorerRun"
       },
-      "maxLength": 32,
+      "maxItems": 32,
       "title": "Scorer Runs",
       "type": "array"
     },

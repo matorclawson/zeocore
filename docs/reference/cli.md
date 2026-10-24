@@ -275,3 +275,14 @@ metadata characters unknown to its normalization database. Evidence is unchanged
 `digest` is the sha256 of the value's [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)
 (JCS) canonical bytes, prefixed `sha256:`. Two parties that each canonicalize
 the same JSON value get the same digest without sharing code.
+
+Python consumers of untrusted proof-report bytes use
+`zeo_core.contracts.proof.parse_proof_report(data)`; it refuses duplicate keys,
+invalid UTF-8 and non-JSON constants before model validation. Direct
+`ProofReport.model_validate_json` is not the strict byte entry point. The caller
+must bound transport input. The CLI has its separate 1 MiB input cap; a report
+within all model field bounds can exceed it and cannot use the CLI transport.
+The `valid-maximal` fixture exercises populated fields, not every numeric bound.
+Excerpt-cache digests identify only the cached exact text; they do not establish
+its relation to a claim or a source span. That verification needs the pinned
+view bytes at the producer and is not performed by this data-only model.

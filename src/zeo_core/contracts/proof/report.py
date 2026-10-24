@@ -17,8 +17,8 @@ end exclusive. Excerpt and claim hashes name exact unnormalized UTF-8 text.
 No I/O, resolver, provider, scorer or current lifecycle is implemented here.
 An unresolved reference is not_checked/not_checkable, never supported because
 its format passed. Runtime F.3/F.7 must refuse unavailable/stale/non-valid reads;
-60-second source freshness and 300-second send age are NOT immutable report
-fields. A stopped/unperformed check remains not_checked. A deleted formerly
+current freshness thresholds are NOT immutable report fields. A stopped or
+unperformed check remains not_checked. A deleted formerly
 passing report remains structurally valid while its current use is refused.
 """
 
@@ -234,14 +234,14 @@ class Subject(Closed):
     )
     artifacts: Annotated[
         tuple[DraftArtifact, ...],
-        BeforeValidator(_array),
         Field(min_length=1, max_length=64),
+        BeforeValidator(_array),
     ]
     selection_id: SelectionId | None = Field(
         description="Opaque sel_ identifier, format only; unresolved is not verified"
     )
     item_revisions: Annotated[
-        tuple[ItemRevision, ...], BeforeValidator(_array), Field(max_length=500)
+        tuple[ItemRevision, ...], Field(max_length=500), BeforeValidator(_array)
     ]
 
     @model_validator(mode="after")
@@ -288,7 +288,7 @@ class Claim(Closed):
     )
     location: Location
     evidence_refs: Annotated[
-        tuple[EvidenceReference, ...], BeforeValidator(_array), Field(max_length=16)
+        tuple[EvidenceReference, ...], Field(max_length=16), BeforeValidator(_array)
     ]
     verdict: Literal[
         "supported", "unsupported", "contradicted", "needs_human", "not_checkable"
@@ -298,7 +298,7 @@ class Claim(Closed):
     def support(self) -> Self:
         if not self.evidence_refs and self.verdict != "unsupported":
             raise ValueError("a claim without evidence is unsupported")
-        if self.verdict == "supported" and any(
+        if self.verdict == "supported" and all(
             not ref.visible for ref in self.evidence_refs
         ):
             raise ValueError("hidden-only support cannot pass")
@@ -339,7 +339,12 @@ class QuoteTotal(Closed):
 
 
 class Excerpt(Closed):
-    """Exact evidence cache; decomposed Unicode is retained byte-for-byte."""
+    """Digest-keyed exact text cache, not independent source/span verification.
+
+    A cache entry is self-addressed; no source binding is inferred from it.
+    Evidence refs bind whole item revisions separately. Resolving an excerpt
+    against those bytes and its location remains a producer responsibility.
+    """
 
     sha256: Digest
     text: Annotated[str, Field(max_length=4096)]
@@ -393,23 +398,23 @@ class ProofReport(Closed):
     subject: Subject
     claim_total: Count
     inventory_complete: bool
-    claims: Annotated[tuple[Claim, ...], BeforeValidator(_array), Field(max_length=500)]
-    checks: Annotated[tuple[Check, ...], BeforeValidator(_array), Field(max_length=200)]
+    claims: Annotated[tuple[Claim, ...], Field(max_length=500), BeforeValidator(_array)]
+    checks: Annotated[tuple[Check, ...], Field(max_length=200), BeforeValidator(_array)]
     findings: Annotated[
-        tuple[Finding, ...], BeforeValidator(_array), Field(max_length=500)
+        tuple[Finding, ...], Field(max_length=500), BeforeValidator(_array)
     ]
     evidence_digests: Annotated[
-        tuple[Digest, ...], BeforeValidator(_array), Field(max_length=16000)
+        tuple[Digest, ...], Field(max_length=16000), BeforeValidator(_array)
     ]
     per_item_quote_totals: Annotated[
-        tuple[QuoteTotal, ...], BeforeValidator(_array), Field(max_length=500)
+        tuple[QuoteTotal, ...], Field(max_length=500), BeforeValidator(_array)
     ]
     excerpt_cache: Annotated[
-        tuple[Excerpt, ...], BeforeValidator(_array), Field(max_length=500)
+        tuple[Excerpt, ...], Field(max_length=500), BeforeValidator(_array)
     ]
     house_style_sha256: Digest
     scorer_runs: Annotated[
-        tuple[ScorerRun, ...], BeforeValidator(_array), Field(max_length=32)
+        tuple[ScorerRun, ...], Field(max_length=32), BeforeValidator(_array)
     ]
     editorial_decision: Decision
     supersedes: ProofId | None
@@ -532,3 +537,34 @@ class ProofReport(Closed):
             raise ValueError(
                 "editorial decision inconsistent with checks/claims/findings"
             )
+
+
+def _strict_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _refuse_constant(value: str) -> object:
+    raise ValueError("non-JSON constant")
+
+
+def parse_proof_report(data: bytes) -> ProofReport:
+    """Strict UTF-8 byte entry point: duplicate keys/non-JSON constants refuse.
+
+    Consumers must use this rather than Pydantic's last-key-wins JSON loader.
+    The caller bounds transport input before parsing; the CLI separately caps
+    input at 1 MiB, so some model-valid reports cannot use that CLI transport.
+    This parses immutable declarations only, never verifies their evidence.
+    """
+    if type(data) is not bytes:
+        raise ValueError("expected exact UTF-8 bytes")
+    value = json.loads(
+        data.decode("utf-8", errors="strict"),
+        object_pairs_hook=_strict_pairs,
+        parse_constant=_refuse_constant,
+    )
+    return ProofReport.model_validate(value)
