@@ -28,7 +28,7 @@ import subprocess
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -63,10 +63,15 @@ class Reply:
     body: bytes
     content_type: str = "application/json"
     request_id: str | None = None
+    inventory_sha256: str | None = None
 
 
 def _json_reply(
-    status: str, reason: str, message: str, request_id: str | None
+    status: str,
+    reason: str,
+    message: str,
+    request_id: str | None,
+    inventory_sha256: str | None = None,
 ) -> Reply:
     body: dict[str, Any] = {
         "ok": False,
@@ -76,7 +81,14 @@ def _json_reply(
     }
     if request_id is not None:
         body["request_id"] = request_id
-    return Reply(_STATUS[status], json.dumps(body).encode(), request_id=request_id)
+    if inventory_sha256 is not None:
+        body["inventory_sha256"] = inventory_sha256
+    return Reply(
+        _STATUS[status],
+        json.dumps(body).encode(),
+        request_id=request_id,
+        inventory_sha256=inventory_sha256,
+    )
 
 
 class RequestJournal:
@@ -169,8 +181,15 @@ class SigningService:
             )
         return None
 
-    def _settle(self, request_id: str, status: str, reason: str, message: str) -> Reply:
-        return _json_reply(status, reason, message, request_id)
+    def _settle(
+        self,
+        request_id: str,
+        status: str,
+        reason: str,
+        message: str,
+        inventory_sha256: str | None = None,
+    ) -> Reply:
+        return _json_reply(status, reason, message, request_id, inventory_sha256)
 
     def status(self, node: str, request_id: str) -> Reply:
         if node not in self._allowlist:
@@ -202,6 +221,11 @@ class SigningService:
                         if reply.status is HTTPStatus.OK
                         else json.loads(reply.body)["outcome"]
                     ),
+                    **(
+                        {"inventory_sha256": reply.inventory_sha256}
+                        if reply.inventory_sha256
+                        else {}
+                    ),
                 }
             )
             return reply
@@ -232,17 +256,20 @@ class SigningService:
         except PackError as error:
             status = "invalid" if error.reason == "request_invalid" else "refused"
             return self._settle(request_id, status, error.reason, str(error))
+        inventory = opened.manifest.inventory_sha256
         refusal = admit(opened, node, self._github, self._allowlist, self._limits)
         if refusal is not None:
             return self._settle(
-                request_id, refusal.status, refusal.reason, refusal.message
+                request_id, refusal.status, refusal.reason, refusal.message, inventory
             )
         work = WorkDir(self._state / "work" / request_id)
         outcome = sign(opened.manifest, work, self._toolchain, self._host)
         if outcome.status != "done":
             # A locked keychain is held, never unlocked (§1 h).
             status = "held" if outcome.status == "waiting" else outcome.status
-            return self._settle(request_id, status, outcome.reason, outcome.message)
+            return self._settle(
+                request_id, status, outcome.reason, outcome.message, inventory
+            )
         partial = self._state / "responses" / f".{request_id}.partial"
         create_response(opened.manifest, work, partial)
         partial.replace(self._state / "responses" / f"{request_id}.tar")
@@ -250,7 +277,7 @@ class SigningService:
         settled = self._settled(request_id)
         if settled is None:  # pragma: no cover - the response was just written
             raise RuntimeError("the response pack vanished")
-        return settled
+        return replace(settled, inventory_sha256=inventory)
 
 
 class Whois:

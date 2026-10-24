@@ -13,13 +13,22 @@ ruling that carries it, not with this file.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Final, Protocol, cast
 from urllib.parse import quote
 
+from .inventory import (
+    ChangedFile,
+    EvidenceReads,
+    ReviewReads,
+    Status,
+    check_review,
+)
 from .pack import OpenedRequest
 from .toolchain import Runner, run_tool
 
@@ -118,6 +127,12 @@ check_allowlist(ALLOWLIST)
 RULING_LIMITS: Final = Limits()
 
 
+#: Bounds on what is read from GitHub: a repository path can be a huge file.
+MAX_ANSWER: Final = 8 * 1024 * 1024
+MAX_FILE: Final = 1024 * 1024
+MAX_PAGES: Final = 30
+
+
 class ReviewUnreadableError(RuntimeError):
     """GitHub could not be read: the request is held, never assumed reviewed."""
 
@@ -134,6 +149,11 @@ class GitHubReads(Protocol):
         ...
 
 
+def _ref(side: object, key: str) -> object:
+    """``head.sha`` or ``base.ref`` of a pull request, or None."""
+    return side.get(key) if isinstance(side, dict) else None
+
+
 class GhCli:
     """GitHub reads through the ``gh`` CLI, so no token passes through zeocore."""
 
@@ -148,10 +168,24 @@ class GhCli:
         except (OSError, subprocess.SubprocessError) as error:
             raise ReviewUnreadableError("gh could not be run") from error
         if done.returncode == 0:
+            if len(done.stdout) > MAX_ANSWER:
+                raise ReviewUnreadableError("GitHub's answer is larger than read")
             return done.stdout
         if b"HTTP 404" in done.stderr:
             return None
         raise ReviewUnreadableError("GitHub could not be read")
+
+    def _list(self, body: bytes | None) -> list[object]:
+        """A JSON list from an answer; a missing answer is an empty list."""
+        if body is None:
+            return []
+        try:
+            value = json.loads(body)
+        except ValueError:
+            raise ReviewUnreadableError("GitHub answered with something else") from None
+        if not isinstance(value, list):
+            raise ReviewUnreadableError("GitHub answered with something else")
+        return value
 
     def _json(self, endpoint: str) -> dict[str, object] | None:
         body = self._api([endpoint])
@@ -173,13 +207,113 @@ class GhCli:
         return branch
 
     def file_at(self, repo: str, commit: str, path: str) -> bytes | None:
-        return self._api(
-            [
-                "-H",
-                "Accept: application/vnd.github.raw",
-                f"repos/{repo}/contents/{quote(path)}?ref={commit}",
-            ]
+        """The file's bytes at ``commit``, or None; never more than 1 MiB.
+
+        The JSON form of the contents read carries the size and, up to 1 MiB,
+        the content itself, so a huge file is refused from a small answer
+        instead of being fetched whole.
+        """
+        answer = self._json(f"repos/{repo}/contents/{quote(path)}?ref={commit}")
+        if answer is None:
+            return None
+        size = answer.get("size")
+        content = answer.get("content")
+        if (
+            answer.get("type") != "file"
+            or answer.get("encoding") != "base64"
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size > MAX_FILE
+            or not isinstance(content, str)
+        ):
+            raise ReviewUnreadableError("the file is not readable as a small file")
+        try:
+            data = base64.b64decode(content, validate=False)
+        except (binascii.Error, ValueError):
+            raise ReviewUnreadableError("the file's content is unreadable") from None
+        if len(data) != size:
+            raise ReviewUnreadableError("the file's content and size disagree")
+        return data
+
+    def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
+        """``context``'s statuses on ``commit``, newest first, exactly named.
+
+        Only the statuses for exactly this context are returned; the caller
+        decides from the first. A creator id that is not an integer is None
+        and matches nobody. A full page is held as unreadable.
+        """
+        statuses = self._list(
+            self._api([f"repos/{repo}/commits/{commit}/statuses?per_page=100"])
         )
+        if len(statuses) >= 100:
+            raise ReviewUnreadableError("GitHub's statuses are unreadable")
+        found: list[Status] = []
+        for status in statuses:
+            if not isinstance(status, dict) or status.get("context") != context:
+                continue
+            creator = status.get("creator")
+            identifier = creator.get("id") if isinstance(creator, dict) else None
+            valid = isinstance(identifier, int) and not isinstance(identifier, bool)
+            found.append(
+                Status(
+                    state=str(status.get("state")),
+                    creator=identifier if valid else None,
+                )
+            )
+        return found
+
+    def merged_pr_files(
+        self, repo: str, head: str, branch: str
+    ) -> list[ChangedFile] | None:
+        """The files of the pull request merged into ``branch`` whose head is ``head``.
+
+        ``head`` is the commit the council approved; the merge commit the merger
+        makes is another commit and is never the one asked about. None when
+        there is not exactly one such pull request. The files are read page by
+        page, and a pull request too large to read in full is held as
+        unreadable rather than judged from part of it.
+        """
+        pulls = self._list(
+            self._api([f"repos/{repo}/commits/{head}/pulls?per_page=100"])
+        )
+        if len(pulls) >= 100:
+            raise ReviewUnreadableError("GitHub's pull requests are unreadable")
+        merged = [
+            p
+            for p in pulls
+            if isinstance(p, dict)
+            and p.get("merged_at")
+            and _ref(p.get("head"), "sha") == head
+            and _ref(p.get("base"), "ref") == branch
+        ]
+        if len(merged) != 1 or not isinstance(merged[0], dict):
+            return None
+        number = merged[0].get("number")
+        if not isinstance(number, int) or isinstance(number, bool):
+            raise ReviewUnreadableError("GitHub's pull request has no number")
+        files: list[ChangedFile] = []
+        for page in range(1, MAX_PAGES + 1):
+            chunk = self._list(
+                self._api(
+                    [f"repos/{repo}/pulls/{number}/files?per_page=100&page={page}"]
+                )
+            )
+            for item in chunk:
+                files.append(self._changed(item))
+            if len(chunk) < 100:
+                return files
+        raise ReviewUnreadableError("the pull request has too many files to read")
+
+    @staticmethod
+    def _changed(item: object) -> ChangedFile:
+        if not isinstance(item, dict):
+            raise ReviewUnreadableError("GitHub's file list is unreadable")
+        name, status, sha = item.get("filename"), item.get("status"), item.get("sha")
+        if not (
+            isinstance(name, str) and isinstance(status, str) and isinstance(sha, str)
+        ):
+            raise ReviewUnreadableError("GitHub's file list is unreadable")
+        return ChangedFile(name, status, sha)
 
     def is_ancestor(self, repo: str, commit: str, branch: str) -> bool:
         answer = self._json(f"repos/{repo}/compare/{quote(branch)}...{commit}")
@@ -263,4 +397,48 @@ def admit(
             "manifest_unreviewed",
             "the manifest is not the one merged to the default branch",
         )
+    return _inventory_refusal(opened, grant.repo, github)
+
+
+def _inventory_refusal(
+    opened: OpenedRequest, repo: str, github: GitHubReads
+) -> Refusal | None:
+    """None unless the request's inventory lacks the review it must have.
+
+    Keyed on the manifest's own mode: ``pins: inventory`` needs the inventory,
+    its path and its version, all three; any other manifest takes none. The
+    inventory is held to the same standard as the manifest: GitHub is read for
+    it, never the caller (ZEOCORE-SOW-44 rev 2, D1, and the council's review).
+    """
+    request = opened.request
+    wants = opened.manifest.signing.pins == "inventory"
+    inventory = opened.inventory_bytes
+    present = [
+        x is not None for x in (inventory, request.inventory_path, request.version)
+    ]
+    if (wants and not all(present)) or (not wants and any(present)):
+        return Refusal(
+            "refused",
+            "request_invalid",
+            "the inventory, its path and its version go with pins: inventory",
+        )
+    if not wants or inventory is None:
+        return None
+    if request.inventory_path is None or request.version is None:
+        return None  # unreachable: `present` covered it
+    if not isinstance(github, EvidenceReads):
+        return Refusal("held", "review_unreadable", "approvals can't be read here")
+    try:
+        why = check_review(
+            cast(ReviewReads, github),
+            repo=repo,
+            commit=request.commit,
+            path=request.inventory_path,
+            version=request.version,
+            content=inventory,
+        )
+    except ReviewUnreadableError:
+        return Refusal("held", "review_unreadable", "GitHub could not be read")
+    if why is not None:
+        return Refusal("refused", "inventory_unreviewed", why)
     return None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import tarfile
@@ -531,7 +532,18 @@ def test_a_tailnet_address_is_accepted() -> None:
 def test_gh_reads() -> None:
     runner = Runner(
         Completed(0, b'{"default_branch": "main"}', b""),
-        Completed(0, b"manifest bytes", b""),
+        Completed(
+            0,
+            json.dumps(
+                {
+                    "type": "file",
+                    "encoding": "base64",
+                    "size": 14,
+                    "content": base64.b64encode(b"manifest bytes").decode(),
+                }
+            ).encode(),
+            b"",
+        ),
         Completed(1, b"", b"gh: Not Found (HTTP 404)"),
         Completed(0, b'{"status": "behind"}', b""),
         Completed(0, b'{"status": "ahead"}', b""),
@@ -544,7 +556,8 @@ def test_gh_reads() -> None:
     assert gh.is_ancestor(REPO, COMMIT, "main") is True
     assert gh.is_ancestor(REPO, COMMIT, "main") is False
     assert gh.is_ancestor(REPO, COMMIT, "main") is False
-    assert runner.calls[1][2:4] == ["-H", "Accept: application/vnd.github.raw"]
+    # The JSON form of the contents read: its size is known before its bytes.
+    assert runner.calls[1][2] == f"repos/{REPO}/contents/release.yaml?ref={COMMIT}"
 
 
 @pytest.mark.parametrize(
