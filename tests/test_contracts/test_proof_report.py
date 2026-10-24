@@ -537,3 +537,38 @@ def test_report_id_fixture_pin_is_not_regenerated_by_the_implementation() -> Non
         == "prf_5d8568e2d3e56d5cb4554331a961382ec0cebffa247432b2c66c1cec63c2eb08"
     )
     assert ProofReport.model_validate(value).proof_id == value["proof_id"]
+
+
+def test_over500_with_three_claims_kills_the_nonempty_inventory_mutant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The array is below500: only the empty-overflow-inventory rule refuses."""
+    value = document("valid-maximal.json")
+    value.update(
+        claim_total=600, inventory_complete=False, editorial_decision="blocked"
+    )
+    value["claims"] = value["claims"][:3]
+    seal(value)
+    with pytest.raises(ValidationError, match="over500"):
+        ProofReport.model_validate(value)
+    tree = ast.parse(Path(module.__file__).read_text())
+    removed = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+            first = node.values[0]
+            if (
+                isinstance(first, ast.Attribute)
+                and first.attr == "claims"
+                and isinstance(first.value, ast.Name)
+                and first.value.id == "self"
+            ):
+                node.values = node.values[1:]
+                removed += 1
+    assert removed == 1
+    ast.fix_missing_locations(tree)
+    mutant = types.ModuleType("zeo_core.contracts.proof._mutant")
+    monkeypatch.setitem(sys.modules, mutant.__name__, mutant)
+    exec(compile(tree, "<drop-self-claims-mutant>", "exec"), mutant.__dict__)  # noqa: S102 -- fixed source, one deliberate AST mutant
+    parsed = mutant.__dict__["ProofReport"].model_validate(value)
+    assert len(parsed.claims) == 3 and parsed.claim_total == 600
+    assert parsed.editorial_decision == "blocked"
