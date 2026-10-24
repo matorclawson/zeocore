@@ -23,18 +23,46 @@ root=$(git rev-parse --show-toplevel 2>/dev/null) && cd "$root" || {
 }
 head=$(git rev-parse --verify --quiet HEAD 2>/dev/null || true)
 
+# A work-in-progress backup is a push to refs/heads/<seat>/wip/<topic> (operator ruling,
+# 2026-10-24: backups do not wait for a green gate; the gate runs before a pull request is
+# opened). Only that exact shape counts; any other branch name is gated.
+is_wip_backup() {
+  case "$1" in
+    refs/heads/*) rest=${1#refs/heads/} ;;
+    *) return 1 ;;
+  esac
+  seat=${rest%%/*}
+  after=${rest#*/}
+  if [ -z "$seat" ] || [ "$after" = "$rest" ]; then
+    return 1
+  fi
+  case "$after" in
+    wip/*) topic=${after#wip/} ;;
+    *) return 1 ;;
+  esac
+  case "$topic" in
+    "" | */* | .*) return 1 ;;
+  esac
+  return 0
+}
+
 # Git sends one line per ref on stdin: "<local ref> <local sha> <remote ref> <remote sha>".
-# A push that only deletes refs has a local sha of all zeros and nothing to gate. A hand
-# run from a terminal has nothing on stdin and is gated; so is a run with an empty stdin.
+# A push that only deletes refs has a local sha of all zeros and nothing to gate. A push
+# whose every other ref is a work-in-progress backup is not gated either. A hand run from
+# a terminal has nothing on stdin and is gated; so is a run with an empty stdin.
 seen=0
 deleting_only=1
+only_backups=1
 mismatch=
 if [ ! -t 0 ]; then
-  while read -r local_ref local_sha _remote_ref _remote_sha; do
+  while read -r local_ref local_sha remote_ref _remote_sha; do
     seen=1
     case "$local_sha" in
       *[!0]*)
         deleting_only=0
+        if ! is_wip_backup "$remote_ref"; then
+          only_backups=0
+        fi
         if [ "$local_sha" != "$head" ]; then
           mismatch=${mismatch:-$local_ref}
         fi
@@ -42,7 +70,7 @@ if [ ! -t 0 ]; then
     esac
   done
 fi
-if [ "$seen" = 1 ] && [ "$deleting_only" = 1 ]; then
+if [ "$seen" = 1 ] && { [ "$deleting_only" = 1 ] || [ "$only_backups" = 1 ]; }; then
   exit 0
 fi
 
