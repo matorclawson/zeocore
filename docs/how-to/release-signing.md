@@ -324,11 +324,21 @@ Three checks are distinct, and `authenticated` is only the first:
 | Check | Answers | Where |
 |---|---|---|
 | Event authenticity | did `publish.yml` on `main`, on a push, on a GitHub-hosted runner, produce exactly these bytes for the commit the event names? | `verify-event` |
-| Release authorization | was that commit reviewed and approved? | `check_release_approval` (the approval is on the pull request's head; the release commit is the merge commit, so it is mapped first) |
+| Release authorization | was that commit reviewed and approved? | `zeocore release check-approval` (the approval is on the pull request's head; the release commit is the merge commit, so it is mapped first) |
 | Installed-kit signing | is the installed kit signed as expected? | the signing step above |
 
 A successful `verify-event` makes no build eligible.
 
+- **Release authorization, the second check.** `echo '{"commit": "<40-hex>"}' | zeocore release check-approval`
+  finds the ONE distinct pull request (counted by number, over every page of
+  GitHub's list) merged into the default branch whose `merge_commit_sha` is exactly
+  that commit, reads the council's `council/approve`
+  status on that pull request's head, and answers `approved` only if the newest one
+  is a success created by the adopted approver. It reads through `gh api` and
+  writes nothing. No such pull request (also when the commit given is a branch head
+  and not a merge commit), more than one, a head without the status, a failure, or
+  any read that does not complete is `refused`: nothing is approved by default. It
+  does not look at the release event, and `verify-event` does not look at approval.
 - **What is pinned** (constants of `zeo_core.release.signing.event_attestation`,
   never read from the event or the bundle; the values were read back from a real
   publish certificate): repository `zeroemployeeorg/zeocore`; certificate identity

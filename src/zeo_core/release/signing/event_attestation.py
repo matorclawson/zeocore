@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Final, Literal, Protocol
 
 from .event_auth import EventRefusalError, read_event
-from .inventory import APPROVE_CONTEXT, APPROVER_USER_ID, EvidenceReads, Status
+from .inventory import APPROVE_CONTEXT, APPROVER_USER_ID, Status
 
 REPOSITORY: Final = "zeroemployeeorg/zeocore"
 CERT_IDENTITY: Final = (
@@ -264,7 +264,11 @@ def authenticate_published_event(
     return _verdict(result.stdout, hashlib.sha256(content).hexdigest(), tag, commit)
 
 
-class MergeReads(EvidenceReads, Protocol):
+class GitHubReadError(RuntimeError):
+    """A GitHub read could not be completed or was not what was expected."""
+
+
+class MergeReads(Protocol):
     """GitHub reads that map a release commit to the pull request it merged."""
 
     def default_branch(self, repo: str) -> str: ...
@@ -274,6 +278,10 @@ class MergeReads(EvidenceReads, Protocol):
     def pr_head_of_merge_commit(self, repo: str, commit: str) -> str | None:
         """The head commit of the one pull request merged as ``commit``; None
         when there is not exactly one such pull request."""
+        ...
+
+    def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
+        """``context``'s statuses on ``commit``, NEWEST FIRST."""
         ...
 
 
@@ -290,13 +298,16 @@ def check_release_approval(
     approval is on the pull request's HEAD, never on the merge commit, so the
     head is found first. Authenticity of the event does not imply this.
     """
-    branch = github.default_branch(repo)
-    if not github.is_ancestor(repo, release_commit, branch):
-        return "the release commit is not on the default branch"
-    head = github.pr_head_of_merge_commit(repo, release_commit)
-    if head is None:
-        return "no single merged pull request has this commit as its merge commit"
-    statuses: list[Status] = github.approval_statuses(repo, head, APPROVE_CONTEXT)
+    try:
+        branch = github.default_branch(repo)
+        if not github.is_ancestor(repo, release_commit, branch):
+            return "the release commit is not on the default branch"
+        head = github.pr_head_of_merge_commit(repo, release_commit)
+        if head is None:
+            return "no single merged pull request has this commit as its merge commit"
+        statuses: list[Status] = github.approval_statuses(repo, head, APPROVE_CONTEXT)
+    except GitHubReadError as error:
+        return f"a GitHub read did not complete, so nothing is approved: {error}"
     if not statuses or (statuses[0].state, statuses[0].creator) != (
         "success",
         approver,
@@ -319,6 +330,7 @@ __all__ = [
     "Expected",
     "GhResult",
     "GhRunner",
+    "GitHubReadError",
     "MergeReads",
     "authenticate_published_event",
     "check_release_approval",
