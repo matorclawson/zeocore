@@ -186,6 +186,10 @@ class Status:
 
     state: str
     creator: int | None  # None when GitHub gave no integer id: it never matches
+    #: The status description and creation time, for the release check only;
+    #: the inventory's review does not read them.
+    description: str | None = None
+    created_at: str | None = None
 
 
 @dataclass(frozen=True)

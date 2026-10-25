@@ -25,12 +25,15 @@ from zeo_core.release.signing.inventory import APPROVER_USER_ID
 MERGE = "a" * 40
 HEAD = "b" * 40
 OTHER = "c" * 40
+REPO_ID = 1337139177
+NUMBER = 1
+MERGED_AT = "2026-10-25T00:00:00Z"
 
 
 def _pull(**changes: Any) -> dict[str, Any]:  # noqa: ANN401
     pull: dict[str, Any] = {
-        "number": 1,
-        "merged_at": "2026-10-25T00:00:00Z",
+        "number": NUMBER,
+        "merged_at": MERGED_AT,
         "merge_commit_sha": MERGE,
         "base": {"ref": "main"},
         "head": {"sha": HEAD},
@@ -43,8 +46,16 @@ def _status(
     state: str = "success",
     creator: int | None = APPROVER_USER_ID,
     context: str = "council/approve",
+    description: str | None = f"apr1-{REPO_ID}-{NUMBER}-{HEAD}",
+    created_at: str | None = "2026-10-24T23:59:00Z",
 ) -> dict[str, Any]:
-    return {"context": context, "state": state, "creator": {"id": creator}}
+    return {
+        "context": context,
+        "state": state,
+        "creator": {"id": creator},
+        "description": description,
+        "created_at": created_at,
+    }
 
 
 class FakeApi:
@@ -52,9 +63,9 @@ class FakeApi:
 
     def __init__(self, **answers: object) -> None:
         self.answers: dict[str, object] = {
-            "default": {"default_branch": "main"},
+            "default": {"default_branch": "main", "id": REPO_ID},
             "compare": {"status": "ahead"},
-            "pulls": [_pull()],
+            "pulls": [[_pull()]],
             "statuses": [[_status()]],
         }
         self.answers.update(answers)
@@ -80,9 +91,12 @@ class FakeApi:
 
 
 def _check(api: FakeApi) -> str | None:
-    return check_release_approval(
-        GhApiReader(api), repo=REPOSITORY, release_commit=MERGE
-    )
+    try:
+        return check_release_approval(
+            GhApiReader(api), repo=REPOSITORY, release_commit=MERGE
+        )
+    except Exception as error:  # noqa: BLE001 -- the check must answer, never raise
+        pytest.fail(f"the check raised {type(error).__name__} instead of answering")
 
 
 def test_a_merge_commit_whose_pull_request_head_is_approved_is_approved() -> None:
@@ -90,9 +104,7 @@ def test_a_merge_commit_whose_pull_request_head_is_approved_is_approved() -> Non
     assert _check(api) is None
     statuses_path = next(c[2] for c in api.calls if "/statuses" in c[2])
     assert f"/commits/{HEAD}/statuses" in statuses_path
-    assert f"/commits/{MERGE}/pulls" in next(
-        c[2] for c in api.calls if c[2].endswith("/pulls")
-    )
+    assert any(f"/commits/{MERGE}/pulls?" in c[2] for c in api.calls)
 
 
 def test_the_approval_is_read_at_the_head_never_at_the_merge_commit() -> None:
@@ -104,14 +116,24 @@ def test_the_approval_is_read_at_the_head_never_at_the_merge_commit() -> None:
 @pytest.mark.parametrize(
     "pulls",
     [
+        [[]],
         [],
-        [_pull(merge_commit_sha=OTHER)],
-        [_pull(merged_at=None)],
-        [_pull(base={"ref": "other"})],
-        [_pull(), _pull(head={"sha": OTHER}, number=2)],
-        [_pull(head={})],
-        [{"number": 3}],
-        "not a list",
+        [[_pull(merge_commit_sha=OTHER)]],
+        [[_pull(merged_at=None)]],
+        [[_pull(base={"ref": "other"})]],
+        [[_pull(), _pull(head={"sha": OTHER}, number=2)]],
+        # two distinct pull requests that share ONE head are still two
+        [[_pull(), _pull(number=2)]],
+        # a second qualifying pull request on a LATER page is still a second one
+        [[_pull()], [_pull(number=2, head={"sha": OTHER})]],
+        [[_pull(head={})]],
+        [[{"number": 3}]],
+        [[_pull(number=True)]],
+        [[_pull(number="1")]],
+        # a page that is not a list, whether first or later, fails closed
+        ["not a page"],
+        [[_pull()], "not a page"],
+        "not pages",
     ],
 )
 def test_without_exactly_one_pull_request_merged_as_this_commit_it_is_not_approved(
@@ -121,7 +143,20 @@ def test_without_exactly_one_pull_request_merged_as_this_commit_it_is_not_approv
 
 
 def test_two_listings_of_the_same_pull_request_are_one_pull_request() -> None:
-    assert _check(FakeApi(pulls=[_pull(), _pull()])) is None
+    assert _check(FakeApi(pulls=[[_pull(), _pull()]])) is None
+    assert _check(FakeApi(pulls=[[_pull()], [_pull()]])) is None
+
+
+def test_only_one_qualifying_pull_request_among_other_pages_is_enough() -> None:
+    other = _pull(number=9, merge_commit_sha=OTHER)
+    assert _check(FakeApi(pulls=[[other], [_pull()]])) is None
+
+
+def test_the_pull_request_list_is_read_over_every_page() -> None:
+    api = FakeApi()
+    _check(api)
+    pulls_call = next(c for c in api.calls if c[2].split("?")[0].endswith("/pulls"))
+    assert "--paginate" in pulls_call and "--slurp" in pulls_call
 
 
 @pytest.mark.parametrize(
@@ -245,3 +280,34 @@ def test_the_verb_takes_no_other_field() -> None:
         ["check-approval"], json.dumps({"commit": MERGE, "repo": "x/y"}).encode()
     )
     assert status == EXIT_INVALID
+
+
+# --- the approval's own record: repository id, description, date, branch ---
+
+
+def test_the_status_must_name_this_repository_pull_request_and_head() -> None:
+    for description in (
+        None,
+        f"apr1-{REPO_ID + 1}-{NUMBER}-{HEAD}",
+        f"apr1-{REPO_ID}-{NUMBER + 1}-{HEAD}",
+        f"apr1-{REPO_ID}-{NUMBER}-{OTHER}",
+        f"apr2-{REPO_ID}-{NUMBER}-{HEAD}",
+    ):
+        assert _check(FakeApi(statuses=[[_status(description=description)]]))
+
+
+def test_an_approval_later_than_the_merge_or_undated_is_not_approval() -> None:
+    assert _check(FakeApi(statuses=[[_status(created_at="2026-10-25T00:00:01Z")]]))
+    assert _check(FakeApi(statuses=[[_status(created_at=None)]]))
+    assert _check(FakeApi(statuses=[[_status(created_at=MERGED_AT)]])) is None
+
+
+def test_a_default_branch_that_is_not_main_is_not_approved() -> None:
+    api = FakeApi(default={"default_branch": "develop", "id": REPO_ID})
+    assert "main" in (_check(api) or "")
+
+
+@pytest.mark.parametrize("identifier", [None, "1", True, 1.5])
+def test_a_repository_without_a_numeric_id_is_not_approved(identifier: object) -> None:
+    api = FakeApi(default={"default_branch": "main", "id": identifier})
+    assert _check(api)

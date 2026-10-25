@@ -18,7 +18,7 @@ import json
 from collections.abc import Sequence
 from typing import Any, Final
 
-from .event_attestation import GhRunner, GitHubReadError
+from .event_attestation import GhRunner, GitHubReadError, MergedPull
 from .inventory import Status
 
 _API: Final = ("gh", "api")
@@ -60,24 +60,57 @@ class GhApiReader:
             return False
         raise GitHubReadError("the comparison has no readable status")
 
-    def pr_head_of_merge_commit(self, repo: str, commit: str) -> str | None:
-        """The head of the one pull request merged as ``commit`` into main."""
+    def repo_id(self, repo: str) -> int:
+        body = self._get(f"repos/{repo}")
+        identifier = body.get("id") if isinstance(body, dict) else None
+        if not isinstance(identifier, int) or isinstance(identifier, bool):
+            raise GitHubReadError("the repository has no numeric id")
+        return identifier
+
+    def merged_pull(self, repo: str, commit: str) -> MergedPull | None:
+        """The one DISTINCT pull request merged as ``commit`` into the default
+        branch, read over every page; None unless there is exactly one."""
         branch = self.default_branch(repo)
-        pulls = self._get(f"repos/{repo}/commits/{commit}/pulls")
-        if not isinstance(pulls, list):
-            raise GitHubReadError("the commit's pull requests are not a list")
-        heads = {
-            pull["head"]["sha"]
-            for pull in pulls
-            if isinstance(pull, dict)
-            and pull.get("merged_at")
+        pages = self._get(
+            f"repos/{repo}/commits/{commit}/pulls?per_page=100", "--paginate", "--slurp"
+        )
+        if not isinstance(pages, list):
+            raise GitHubReadError("the commit's pull requests are not a list of pages")
+        found: dict[int, MergedPull] = {}
+        for page in pages:
+            if not isinstance(page, list):
+                raise GitHubReadError(
+                    "a page of the commit's pull requests is not a list"
+                )
+            for pull in page:
+                candidate = self._qualifying(pull, commit, branch)
+                if candidate is not None:
+                    found.setdefault(candidate.number, candidate)
+        if len(found) != 1:
+            return None
+        (only,) = found.values()
+        return only
+
+    @staticmethod
+    def _qualifying(pull: object, commit: str, branch: str) -> MergedPull | None:
+        """The pull request if it was merged into ``branch`` AS ``commit``."""
+        if not isinstance(pull, dict):
+            return None
+        base, head = pull.get("base"), pull.get("head")
+        number, merged_at = pull.get("number"), pull.get("merged_at")
+        if not (
+            isinstance(base, dict)
+            and base.get("ref") == branch
+            and isinstance(head, dict)
+            and isinstance(head.get("sha"), str)
+            and isinstance(number, int)
+            and not isinstance(number, bool)
+            and isinstance(merged_at, str)
+            and merged_at
             and pull.get("merge_commit_sha") == commit
-            and isinstance(pull.get("base"), dict)
-            and pull["base"].get("ref") == branch
-            and isinstance(pull.get("head"), dict)
-            and isinstance(pull["head"].get("sha"), str)
-        }
-        return heads.pop() if len(heads) == 1 else None
+        ):
+            return None
+        return MergedPull(number, head["sha"], merged_at)
 
     def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
         """``context``'s statuses on ``commit``, newest first."""
@@ -96,10 +129,16 @@ class GhApiReader:
                     identifier = (
                         creator.get("id") if isinstance(creator, dict) else None
                     )
+                    description, created = (
+                        item.get("description"),
+                        item.get("created_at"),
+                    )
                     found.append(
                         Status(
                             str(item.get("state")),
                             identifier if isinstance(identifier, int) else None,
+                            description if isinstance(description, str) else None,
+                            created if isinstance(created, str) else None,
                         )
                     )
         return found
