@@ -12,6 +12,7 @@ from zeo_core.core.logging import get_logger
 from zeo_core.integrations.llms.clients.anthropic import AnthropicClient
 from zeo_core.integrations.llms.clients.base import LLMClient
 from zeo_core.integrations.llms.clients.mock import MockLLMClient
+from zeo_core.integrations.llms.clients.moonshot import MoonshotClient
 from zeo_core.integrations.llms.clients.ollama import OllamaClient
 from zeo_core.integrations.llms.clients.openai import OpenAIClient
 
@@ -20,6 +21,7 @@ _LLM_REGISTRY: dict[str, type[LLMClient]] = {
     "openai": OpenAIClient,
     "anthropic": AnthropicClient,
     "ollama": OllamaClient,
+    "moonshot": MoonshotClient,
     "mock": MockLLMClient,
 }
 
@@ -48,7 +50,8 @@ def get_llm_client(
     Get an LLM client instance.
 
     Args:
-        provider: Provider name (e.g., "openai", "anthropic", "ollama", "mock")
+        provider: Provider name (e.g., "openai", "anthropic", "ollama", "moonshot",
+            "mock")
         model: Model name to use
         api_key: API key for authentication
         **kwargs: Additional provider-specific arguments

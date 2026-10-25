@@ -5,8 +5,8 @@
 Install the provider dependencies from the activated source checkout with
 `uv pip install -e ".[llms]"`.
 
-The `llms` integration supports OpenAI, Anthropic, local Ollama, and an explicit
-mock fixture. Start with [environment setup](environments.md). Managed live
+The `llms` integration supports OpenAI, Anthropic, Moonshot (Kimi), local Ollama,
+and an explicit mock fixture. Start with [environment setup](environments.md). Managed live
 runs initialize only the chosen provider and fail if its credentials/client
 are unavailable. They do not silently use another provider or a mock. Provider
 selection and model compatibility still belong to your application.
@@ -80,6 +80,40 @@ For Anthropic replace the prompt with `--secret ANTHROPIC_API_KEY` and the two
 script arguments with `anthropic YOUR_MESSAGES_MODEL`. In provider usage logs,
 verify the request belongs to the test project/workspace. An unsupported model
 or invalid key must produce a failure, not a plausible mock answer.
+
+## Moonshot (Kimi) key and model
+
+Moonshot's API follows the OpenAI Chat Completions format, so ZeoCore reaches it
+through the OpenAI client pointed at Moonshot's base URL. Create a key in the
+[Kimi API platform](https://platform.kimi.ai/) and keep it in your secret
+manager. The client reads it from `MOONSHOT_API_KEY` (or the `api_key`
+argument) and never from `OPENAI_API_KEY`.
+
+```python
+from zeo_core.integrations.llms.registry import get_llm_client
+
+client = get_llm_client("moonshot")  # kimi-k3.1-pro at https://api.moonshot.ai/v1
+```
+
+What the client does differently from the OpenAI one, from Moonshot's
+[K3.1 Pro quickstart](https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart):
+
+- The key is never written to `OPENAI_API_KEY`, and the SDK is told not to send
+  `OPENAI_ORG_ID` or `OPENAI_PROJECT_ID` to Moonshot.
+- For `kimi-k3*` models `temperature`, `top_p` and the two penalties are left
+  out of the request (Moonshot fixes them), and `max_tokens` is sent as
+  `max_completion_tokens`. Other model ids keep the usual parameters.
+- K3.1 Pro always thinks; its `reasoning_effort` setting is not exposed here.
+
+!!! warning "Plain chat only"
+    The client returns the reply text. It does not carry Moonshot's
+    `reasoning_content` or a tool-call round trip, which Moonshot requires to be
+    sent back in multi-turn tool use. Use it for plain and streaming chat, not
+    for tool calling. The managed `LLMIntegration` service does not discover
+    this provider yet; call `get_llm_client("moonshot")` directly.
+
+No test in this repository calls the real API. A first live check needs your own
+key and a small output limit, and its result is yours to record.
 
 ## Ollama test track
 
