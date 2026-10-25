@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "Attribution": {
+      "additionalProperties": false,
+      "properties": {
+        "citation": {
+          "$ref": "#/$defs/Citation"
+        },
+        "publisher": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "publisher_map_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Publisher Map Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "publisher",
+        "publisher_map_sha256",
+        "citation"
+      ],
+      "title": "Attribution",
+      "type": "object"
+    },
+    "Citation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 68,
+          "minLength": 68,
+          "pattern": "^cit_[0-9a-f]{64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 512,
+          "minLength": 9,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "id"
+      ],
+      "title": "Citation",
+      "type": "object"
+    },
+    "Revision": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Markdown Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "markdown_sha256"
+      ],
+      "title": "Revision",
+      "type": "object"
+    },
+    "Rights": {
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "enum": [
+            "citation_link_only",
+            "operator_owned"
+          ],
+          "title": "Class",
+          "type": "string"
+        }
+      },
+      "required": [
+        "class"
+      ],
+      "title": "Rights",
+      "type": "object"
+    }
+  },
+  "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/library.view-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A valid shape does not establish rights, attribution or currentness.",
+  "properties": {
+    "attribution": {
+      "$ref": "#/$defs/Attribution"
+    },
+    "item_ref": {
+      "maxLength": 67,
+      "minLength": 67,
+      "pattern": "^ir_[0-9a-f]{64}$",
+      "title": "Item Ref",
+      "type": "string"
+    },
+    "producer": {
+      "const": "dt-library",
+      "title": "Producer",
+      "type": "string"
+    },
+    "revision": {
+      "$ref": "#/$defs/Revision"
+    },
+    "rights": {
+      "$ref": "#/$defs/Rights"
+    },
+    "schema": {
+      "const": "zeo.library-view/v2",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "producer",
+    "item_ref",
+    "revision",
+    "rights",
+    "attribution"
+  ],
+  "title": "LibraryView",
+  "type": "object"
+}

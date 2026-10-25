@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self, cast
 
 from pydantic import AfterValidator, ConfigDict, Field, field_validator, model_validator
 
@@ -63,38 +63,41 @@ class AccessReceipt(Closed):
         extra="forbid",
         strict=True,
         frozen=True,
-        json_schema_extra={
-            "allOf": [
-                {
-                    "if": {"properties": {"outcome": {"const": "served"}}},
-                    "then": {
-                        "required": ["view_sha256", "view_length", "rights_class"],
-                        "properties": {
-                            "state": {"const": "ready"},
-                            "view_sha256": {"type": "string"},
-                            "view_length": {"type": "integer"},
-                            "rights_class": {"type": "string"},
-                        },
-                    },
-                    "else": {
-                        "not": {
-                            "anyOf": [
-                                {"required": ["view_sha256"]},
-                                {"required": ["view_length"]},
-                                {"required": ["rights_class"]},
-                            ]
-                        },
-                    },
-                },
-                *[
+        json_schema_extra=cast(
+            dict[str, Any],
+            {
+                "allOf": [
                     {
-                        "if": {"properties": {"outcome": {"const": outcome}}},
-                        "then": {"properties": {"state": {"const": state}}},
-                    }
-                    for outcome, state in REFUSAL_STATES.items()
+                        "if": {"properties": {"outcome": {"const": "served"}}},
+                        "then": {
+                            "required": ["view_sha256", "view_length", "rights_class"],
+                            "properties": {
+                                "state": {"const": "ready"},
+                                "view_sha256": {"type": "string"},
+                                "view_length": {"type": "integer"},
+                                "rights_class": {"type": "string"},
+                            },
+                        },
+                        "else": {
+                            "not": {
+                                "anyOf": [
+                                    {"required": ["view_sha256"]},
+                                    {"required": ["view_length"]},
+                                    {"required": ["rights_class"]},
+                                ]
+                            },
+                        },
+                    },
+                    *[
+                        {
+                            "if": {"properties": {"outcome": {"const": outcome}}},
+                            "then": {"properties": {"state": {"const": state}}},
+                        }
+                        for outcome, state in REFUSAL_STATES.items()
+                    ],
                 ],
-            ],
-        },
+            },
+        ),
     )
 
     schema_tag: Literal["zeo.access-receipt/v2"] = Field(alias="schema")
