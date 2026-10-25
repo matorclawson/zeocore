@@ -8,7 +8,7 @@ and token counting with proper error handling and retry logic.
 import logging
 import os
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 from zeo_core.core.errors import ZeoApiError, ZeoIntegrationError
 from zeo_core.integrations.core.results import IntegrationResult
@@ -18,6 +18,17 @@ from zeo_core.integrations.llms.models import ChatMessage, LLMOptions
 
 class OpenAIClient(LLMClient):
     """OpenAI LLM client implementation."""
+
+    #: The environment variable the key is read from when none is passed.
+    API_KEY_ENV = "OPENAI_API_KEY"
+    #: Whether a key passed in is also written to ``API_KEY_ENV`` for the SDK.
+    #: An OpenAI-compatible provider turns this off so its key never lands in
+    #: the variable another OpenAI client in the same process would send.
+    EXPOSE_KEY_IN_ENV = True
+    #: Fixed keyword arguments for the SDK constructor. The SDK reads
+    #: ``OPENAI_ORG_ID`` and ``OPENAI_PROJECT_ID`` itself when they are not
+    #: given, and would send them to whatever ``base_url`` it was pointed at.
+    SDK_KWARGS: ClassVar[dict[str, Any]] = {}
 
     def __init__(
         self,
@@ -50,14 +61,18 @@ class OpenAIClient(LLMClient):
         self._client: Any = None
 
         # If API key is provided, set it in environment so the OpenAI SDK can find it
-        if api_key and not os.environ.get("OPENAI_API_KEY"):
+        if self.EXPOSE_KEY_IN_ENV and api_key and not os.environ.get("OPENAI_API_KEY"):
             os.environ["OPENAI_API_KEY"] = api_key
             self.logger.debug(
                 "Set OPENAI_API_KEY in environment from provided argument"
             )
 
         # Set organization in environment if provided
-        if organization and not os.environ.get("OPENAI_ORGANIZATION"):
+        if (
+            self.EXPOSE_KEY_IN_ENV
+            and organization
+            and not os.environ.get("OPENAI_ORGANIZATION")
+        ):
             os.environ["OPENAI_ORGANIZATION"] = organization
             self.logger.debug(
                 "Set OPENAI_ORGANIZATION in environment from provided argument"
@@ -99,6 +114,7 @@ class OpenAIClient(LLMClient):
                     "timeout": self._timeout,
                 }
 
+                kwargs.update(self.SDK_KWARGS)
                 if self._api_base:
                     kwargs["base_url"] = self._api_base
                 if self._organization:
@@ -108,7 +124,11 @@ class OpenAIClient(LLMClient):
                 # This helps with certain OpenAI SDK versions/implementations
                 import os
 
-                if self._api_key and "OPENAI_API_KEY" not in os.environ:
+                if (
+                    self.EXPOSE_KEY_IN_ENV
+                    and self._api_key
+                    and "OPENAI_API_KEY" not in os.environ
+                ):
                     os.environ["OPENAI_API_KEY"] = self._api_key
                     self.logger.debug("Set OPENAI_API_KEY in environment")
 
@@ -139,11 +159,11 @@ class OpenAIClient(LLMClient):
             ZeoIntegrationError: If API key is not provided or available in
                 environment
         """
-        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key = os.environ.get(self.API_KEY_ENV)
         if not api_key:
             raise ZeoIntegrationError(
                 "OpenAI API key not provided. Please provide it as an "
-                "argument or set the OPENAI_API_KEY environment variable."
+                f"argument or set the {self.API_KEY_ENV} environment variable."
             )
         return api_key
 
@@ -165,6 +185,7 @@ class OpenAIClient(LLMClient):
         options: LLMOptions,
         callback: Callable[[str], None] | None = None,
     ) -> IntegrationResult[str]:
+        self._check_request(messages, options)
         try:
             client = self._get_client()
 
@@ -175,7 +196,7 @@ class OpenAIClient(LLMClient):
             model = options.model or self.model
 
             # Pass the model to the options to decide on the token parameter name
-            params = options.to_openai_params(model=model)
+            params = self._provider_params(options.to_openai_params(model=model), model)
 
             # Handle streaming if callback is provided
             if callback and not options.stream:
@@ -209,6 +230,16 @@ class OpenAIClient(LLMClient):
         except Exception as e:
             raise self._convert_error(e) from e
 
+    def _check_request(self, messages: list[ChatMessage], options: LLMOptions) -> None:
+        """Refuse a request this provider cannot serve; OpenAI refuses nothing here."""
+
+    def _check_ending(self, text: str, finish_reason: str | None) -> None:
+        """Refuse a reply that ended in a way this provider treats as a failure."""
+
+    def _provider_params(self, params: dict[str, Any], model: str) -> dict[str, Any]:
+        """The request parameters for ``model``; a compatible provider reshapes them."""
+        return params
+
     def _handle_streaming(
         self,
         client: Any,  # noqa: ANN401 -- the third-party openai.OpenAI SDK client object; no local protocol exists for it
@@ -221,6 +252,7 @@ class OpenAIClient(LLMClient):
         Handle streaming responses from the OpenAI API.
         """
         collected_content = []
+        finish_reason: str | None = None
 
         try:
             # Remove stream parameter if it exists in params to avoid duplication
@@ -241,6 +273,7 @@ class OpenAIClient(LLMClient):
 
                     delta = choices[0].get("delta", {})
                     content = delta.get("content")
+                    finish_reason = choices[0].get("finish_reason") or finish_reason
                 else:
                     if not hasattr(chunk, "choices") or not chunk.choices:
                         continue
@@ -251,13 +284,19 @@ class OpenAIClient(LLMClient):
                         else {}
                     )
                     content = delta.content if hasattr(delta, "content") else None
+                    finish_reason = (
+                        getattr(chunk.choices[0], "finish_reason", None)
+                        or finish_reason
+                    )
 
                 if content:
                     collected_content.append(content)
                     if callback:
                         callback(content)
 
-            return "".join(collected_content)
+            text = "".join(collected_content)
+            self._check_ending(text, finish_reason)
+            return text
         except Exception as e:
             # Convert OpenAI errors to ZeoApiError
             raise self._convert_error(e) from e
@@ -293,15 +332,19 @@ class OpenAIClient(LLMClient):
         else:
             choices = getattr(response, "choices", [])
         if not choices:
+            self._check_ending("", None)
             return ""
 
         # Get the first choice's message
         first_choice = choices[0]
         if isinstance(first_choice, dict):
             message = first_choice.get("message", None)
+            finish_reason = first_choice.get("finish_reason")
         else:
             message = getattr(first_choice, "message", None)
+            finish_reason = getattr(first_choice, "finish_reason", None)
         if not message:
+            self._check_ending("", finish_reason)
             return ""
 
         # Get the content of the message
@@ -309,7 +352,9 @@ class OpenAIClient(LLMClient):
             content = message.get("content", None)
         else:
             content = getattr(message, "content", None)
-        return content if content is not None else ""
+        text = content if content is not None else ""
+        self._check_ending(text, finish_reason)
+        return text
 
     def _convert_error(self, error: Exception) -> ZeoApiError:
         """
