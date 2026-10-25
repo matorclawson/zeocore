@@ -11,7 +11,6 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
@@ -61,11 +60,9 @@ def citation_url(value: str) -> str:
         raise ValueError("citation_url")
     if any(c in value for c in ("@", "%", "?", "#", "\\")):
         raise ValueError("citation_url")
-    parts = urlsplit(value)
-    host = parts.netloc
+    host = value[8:].split("/", 1)[0]
     if (
-        parts.scheme != "https"
-        or not value.startswith("https://")
+        not value.startswith("https://")
         or not host
         or len(host) > 253
         or host.endswith(".")
@@ -192,7 +189,7 @@ def validate_binding(view: LibraryView, binding: CitationBinding) -> None:
         or citation.id != binding.record_id
         or view.attribution.publisher_map_sha256 != binding.map_sha256
         or view.attribution.publisher != binding.publisher
-        or urlsplit(citation.url).netloc != binding.web_host
+        or citation.url[8:].split("/", 1)[0] != binding.web_host
         or binding.host_kind != "web"
         or not binding.recorded_by.strip()
     ):
