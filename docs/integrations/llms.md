@@ -112,7 +112,7 @@ What the client does differently from the OpenAI one, from Moonshot's
     tool or function messages (a `ZeoIntegrationError`, before anything is sent),
     and it reports a reply that is empty, cut at the token limit
     (`finish_reason="length"`) or ended as a tool call as a `ZeoApiError`, never
-    as an empty success. K3.1 Pro always thinks, so a very small `max_tokens` can
+    as an empty success. Only `finish_reason="stop"` is a good ending, and these endings are not retried (a retry would pay for the same cut-off reply again). K3.1 Pro always thinks, so a very small `max_tokens` can
     leave no reply: raise it. The base URL must be `https`. The managed
     `LLMIntegration` service does not discover this provider yet; call
     `get_llm_client("moonshot")` directly.

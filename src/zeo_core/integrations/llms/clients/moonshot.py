@@ -20,9 +20,11 @@ Prompts and replies pass to Moonshot, a third party; its terms apply to them.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from typing import Any, ClassVar
 
 from zeo_core.core.errors import ZeoApiError, ZeoIntegrationError
+from zeo_core.integrations.core.results import IntegrationResult
 from zeo_core.integrations.llms.clients.openai import OpenAIClient
 from zeo_core.integrations.llms.models import ChatMessage, LLMOptions, RoleType
 
@@ -38,6 +40,16 @@ _FIXED_SAMPLING = (
     "presence_penalty",
     "frequency_penalty",
 )
+
+
+class MoonshotEndingError(ZeoApiError):
+    """A reply that ended as a failure: empty, cut off, a tool call or filtered.
+
+    ``chat`` retries a ``ZeoApiError``, and a retry would pay for the same
+    cut-off reply again and repeat its text to a stream callback, so
+    ``MoonshotClient.chat_once`` re-raises it as a plain ``ZeoIntegrationError``,
+    which is not retried.
+    """
 
 
 class MoonshotClient(OpenAIClient):
@@ -70,6 +82,17 @@ class MoonshotClient(OpenAIClient):
             self._model = MOONSHOT_DEFAULT_MODEL
         return self._model
 
+    def chat_once(
+        self,
+        messages: Sequence[ChatMessage] | Sequence[dict],
+        options: LLMOptions | None = None,
+        callback: Callable[[str], None] | None = None,
+    ) -> IntegrationResult[str]:
+        try:
+            return super().chat_once(messages, options, callback)
+        except MoonshotEndingError as error:
+            raise ZeoIntegrationError(str(error), original_error=error) from error
+
     def _check_request(self, messages: list[ChatMessage], options: LLMOptions) -> None:
         carries_tools = bool(options.tools or options.functions) or any(
             m.tool_calls
@@ -85,8 +108,8 @@ class MoonshotClient(OpenAIClient):
             )
 
     def _check_ending(self, text: str, finish_reason: str | None) -> None:
-        if finish_reason not in (None, "stop"):
-            raise ZeoApiError(
+        if finish_reason != "stop":
+            raise MoonshotEndingError(
                 f"Moonshot ended the reply with finish_reason={finish_reason!r}"
                 + (
                     "; K3.1 always thinks, so a small token limit can leave no reply:"
@@ -98,7 +121,7 @@ class MoonshotClient(OpenAIClient):
                 api_method="chat.completions.create",
             )
         if not text.strip():
-            raise ZeoApiError(
+            raise MoonshotEndingError(
                 "Moonshot returned an empty reply",
                 service=_SERVICE,
                 api_method="chat.completions.create",

@@ -206,7 +206,8 @@ def test_plain_messages_still_go_through() -> None:
         (_reply("x", "tool_calls"), "tool_calls"),
         (_reply("x", "content_filter"), "content_filter"),
         (_reply("", "stop"), "empty reply"),
-        (_reply("   ", None), "empty reply"),
+        (_reply("   ", None), "finish_reason=None"),
+        (_reply("a cut-off reply", None), "finish_reason=None"),
     ],
 )
 def test_a_reply_that_ended_badly_or_is_empty_is_an_error_not_a_success(
@@ -219,7 +220,7 @@ def test_a_reply_that_ended_badly_or_is_empty_is_an_error_not_a_success(
 
 
 def test_a_reply_with_no_choices_is_an_error() -> None:
-    with pytest.raises(ZeoApiError, match="empty reply"):
+    with pytest.raises(ZeoApiError, match="finish_reason=None"):
         _chat(MoonshotClient(api_key="k"), LLMOptions(), SimpleNamespace(choices=[]))
 
 
@@ -264,8 +265,10 @@ def test_streaming_returns_the_text_when_it_ends_with_stop() -> None:
         ([(None, "length")], "length"),
         ([("a", "length")], "length"),
         ([("a", "tool_calls")], "tool_calls"),
+        ([("a", None)], "finish_reason=None"),
+        ([("a", None), ("b", None)], "finish_reason=None"),
         ([(None, "stop")], "empty reply"),
-        ([], "empty reply"),
+        ([], "finish_reason=None"),
     ],
 )
 def test_a_stream_that_ended_badly_or_empty_is_an_error(
@@ -305,3 +308,52 @@ def test_an_ending_error_is_not_wrapped_a_second_time() -> None:
         _chat(MoonshotClient(api_key="k"), LLMOptions(), _reply("", "length"))
     assert str(raised.value).startswith("Moonshot ended the reply with")
     assert "raise max_tokens" in str(raised.value)
+
+
+# --- council #189, round 2: only "stop" is a good ending; endings are not retried ---
+
+
+def _retrying_client() -> MoonshotClient:
+    return MoonshotClient(api_key="k", retry_count=3, initial_retry_delay=0.0)
+
+
+def test_a_bad_ending_is_not_retried_and_is_not_paid_for_again() -> None:
+    client = _retrying_client()
+    sdk = MagicMock()
+    sdk.chat.completions.create.return_value = _reply("cut", "length")
+    with patch.object(client, "_get_client", return_value=sdk):
+        result = client.chat([USER], LLMOptions())
+    assert sdk.chat.completions.create.call_count == 1
+    assert result.success is False
+    assert "length" in (result.error or "")
+
+
+def test_a_stream_ending_badly_repeats_nothing_to_the_callback() -> None:
+    client = _retrying_client()
+    sdk = MagicMock()
+    sdk.chat.completions.create.return_value = iter(_chunks(("partial", "length")))
+    heard: list[str] = []
+    with patch.object(client, "_get_client", return_value=sdk):
+        result = client.chat([USER], LLMOptions(), callback=heard.append)
+    assert sdk.chat.completions.create.call_count == 1
+    assert heard == ["partial"]
+    assert result.success is False
+
+
+def test_a_real_api_error_is_still_retried() -> None:
+    client = _retrying_client()
+    sdk = MagicMock()
+    sdk.chat.completions.create.side_effect = RuntimeError("rate limit hit")
+    with patch.object(client, "_get_client", return_value=sdk):
+        client.chat([USER], LLMOptions())
+    assert sdk.chat.completions.create.call_count == 4
+
+
+def test_an_empty_reply_is_not_retried_either() -> None:
+    client = _retrying_client()
+    sdk = MagicMock()
+    sdk.chat.completions.create.return_value = _reply("", "stop")
+    with patch.object(client, "_get_client", return_value=sdk):
+        result = client.chat([USER], LLMOptions())
+    assert sdk.chat.completions.create.call_count == 1
+    assert result.success is False
