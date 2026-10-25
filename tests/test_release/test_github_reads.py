@@ -35,7 +35,7 @@ def _pull(**changes: Any) -> dict[str, Any]:  # noqa: ANN401
         "number": NUMBER,
         "merged_at": MERGED_AT,
         "merge_commit_sha": MERGE,
-        "base": {"ref": "main", "repo": {"full_name": REPOSITORY}},
+        "base": {"ref": "main", "repo": {"full_name": REPOSITORY, "id": REPO_ID}},
         "head": {"sha": HEAD},
     }
     pull.update(changes)
@@ -120,9 +120,31 @@ def test_the_approval_is_read_at_the_head_never_at_the_merge_commit() -> None:
         [],
         [[_pull(merge_commit_sha=OTHER)]],
         [[_pull(merged_at=None)]],
-        [[_pull(base={"ref": "other", "repo": {"full_name": REPOSITORY}})]],
+        [
+            [
+                _pull(
+                    base={
+                        "ref": "other",
+                        "repo": {"full_name": REPOSITORY, "id": REPO_ID},
+                    }
+                )
+            ]
+        ],
         # the pull request must have been merged into THIS repository
-        [[_pull(base={"ref": "main", "repo": {"full_name": "someone/else"}})]],
+        [
+            [
+                _pull(
+                    base={
+                        "ref": "main",
+                        "repo": {"full_name": "someone/else", "id": REPO_ID},
+                    }
+                )
+            ]
+        ],
+        # the base repository's numeric id is read too, and must be a real integer
+        [[_pull(base={"ref": "main", "repo": {"full_name": REPOSITORY}})]],
+        [[_pull(base={"ref": "main", "repo": {"full_name": REPOSITORY, "id": True}})]],
+        [[_pull(base={"ref": "main", "repo": {"full_name": REPOSITORY, "id": "1"}})]],
         [[_pull(base={"ref": "main"})]],
         [[_pull(base={"ref": "main", "repo": None})]],
         [[_pull(), _pull(head={"sha": OTHER}, number=2)]],

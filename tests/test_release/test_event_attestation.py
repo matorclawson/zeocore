@@ -34,6 +34,7 @@ from zeo_core.release.signing.event_attestation import (
     authenticate_published_event,
     check_release_approval,
     gh_arguments,
+    parse_utc,
 )
 from zeo_core.release.signing.event_auth import EVENT_SCHEMA, canonical
 from zeo_core.release.signing.inventory import (
@@ -341,7 +342,7 @@ def test_a_file_changed_during_verification_is_refused(tmp_path: Path) -> None:
 # --- the release commit is a merge commit; approval is on the PR head (M2-6) ---
 
 REPO_ID = 1337139177
-PULL = MergedPull(7, "h" * 40, "2026-10-25T01:00:00Z")
+PULL = MergedPull(7, "h" * 40, "2026-10-25T01:00:00Z", "main", REPO_ID)
 
 
 def _approval(
@@ -415,11 +416,37 @@ def test_an_approval_dated_exactly_at_the_merge_counts() -> None:
         # the status must name THIS repository, pull request and head
         FakeGitHub(PULL, [_approval(description=None)]),
         FakeGitHub(PULL, [_approval(repo_id=1)]),
-        FakeGitHub(PULL, [_approval(pull=MergedPull(8, PULL.head, PULL.merged_at))]),
-        FakeGitHub(PULL, [_approval(pull=MergedPull(7, "x" * 40, PULL.merged_at))]),
+        FakeGitHub(
+            PULL,
+            [_approval(pull=MergedPull(8, PULL.head, PULL.merged_at, "main", REPO_ID))],
+        ),
+        FakeGitHub(
+            PULL,
+            [_approval(pull=MergedPull(7, "x" * 40, PULL.merged_at, "main", REPO_ID))],
+        ),
         # an approval that is later than the merge, or undated, authorizes nothing
         FakeGitHub(PULL, [_approval(created_at="2026-10-25T01:00:01Z")]),
         FakeGitHub(PULL, [_approval(created_at=None)]),
+        # times are parsed, never compared as text: empty, offset, fractional,
+        # impossible and non-text dates are all "not dated"
+        FakeGitHub(PULL, [_approval(created_at="")]),
+        FakeGitHub(PULL, [_approval(created_at="2026-10-25T00:30:00+00:00")]),
+        FakeGitHub(PULL, [_approval(created_at="2026-10-25T00:30:00.5Z")]),
+        FakeGitHub(PULL, [_approval(created_at="2026-13-45T00:30:00Z")]),
+        FakeGitHub(PULL, [_approval(created_at="Z")]),
+        FakeGitHub(
+            MergedPull(7, PULL.head, "not a time", "main", REPO_ID),
+            [_approval(pull=MergedPull(7, PULL.head, "not a time", "main", REPO_ID))],
+        ),
+        # the pull request must have been merged into main of THIS repository
+        FakeGitHub(
+            MergedPull(7, PULL.head, PULL.merged_at, "develop", REPO_ID),
+            [_approval()],
+        ),
+        FakeGitHub(
+            MergedPull(7, PULL.head, PULL.merged_at, "main", REPO_ID + 1),
+            [_approval()],
+        ),
     ],
 )
 def test_an_unapproved_or_unmapped_release_commit_is_not_approved(
@@ -503,3 +530,22 @@ def test_the_verb_refuses_other_fields(tmp_path: Path) -> None:
 
     status, _ = _verb(tmp_path, FakeGh(_ok()), tag=TAG, key="secret")
     assert status == EXIT_INVALID
+
+
+@pytest.mark.parametrize(
+    ("text", "parsed"),
+    [
+        ("2026-10-25T00:30:00Z", True),
+        ("2026-02-29T00:30:00Z", False),
+        ("2026-10-25T24:00:00Z", False),
+        ("", False),
+        ("2026-10-25 00:30:00Z", False),
+        ("2026-10-25T00:30:00z", False),
+        (None, False),
+        (20261025, False),
+    ],
+)
+def test_times_are_strict_rfc_3339_utc_at_second_precision(
+    text: object, parsed: bool
+) -> None:
+    assert (parse_utc(text) is not None) is parsed
