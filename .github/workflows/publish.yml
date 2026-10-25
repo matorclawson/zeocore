@@ -11,7 +11,12 @@ name: Publish
 #   2. publish    PyPI trusted publishing in the `pypi` environment, then a
 #                 check that PyPI's files for the version are this build's;
 #   3. smoke-test install the published version on its floor and run it;
-#   4. github-release  the GitHub Release, from those fragments.
+#   4. github-release  the GitHub Release, from those fragments;
+#   5. attest-event  GitHub's attestation of the release-event.json that
+#                 was uploaded to that Release (SOW-44 rev 2, M2). It proves
+#                 which workflow wrote those bytes, not that the commit was
+#                 reviewed. Its failure leaves the Release in place: a
+#                 consumer that finds no attestation holds.
 #
 # The tag comes before the publish, so a refused tag publishes nothing. A
 # re-run on the same commit reuses its tag; nothing is published twice,
@@ -299,3 +304,66 @@ jobs:
             --notes-file release-notes.md \
             --generate-notes \
             --verify-tag
+
+  # --------------------------------------------------------------------------
+  # Attest the release event that is on the Release (zeocore-SOW-44 rev 2, M2).
+  #
+  # The attestation covers the bytes ACTUALLY UPLOADED: the job writes the event
+  # again from this run's own build, downloads the asset from the Release, and
+  # stops unless they are identical, then attests the downloaded file. The same
+  # steps serve a re-run of a release that already exists. The verifier
+  # (zeocore release verify-event) pins repository, this workflow's identity,
+  # refs/heads/main, the push trigger and the commit; the signing identity is
+  # GitHub's OIDC token for this workflow, so no key of ours is involved.
+  #
+  # Permissions, exactly: contents read (checkout, release download),
+  # id-token write (the OIDC token for the signing certificate), attestations
+  # write (to store the attestation). Nothing else.
+  # --------------------------------------------------------------------------
+  attest-event:
+    name: attest the release event
+    needs: [release, github-release]
+    if: >-
+      always() && needs.github-release.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      # Checkout first: it cleans the tree, so it would delete a download.
+      - name: Check out the released commit, with its tags
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Download this merge's release notes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-notes
+
+      - name: Download the build the release event names
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Write the release event again from this run's build
+        run: |
+          mkdir expected
+          python3 .github/release/event.py "${TAG}" release-notes.md dist --repository "${GITHUB_REPOSITORY}" > expected/release-event.json
+
+      - name: Download the release event that was uploaded to the Release
+        run: gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern release-event.json --dir uploaded
+
+      - name: The uploaded event is byte for byte the one this run wrote
+        run: cmp expected/release-event.json uploaded/release-event.json
+
+      - name: Attest the uploaded event
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: uploaded/release-event.json

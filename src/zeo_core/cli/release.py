@@ -15,6 +15,12 @@ pack again is safe: a settled request gets the same answer and is never
 signed twice. ``serve`` runs that service from ``{"listen", "state_dir"}``
 until interrupted (ZEOCORE-SOW-24).
 
+``verify-event`` checks the GitHub attestation of a published release event
+(``release-event.json``) from ``{"event": "<path>"}`` and the ``tag`` or
+``commit`` you expect (at least one; the event has no freshness of its own).
+It authenticates the bytes only: ``authenticated`` is not release authorization.
+It needs ``gh`` and network access; when it cannot complete it holds.
+
 ``tree-digest`` prints a bundle's canonical tree digest from ``{"path"}``, the
 ``unsigned_tree_sha256`` a build's receipt and its ``release.yaml`` record
 (ZEOCORE-SOW-32 §1.2), from the same code the signing step uses.
@@ -39,6 +45,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,6 +86,12 @@ from zeo_core.release.signing import (
     verify,
 )
 from zeo_core.release.signing.admission import GhCli, Limits
+from zeo_core.release.signing.event_attestation import (
+    Expected,
+    GhResult,
+    GhRunner,
+    authenticate_published_event,
+)
 from zeo_core.release.signing.service import (
     SigningService,
     Whois,
@@ -132,6 +145,7 @@ _FIELDS: Final = {
     "pack": {"manifest", "out", "repo", "commit", "manifest_path"},
     "receive": {"manifest", "response", "work_dir"},
     "tree-digest": {"path"},
+    "verify-event": {"event"},
 }
 #: Fields a verb may also take. ``inventory`` is the file of a reviewed build
 #: inventory, for a manifest with ``pins: inventory``; ``inventory_path`` is
@@ -141,7 +155,43 @@ _OPTIONAL: Final = {
     "verify": {"inventory"},
     "receive": {"inventory"},
     "pack": {"inventory", "inventory_path", "version"},
+    "verify-event": {"tag", "commit"},
 }
+
+
+def _default_gh(argv: Sequence[str]) -> GhResult:
+    """Run ``gh`` for the event check: no shell, a bounded time, no input."""
+    try:
+        done = subprocess.run(  # noqa: S603 -- fixed argv built by gh_arguments, no shell
+            list(argv),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        return GhResult(1, "", "Error: gh did not answer within 120 seconds")
+    return GhResult(done.returncode, done.stdout, done.stderr)
+
+
+def _verify_event(request: dict[str, str], gh: GhRunner) -> Answer:
+    result = authenticate_published_event(
+        Path(request["event"]),
+        Expected(tag=request.get("tag"), commit=request.get("commit")),
+        gh,
+    )
+    body: dict[str, object] = {
+        "ok": result.status == "authenticated",
+        "outcome": result.reason,
+        "status": result.status,
+        "message": result.message,
+    }
+    if result.tag is not None:
+        body["tag"] = result.tag
+    if result.commit is not None:
+        body["commit"] = result.commit
+    return (EXIT_DONE if result.status == "authenticated" else EXIT_HELD), body
 
 
 def _refused(error: PackError) -> Answer:
@@ -538,6 +588,26 @@ def _load_manifest(request: dict[str, str]) -> LoadedManifest | Answer:
         return invalid(str(error))
 
 
+def _standalone(
+    verb: str,
+    request: dict[str, str],
+    environ: Mapping[str, str],
+    post: Post,
+    serve_with: Serve,
+    gh: GhRunner,
+) -> Answer | None:
+    """The verbs that need no signing manifest; None for the others."""
+    if verb == "send":
+        return _send(request, post)
+    if verb == "serve":
+        return _serve(request, environ, serve_with)
+    if verb == "tree-digest":
+        return _tree(request)
+    if verb == "verify-event":
+        return _verify_event(request, gh)
+    return None
+
+
 def _signing(
     args: Sequence[str],
     stdin: bytes,
@@ -545,6 +615,7 @@ def _signing(
     environ: Mapping[str, str],
     post: Post,
     serve_with: Serve,
+    gh: GhRunner,
 ) -> Answer:
     if len(args) != 1 or args[0] not in _FIELDS:
         return invalid(
@@ -556,12 +627,9 @@ def _signing(
     request = _parse(verb, stdin)
     if isinstance(request, tuple):
         return request
-    if verb == "send":
-        return _send(request, post)
-    if verb == "serve":
-        return _serve(request, environ, serve_with)
-    if verb == "tree-digest":
-        return _tree(request)
+    standalone = _standalone(verb, request, environ, post, serve_with, gh)
+    if standalone is not None:
+        return standalone
     loaded = _load_manifest(request)
     if isinstance(loaded, tuple):
         return loaded
@@ -581,11 +649,12 @@ def make_command(
     serve_with: Serve = _serve_forever,
     pypi_reads: PyPIReads = _default_pypi_reads,
     release_app: ReleaseAppFactory = _default_release_app,
+    gh: GhRunner = _default_gh,
 ) -> Callable[[Sequence[str], bytes], Answer]:
     def release(args: Sequence[str], stdin: bytes) -> Answer:
         if args and args[0] == "pypi":
             return _pypi(args, stdin, pypi_reads, environ, release_app)
-        return _signing(args, stdin, toolchain, environ, post, serve_with)
+        return _signing(args, stdin, toolchain, environ, post, serve_with, gh)
 
     return release
 

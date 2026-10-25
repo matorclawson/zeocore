@@ -308,6 +308,56 @@ returned hash is not an authentication. When a mechanism is adopted, the check
 that replaces this one verifies a signature against a pinned key. No key,
 service or second signer is added here.
 
+### The published release event: GitHub attestation (zeocore itself)
+
+For zeocore's own public releases the event is authenticated differently and
+without any key of ours: `publish.yml` attests the `release-event.json` it
+uploaded to the GitHub Release, and `zeocore release verify-event` checks that
+attestation. This is separate from the signing path above, which stays held.
+
+```console
+$ echo '{"event": "release-event.json", "tag": "v0.39.0"}' | zeocore release verify-event
+```
+
+Three checks are distinct, and `authenticated` is only the first:
+
+| Check | Answers | Where |
+|---|---|---|
+| Event authenticity | did `publish.yml` on `main`, on a push, on a GitHub-hosted runner, produce exactly these bytes for the commit the event names? | `verify-event` |
+| Release authorization | was that commit reviewed and approved? | `check_release_approval` (the approval is on the pull request's head; the release commit is the merge commit, so it is mapped first) |
+| Installed-kit signing | is the installed kit signed as expected? | the signing step above |
+
+A successful `verify-event` makes no build eligible.
+
+- **What is pinned** (constants of `zeo_core.release.signing.event_attestation`,
+  never read from the event or the bundle; the values were read back from a real
+  publish certificate): repository `zeroemployeeorg/zeocore`; certificate identity
+  `https://github.com/zeroemployeeorg/zeocore/.github/workflows/publish.yml@refs/heads/main`;
+  OIDC issuer `https://token.actions.githubusercontent.com`; source ref
+  `refs/heads/main`; source and signer digest equal to the event's `commit`;
+  trigger `push`; GitHub-hosted runner; predicate type
+  `https://slsa.dev/provenance/v1`; and the attestation's subject is the sha256 of
+  the event file.
+- **How:** `gh attestation verify` is given every pin as a flag (never
+  `--signer-workflow`, a prefix match, and never `--repo` alone), and what it
+  prints is checked again field by field, so a missing or ineffective flag cannot
+  let a wrong certificate through.
+- **A tag or a commit is required** (`tag` or `commit` in the request). The event
+  has no freshness of its own, so an old genuine event would otherwise verify.
+- **Outcomes:** `authenticated` (exit 0); `refused` (a check ran and failed:
+  wrong identity, digest, commit or repository); `held`, reason
+  `event_authentication_unavailable` (it could not complete: no network, no
+  attestation yet, `gh` missing). Nothing falls back to an unauthenticated event.
+- **Trust root:** `gh` fetches and refreshes the Sigstore trusted root through
+  TUF itself; no custom root is used. It needs network access to GitHub.
+- **Upload and re-runs:** the workflow's `attest-event` job downloads the asset
+  that was uploaded to the Release, stops unless it is byte for byte the event
+  this run wrote, and attests the downloaded file. A failure leaves the Release
+  in place; the event is then simply not authenticated yet.
+- **Limit:** public repositories only. On the free plan GitHub stores attestations
+  for public repositories only, so private gold is not covered; a different trust
+  model for it is the Architect's to name.
+
 ## What verify checks
 
 A valid Apple signature alone is not enough. For every executable:
