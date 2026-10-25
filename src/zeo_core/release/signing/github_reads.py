@@ -105,6 +105,8 @@ class GhApiReader:
             and base.get("ref") == branch
             and isinstance(base.get("repo"), dict)
             and base["repo"].get("full_name") == repo
+            and isinstance(base["repo"].get("id"), int)
+            and not isinstance(base["repo"].get("id"), bool)
             and isinstance(head, dict)
             and isinstance(head.get("sha"), str)
             and isinstance(number, int)
@@ -114,7 +116,7 @@ class GhApiReader:
             and pull.get("merge_commit_sha") == commit
         ):
             return None
-        return MergedPull(number, head["sha"], merged_at)
+        return MergedPull(number, head["sha"], merged_at, branch, base["repo"]["id"])
 
     def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
         """``context``'s statuses on ``commit``, newest first."""
