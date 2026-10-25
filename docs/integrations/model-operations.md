@@ -155,3 +155,96 @@ provenance or reconstruct omitted data.
 Message whitespace follows the draft's exact Unicode White_Space set, rather
 than Python's broader default stripping. U+001C through U+001F remain valid
 message text. String bounds count Unicode code points.
+
+## Execution with injected authority and evidence
+
+`zeo_core.integrations.model_ops.execution.ModelOperationExecutor` composes the
+existing preparer, receipt parser and hosted artifact client. It constructs no
+transport, reads no credentials and registers no operation. Model operations
+remain design-only until ZEOconnect adopts their receiving contract and route.
+This class is not a way to activate that route or bypass its controls.
+
+Supply the pinned `DraftModelOperationClient`, a caller-authorized
+`HostedAuthorizedTransport`, a protected retention callback, a durable admission
+callback, the rate revision, reported-model catalogue and completion-byte cap.
+There are no default ports. `prepare(request, idempotency_key=...)` returns a
+frozen `PreparedModelCall` without dispatch. `execute(prepared)` first rechecks
+the complete canonical envelope against the pinned preparer, retains it, then
+requires a `ModelAdmission` binding that exact envelope digest and replay key.
+The admission callback must validate authority and reserve spending before it
+returns. `ModelAdmission` is only an echo of that external decision, not a grant.
+The Broker independently enforces its own controls and budgets.
+
+The retention callback receives `request`, `response_normalized` or `completion`
+and immutable bytes. It must durably retain them before returning their
+`sha256:` digest; a different digest refuses. Canonical request bytes describe
+the intent and are not a raw HTTP-wire capture. Normalized response bytes are
+the validated hosted model serialized again; they are not raw provider evidence.
+Consumers needing native evidence must retain that separately at transport.
+
+Dispatch happens once per explicit `execute` call. The parser checks the model,
+rate revision and canonical argument fingerprint. Completion fetches go through
+`HostedConnectionClient.download_artifact`, which verifies size and digest; an
+oversized descriptor is refused before fetching. An expired replay returns its
+expired disposition without fetching or starting a new occurrence. A known
+refusal returns its parsed disposition without a completion.
+
+An uncertain, malformed or timed-out response, failed artifact check or failed
+post-dispatch retention raises `ModelExecutionAmbiguousError`. Its `prepared`
+attribute is the same original immutable request. Retain the reservation and
+reconcile it under the caller's authority; the executor never retries, generates
+a replacement key, or settles/releases budget. A failure before dispatch says
+the executor has not sent the request, but its external admission may still need
+reconciliation. Neither a delivered completion nor a scripted test proves a
+working application or a successful AX benchmark attempt.
+
+
+## Explicit fenced receipt successor (draft 14)
+
+Import `parse_fenced_model_response` from
+`zeo_core.integrations.model_ops.fenced_receipts`. It binds model-ops draft 14
+`93267ddc27c95747fbb20b98f1ee64e1bc791e53e038d0d95b62faf8043091ab`,
+not a callable contract. Council voiced that exact design on 16 October 2026.
+The existing `model_ops.parse_model_response` and `ModelReceipt` remain pinned
+to draft 11. Each rejects the other stamp; there is no automatic fallback,
+schema-selection flag or rewrite of received evidence.
+
+The new parser requires the original `HostedOperationRequest`, the explicit
+rate revision and the reported-model catalogue. Its own `FencedModelReceipt`
+and four-field `ReceiptBinding` project the actual compared connection values.
+Use the parser for semantic checks; constructing the typed receipt alone does
+not compare it with a request. Known fields cannot be null. Binding fields are
+closed and strictly typed; common unrelated member-receipt metadata remains
+ignored for forward compatibility.
+
+A successful comparison must match the original connection, external identity,
+enrolment revision and any supplied connector pin. A mismatch must report the
+actual changed value and the correct fixed error message; external identity
+has precedence when both expected values differ. The parser distinguishes
+`precheck_mismatch`, `dispatcher_mismatch` and `dispatcher_unavailable`.
+A pre-check mismatch has no budget fields and requires its stored replay flag.
+A dispatcher no-call outcome has a recorded reservation projection with required
+cost/budget fields and no held or invented provider-usage evidence. Other early
+refusals still forbid a replay flag. Generic `provider_unavailable` alone never
+proves that no provider call occurred.
+
+Returned stage and fence-outcome values describe consistent receipt claims.
+They do not prove native provider-call counts, authenticate a producer, grant a
+retry or release money. The authenticated transport and retained original full
+request bind the exchange: a model receipt does not echo its idempotency key.
+The receiver's native tests must separately prove its actual reservation and
+call transitions. Missing or contradictory evidence raises
+`AmbiguousModelReceiptError` with same-request/key reconciliation guidance and
+no automatic retry. Completion/expired-replay descriptors, model attribution,
+usage bounds and rate/request fingerprints remain checked.
+
+This explicit source interface does not activate a model route, enrol a
+connection, read a credential, fetch an artifact or run an AX trial. Connect it
+to a separately reviewed executor successor after owner review and the full
+verification gate; the existing draft-11 executor candidate is unchanged.
+
+## Explicit fenced execution composition
+
+`model_ops.fenced_execution.FencedModelOperationExecutor` is the explicit draft-14 execution entry point. It prepares the same immutable original intent through the existing public preparer, retains it, obtains injected durable admission, and sends it once. It validates the retained response against that original request through `parse_fenced_model_response`, then checks downloaded completion size and digest before returning `FencedModelExecution`. There is no schema-selection flag or automatic fallback. The legacy `ModelOperationExecutor` remains draft11.
+
+Storage, admission, authenticated transport and bounded deadlines are caller-supplied responsibilities. A lost response, malformed receipt or failed retention keeps the original key uncertain; the executor never retries, substitutes a key, or releases funds. Early no-budget refusal, reserved-then-released mismatch and dispatcher unavailability stay distinct parsed claims. Those claims do not independently authenticate a producer or authorise a refund. This composition does not activate a Broker receiver, qualify an isolated AX build or verify a live provider.
