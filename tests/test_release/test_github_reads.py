@@ -25,11 +25,12 @@ from zeo_core.release.signing.inventory import APPROVER_USER_ID
 MERGE = "a" * 40
 HEAD = "b" * 40
 OTHER = "c" * 40
+NUMBER = 1
 
 
 def _pull(**changes: Any) -> dict[str, Any]:  # noqa: ANN401
     pull: dict[str, Any] = {
-        "number": 1,
+        "number": NUMBER,
         "merged_at": "2026-10-25T00:00:00Z",
         "merge_commit_sha": MERGE,
         "base": {"ref": "main"},
@@ -54,7 +55,7 @@ class FakeApi:
         self.answers: dict[str, object] = {
             "default": {"default_branch": "main"},
             "compare": {"status": "ahead"},
-            "pulls": [_pull()],
+            "pulls": [[_pull()]],
             "statuses": [[_status()]],
         }
         self.answers.update(answers)
@@ -80,9 +81,12 @@ class FakeApi:
 
 
 def _check(api: FakeApi) -> str | None:
-    return check_release_approval(
-        GhApiReader(api), repo=REPOSITORY, release_commit=MERGE
-    )
+    try:
+        return check_release_approval(
+            GhApiReader(api), repo=REPOSITORY, release_commit=MERGE
+        )
+    except Exception as error:  # noqa: BLE001 -- the check must answer, never raise
+        pytest.fail(f"the check raised {type(error).__name__} instead of answering")
 
 
 def test_a_merge_commit_whose_pull_request_head_is_approved_is_approved() -> None:
@@ -90,9 +94,7 @@ def test_a_merge_commit_whose_pull_request_head_is_approved_is_approved() -> Non
     assert _check(api) is None
     statuses_path = next(c[2] for c in api.calls if "/statuses" in c[2])
     assert f"/commits/{HEAD}/statuses" in statuses_path
-    assert f"/commits/{MERGE}/pulls" in next(
-        c[2] for c in api.calls if c[2].endswith("/pulls")
-    )
+    assert any(f"/commits/{MERGE}/pulls?" in c[2] for c in api.calls)
 
 
 def test_the_approval_is_read_at_the_head_never_at_the_merge_commit() -> None:
@@ -104,14 +106,24 @@ def test_the_approval_is_read_at_the_head_never_at_the_merge_commit() -> None:
 @pytest.mark.parametrize(
     "pulls",
     [
+        [[]],
         [],
-        [_pull(merge_commit_sha=OTHER)],
-        [_pull(merged_at=None)],
-        [_pull(base={"ref": "other"})],
-        [_pull(), _pull(head={"sha": OTHER}, number=2)],
-        [_pull(head={})],
-        [{"number": 3}],
-        "not a list",
+        [[_pull(merge_commit_sha=OTHER)]],
+        [[_pull(merged_at=None)]],
+        [[_pull(base={"ref": "other"})]],
+        [[_pull(), _pull(head={"sha": OTHER}, number=2)]],
+        # two distinct pull requests that share ONE head are still two
+        [[_pull(), _pull(number=2)]],
+        # a second qualifying pull request on a LATER page is still a second one
+        [[_pull()], [_pull(number=2, head={"sha": OTHER})]],
+        [[_pull(head={})]],
+        [[{"number": 3}]],
+        [[_pull(number=True)]],
+        [[_pull(number="1")]],
+        # a page that is not a list, whether first or later, fails closed
+        ["not a page"],
+        [[_pull()], "not a page"],
+        "not pages",
     ],
 )
 def test_without_exactly_one_pull_request_merged_as_this_commit_it_is_not_approved(
@@ -121,7 +133,20 @@ def test_without_exactly_one_pull_request_merged_as_this_commit_it_is_not_approv
 
 
 def test_two_listings_of_the_same_pull_request_are_one_pull_request() -> None:
-    assert _check(FakeApi(pulls=[_pull(), _pull()])) is None
+    assert _check(FakeApi(pulls=[[_pull(), _pull()]])) is None
+    assert _check(FakeApi(pulls=[[_pull()], [_pull()]])) is None
+
+
+def test_only_one_qualifying_pull_request_among_other_pages_is_enough() -> None:
+    other = _pull(number=9, merge_commit_sha=OTHER)
+    assert _check(FakeApi(pulls=[[other], [_pull()]])) is None
+
+
+def test_the_pull_request_list_is_read_over_every_page() -> None:
+    api = FakeApi()
+    _check(api)
+    pulls_call = next(c for c in api.calls if c[2].split("?")[0].endswith("/pulls"))
+    assert "--paginate" in pulls_call and "--slurp" in pulls_call
 
 
 @pytest.mark.parametrize(

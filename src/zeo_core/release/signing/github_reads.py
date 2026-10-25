@@ -61,23 +61,47 @@ class GhApiReader:
         raise GitHubReadError("the comparison has no readable status")
 
     def pr_head_of_merge_commit(self, repo: str, commit: str) -> str | None:
-        """The head of the one pull request merged as ``commit`` into main."""
+        """The head of the ONE distinct pull request merged as ``commit`` into main.
+
+        Read over every page; pull requests are counted by NUMBER, not by head,
+        so two pull requests that share a head are two. The same pull request
+        listed twice is one.
+        """
         branch = self.default_branch(repo)
-        pulls = self._get(f"repos/{repo}/commits/{commit}/pulls")
-        if not isinstance(pulls, list):
-            raise GitHubReadError("the commit's pull requests are not a list")
-        heads = {
-            pull["head"]["sha"]
-            for pull in pulls
-            if isinstance(pull, dict)
-            and pull.get("merged_at")
-            and pull.get("merge_commit_sha") == commit
-            and isinstance(pull.get("base"), dict)
-            and pull["base"].get("ref") == branch
-            and isinstance(pull.get("head"), dict)
-            and isinstance(pull["head"].get("sha"), str)
-        }
-        return heads.pop() if len(heads) == 1 else None
+        pages = self._get(
+            f"repos/{repo}/commits/{commit}/pulls?per_page=100", "--paginate", "--slurp"
+        )
+        if not isinstance(pages, list):
+            raise GitHubReadError("the commit's pull requests are not a list of pages")
+        found: dict[int, str] = {}
+        for page in pages:
+            if not isinstance(page, list):
+                raise GitHubReadError(
+                    "a page of the commit's pull requests is not a list"
+                )
+            for pull in page:
+                if not isinstance(pull, dict):
+                    continue
+                number, head, base = (
+                    pull.get("number"),
+                    pull.get("head"),
+                    pull.get("base"),
+                )
+                if (
+                    isinstance(number, int)
+                    and not isinstance(number, bool)
+                    and pull.get("merged_at")
+                    and pull.get("merge_commit_sha") == commit
+                    and isinstance(base, dict)
+                    and base.get("ref") == branch
+                    and isinstance(head, dict)
+                    and isinstance(head.get("sha"), str)
+                ):
+                    found.setdefault(number, head["sha"])
+        if len(found) != 1:
+            return None
+        (only,) = found.values()
+        return only
 
     def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
         """``context``'s statuses on ``commit``, newest first."""

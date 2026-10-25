@@ -330,8 +330,9 @@ Three checks are distinct, and `authenticated` is only the first:
 A successful `verify-event` makes no build eligible.
 
 - **Release authorization, the second check.** `echo '{"commit": "<40-hex>"}' | zeocore release check-approval`
-  finds the ONE pull request merged into the default branch whose
-  `merge_commit_sha` is exactly that commit, reads the council's `council/approve`
+  finds the ONE distinct pull request (counted by number, over every page of
+  GitHub's list) merged into the default branch whose `merge_commit_sha` is exactly
+  that commit, reads the council's `council/approve`
   status on that pull request's head, and answers `approved` only if the newest one
   is a success created by the adopted approver. It reads through `gh api` and
   writes nothing. No such pull request (also when the commit given is a branch head
