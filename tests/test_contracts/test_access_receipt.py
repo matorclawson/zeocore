@@ -27,6 +27,7 @@ NAMES = (
     "refuse-purpose.json",
     "refuse-receipt-bad-timestamp.json",
     "refuse-refused-receipt-with-view-fields.json",
+    "refuse-refused-outcome-wrong-state.json",
     "refuse-schema-v1.json",
     "refuse-served-null-view-hash.json",
     "refuse-served-without-view-hash.json",
@@ -109,3 +110,17 @@ def test_alias_schema_has_all_bounds() -> None:
     assert schema["additionalProperties"] is False
     assert schema["properties"]["reservation"]["minLength"] == 64
     assert schema["properties"]["view_length"]["anyOf"][0]["maximum"] == 4096
+
+
+def test_cli_refusal_receipt_roundtrip_has_no_absent_view_fields() -> None:
+    from zeo_core.cli.__main__ import _validate
+
+    raw = (FIXTURES / "valid-refused-tombstoned.json").read_bytes()
+    status, answer = _validate(["access.receipt-v2"], raw)
+    assert status == 0
+    value = answer["value"]
+    assert isinstance(value, dict)
+    assert not {"view_sha256", "view_length", "rights_class"} & value.keys()
+    echoed = json.dumps(value).encode()
+    status, repeated = _validate(["access.receipt-v2"], echoed)
+    assert status == 0 and repeated["value"] == value

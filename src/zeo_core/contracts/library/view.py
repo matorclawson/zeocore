@@ -51,7 +51,18 @@ def metadata(value: str) -> str:
     return value
 
 
-Metadata = Annotated[str, Field(min_length=1, max_length=256), AfterValidator(metadata)]
+Metadata = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=256,
+        description=(
+            "NFC metadata; UTF-8 byte and Unicode class checks require the validator."
+        ),
+        json_schema_extra={"x-maxUtf8Bytes": 256, "x-normalization": "NFC"},
+    ),
+    AfterValidator(metadata),
+]
 
 
 def citation_url(value: str) -> str:
@@ -76,8 +87,32 @@ def citation_url(value: str) -> str:
     return value
 
 
+# JSON Schema uses this ECMA-compatible pattern. Exact host length and all
+# semantic binding checks remain explicit code; extensions document byte bounds.
+URL_PATTERN = (
+    r"^(?!.*[@%?#\\])https://"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*"
+    r"(?:/[\x21-\x7e]*)?(?![\s\S])"
+)
+
+
 CitationUrl = Annotated[
-    str, Field(min_length=9, max_length=512), AfterValidator(citation_url)
+    str,
+    Field(
+        min_length=9,
+        max_length=512,
+        description=(
+            "Public https citation data; map, human and stored-byte "
+            "equality require explicit binding inputs."
+        ),
+        json_schema_extra={
+            "pattern": URL_PATTERN,
+            "x-maxUtf8Bytes": 512,
+            "x-hostMaxBytes": 253,
+        },
+    ),
+    AfterValidator(citation_url),
 ]
 
 

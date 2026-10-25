@@ -227,7 +227,7 @@ A change to these rules is a new `cli_protocol`, announced like a contract chang
 | `revolut.transaction-page` | Revolut `TransactionPage` |
 | `ui.result-card` | `UiCardResult`: `zeo.ui-result/v1` with one read-only card (zeocore-SOW-42); `zeo.ui-result/v1` names it too |
 | `proof.report` | Internal `ProofReport`, alias `zeo.proof-report/v1` (sow: zeocore-SOW-45). A valid structure is not verified supporting evidence or current clearance. |
-| `library.view-v2` | Metadata-only citation view, alias `zeo.library-view/v2`; strict 4096-byte input, no receipt pointer or content. |
+| `library.view-v2` | Metadata-only citation view, alias `zeo.library-view/v2`; strict 4096-byte input, no receipt pointer or content. NFC and UTF-8 byte limits require the validator; schema `x-maxUtf8Bytes` is descriptive, not standard JSON Schema enforcement. |
 | `access.receipt-v2` | Separate citation access receipt, alias `zeo.access-receipt/v2`; acyclic digest binds exact view bytes and a distinct-read reservation. Shape is not current-read permission. |
 
 The proof report is internal, not the library-owned outward proof-view. Its

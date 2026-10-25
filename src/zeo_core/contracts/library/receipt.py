@@ -10,7 +10,15 @@ import re
 from datetime import datetime
 from typing import Annotated, Any, Literal, Self, cast
 
-from pydantic import AfterValidator, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from zeo_core.contracts.library.view import (
     SHA256,
@@ -145,6 +153,12 @@ class AccessReceipt(Closed):
         if type(value) is not int:
             raise ValueError("integer_required")
         return value
+
+    @model_serializer(mode="wrap")
+    def wire(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Absent view fields stay absent, including the generic CLI echo."""
+        fields: dict[str, Any] = handler(self)
+        return {key: value for key, value in fields.items() if value is not None}
 
     @model_validator(mode="after")
     def binding(self) -> Self:
