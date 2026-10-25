@@ -20,6 +20,8 @@ JSON_SCHEMA_DIALECT: Final = "https://json-schema.org/draft/2020-12/schema"
 
 #: Stable name -> "module:attribute". Only shape lives here, never behaviour.
 SCHEMAS: Final[dict[str, str]] = {
+    "library.view-v2": "zeo_core.contracts.library.view:LibraryView",
+    "access.receipt-v2": "zeo_core.contracts.library.receipt:AccessReceipt",
     "connections.normalized-error": (
         "zeo_core.contracts.connections.errors:NormalizedError"
     ),
@@ -56,13 +58,15 @@ SCHEMAS: Final[dict[str, str]] = {
 #: of a UI result is ``zeo.ui-result/v1``; ``zeocore validate`` and ``zeocore schema``
 #: accept it for the one-card subset (zeocore-SOW-42).
 ALIASES: Final[dict[str, str]] = {
+    "zeo.library-view/v2": "library.view-v2",
+    "zeo.access-receipt/v2": "access.receipt-v2",
     "zeo.ui-result/v1": "ui.result-card",
     "zeo.proof-report/v1": "proof.report",
 }
 
 #: Contracts whose limits are properties of the bytes as received: ``zeocore
 #: validate`` hands them the raw stdin, not a parsed value.
-BYTE_CONTRACTS: Final = frozenset({"ui.result-card"})
+BYTE_CONTRACTS: Final = frozenset({"ui.result-card", "library.view-v2"})
 
 
 def resolve(name: str) -> str | None:
