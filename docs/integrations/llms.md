@@ -108,9 +108,18 @@ What the client does differently from the OpenAI one, from Moonshot's
 !!! warning "Plain chat only"
     The client returns the reply text. It does not carry Moonshot's
     `reasoning_content` or a tool-call round trip, which Moonshot requires to be
-    sent back in multi-turn tool use. Use it for plain and streaming chat, not
-    for tool calling. The managed `LLMIntegration` service does not discover
-    this provider yet; call `get_llm_client("moonshot")` directly.
+    sent back in multi-turn tool use. So it **refuses** `tools`, `functions` and
+    tool or function messages (a `ZeoIntegrationError`, before anything is sent),
+    and it reports a reply that is empty, cut at the token limit
+    (`finish_reason="length"`) or ended as a tool call as a `ZeoApiError`, never
+    as an empty success. K3.1 Pro always thinks, so a very small `max_tokens` can
+    leave no reply: raise it. The base URL must be `https`. The managed
+    `LLMIntegration` service does not discover this provider yet; call
+    `get_llm_client("moonshot")` directly.
+
+!!! note "Your prompts leave your machine"
+    Prompts and replies pass to Moonshot, a third party. Its terms and data
+    handling apply to them, not ZeoCore's. Do not send what you may not share.
 
 No test in this repository calls the real API. A first live check needs your own
 key and a small output limit, and its result is yours to record.

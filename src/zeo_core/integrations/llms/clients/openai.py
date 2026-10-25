@@ -185,6 +185,7 @@ class OpenAIClient(LLMClient):
         options: LLMOptions,
         callback: Callable[[str], None] | None = None,
     ) -> IntegrationResult[str]:
+        self._check_request(messages, options)
         try:
             client = self._get_client()
 
@@ -229,6 +230,12 @@ class OpenAIClient(LLMClient):
         except Exception as e:
             raise self._convert_error(e) from e
 
+    def _check_request(self, messages: list[ChatMessage], options: LLMOptions) -> None:
+        """Refuse a request this provider cannot serve; OpenAI refuses nothing here."""
+
+    def _check_ending(self, text: str, finish_reason: str | None) -> None:
+        """Refuse a reply that ended in a way this provider treats as a failure."""
+
     def _provider_params(self, params: dict[str, Any], model: str) -> dict[str, Any]:
         """The request parameters for ``model``; a compatible provider reshapes them."""
         return params
@@ -245,6 +252,7 @@ class OpenAIClient(LLMClient):
         Handle streaming responses from the OpenAI API.
         """
         collected_content = []
+        finish_reason: str | None = None
 
         try:
             # Remove stream parameter if it exists in params to avoid duplication
@@ -265,6 +273,7 @@ class OpenAIClient(LLMClient):
 
                     delta = choices[0].get("delta", {})
                     content = delta.get("content")
+                    finish_reason = choices[0].get("finish_reason") or finish_reason
                 else:
                     if not hasattr(chunk, "choices") or not chunk.choices:
                         continue
@@ -275,13 +284,19 @@ class OpenAIClient(LLMClient):
                         else {}
                     )
                     content = delta.content if hasattr(delta, "content") else None
+                    finish_reason = (
+                        getattr(chunk.choices[0], "finish_reason", None)
+                        or finish_reason
+                    )
 
                 if content:
                     collected_content.append(content)
                     if callback:
                         callback(content)
 
-            return "".join(collected_content)
+            text = "".join(collected_content)
+            self._check_ending(text, finish_reason)
+            return text
         except Exception as e:
             # Convert OpenAI errors to ZeoApiError
             raise self._convert_error(e) from e
@@ -317,15 +332,19 @@ class OpenAIClient(LLMClient):
         else:
             choices = getattr(response, "choices", [])
         if not choices:
+            self._check_ending("", None)
             return ""
 
         # Get the first choice's message
         first_choice = choices[0]
         if isinstance(first_choice, dict):
             message = first_choice.get("message", None)
+            finish_reason = first_choice.get("finish_reason")
         else:
             message = getattr(first_choice, "message", None)
+            finish_reason = getattr(first_choice, "finish_reason", None)
         if not message:
+            self._check_ending("", finish_reason)
             return ""
 
         # Get the content of the message
@@ -333,7 +352,9 @@ class OpenAIClient(LLMClient):
             content = message.get("content", None)
         else:
             content = getattr(message, "content", None)
-        return content if content is not None else ""
+        text = content if content is not None else ""
+        self._check_ending(text, finish_reason)
+        return text
 
     def _convert_error(self, error: Exception) -> ZeoApiError:
         """
