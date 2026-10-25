@@ -21,6 +21,11 @@ until interrupted (ZEOCORE-SOW-24).
 It authenticates the bytes only: ``authenticated`` is not release authorization.
 It needs ``gh`` and network access; when it cannot complete it holds.
 
+``check-approval`` says whether a release commit was approved, from
+``{"commit": "<40-hex>"}``: it finds the one pull request merged as that
+commit and reads the council's approval on that pull request's head. It is a
+separate check from ``verify-event``: neither implies the other.
+
 ``tree-digest`` prints a bundle's canonical tree digest from ``{"path"}``, the
 ``unsigned_tree_sha256`` a build's receipt and its ``release.yaml`` record
 (ZEOCORE-SOW-32 §1.2), from the same code the signing step uses.
@@ -87,11 +92,14 @@ from zeo_core.release.signing import (
 )
 from zeo_core.release.signing.admission import GhCli, Limits
 from zeo_core.release.signing.event_attestation import (
+    REPOSITORY,
     Expected,
     GhResult,
     GhRunner,
     authenticate_published_event,
+    check_release_approval,
 )
+from zeo_core.release.signing.github_reads import GhApiReader
 from zeo_core.release.signing.service import (
     SigningService,
     Whois,
@@ -146,6 +154,7 @@ _FIELDS: Final = {
     "receive": {"manifest", "response", "work_dir"},
     "tree-digest": {"path"},
     "verify-event": {"event"},
+    "check-approval": {"commit"},
 }
 #: Fields a verb may also take. ``inventory`` is the file of a reviewed build
 #: inventory, for a manifest with ``pins: inventory``; ``inventory_path`` is
@@ -192,6 +201,25 @@ def _verify_event(request: dict[str, str], gh: GhRunner) -> Answer:
     if result.commit is not None:
         body["commit"] = result.commit
     return (EXIT_DONE if result.status == "authenticated" else EXIT_HELD), body
+
+
+def _check_approval(request: dict[str, str], gh: GhRunner) -> Answer:
+    """Was this release commit approved? Separate from ``verify-event``."""
+    commit = request["commit"]
+    if len(commit) != 40 or set(commit) - set("0123456789abcdef"):
+        return invalid(own_action("commit is the 40-hex release commit"))
+    reason = check_release_approval(
+        GhApiReader(gh), repo=REPOSITORY, release_commit=commit
+    )
+    body: dict[str, object] = {
+        "ok": reason is None,
+        "outcome": "release_approved" if reason is None else "release_not_approved",
+        "status": "approved" if reason is None else "refused",
+        "message": reason
+        or "the council approved the head of the pull request merged as this commit",
+        "commit": commit,
+    }
+    return (EXIT_DONE if reason is None else EXIT_HELD), body
 
 
 def _refused(error: PackError) -> Answer:
@@ -605,6 +633,8 @@ def _standalone(
         return _tree(request)
     if verb == "verify-event":
         return _verify_event(request, gh)
+    if verb == "check-approval":
+        return _check_approval(request, gh)
     return None
 
 
