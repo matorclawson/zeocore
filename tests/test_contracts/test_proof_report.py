@@ -711,3 +711,41 @@ def test_model_valid_report_can_exceed_cli_transport_cap() -> None:
         check=False,
     )
     assert result.returncode == 2
+
+
+def test_strict_byte_parser_depth_refusal_is_load_bearing() -> None:
+    from zeo_core.contracts.proof import parse_proof_report
+
+    assert (
+        parse_proof_report((FIXTURES / "valid-minimal.json").read_bytes()).proof_id
+        == document()["proof_id"]
+    )
+    deep = b"[" * 1_000_000 + b"0" + b"]" * 1_000_000
+    with pytest.raises(RecursionError):
+        json.loads(deep)
+    with pytest.raises(ValueError, match="^report nesting exceeds parser limit$"):
+        parse_proof_report(deep)
+    # Remove only the exception translation: the same input must then expose
+    # RecursionError, proving this is not an ordinary schema refusal.
+    tree = ast.parse(Path(module.__file__).read_text())
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "parse_proof_report"
+    )
+    guards = [node for node in function.body if isinstance(node, ast.Try)]
+    assert len(guards) == 1
+    guard = guards[0]
+    assert len(guard.handlers) == 1
+    assert isinstance(guard.handlers[0].type, ast.Name)
+    assert guard.handlers[0].type.id == "RecursionError"
+    function.body = [
+        child
+        for node in function.body
+        for child in (node.body if node is guard else [node])
+    ]
+    mutant = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
+    namespace = dict(vars(module))
+    exec(compile(mutant, "<drop-depth-translation>", "exec"), namespace)  # noqa: S102 -- one fixed-source guard mutant
+    with pytest.raises(RecursionError):
+        namespace["parse_proof_report"](deep)
