@@ -293,7 +293,12 @@ def test_the_sandbox_stops_a_resource_embed_where_it_is_proven() -> None:
             "reading a local file (seen on 3.1.3 in the CI log of PR #126, run "
             "38449618130); zeocore never passes --embed-resources"
         )
-    assert _version() >= SANDBOX_COVERS_EMBED_FROM or sandboxed.returncode != 0
+    # No data was embedded (checked above). The sandbox must also have said so: a
+    # non-zero exit, or pandoc's stated warning that it could not fetch the
+    # resource. Measured on 3.10 and 3.11 with this fixture: exit 0, no data:, and
+    # "[WARNING] Could not fetch resource <path>" on stderr. A silent exit 0 with
+    # no embed and no warning would mean the probe no longer measures the sandbox.
+    assert sandboxed.returncode != 0 or b"Could not fetch resource" in sandboxed.stderr
 
 
 class _Captured:
