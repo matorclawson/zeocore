@@ -25,15 +25,17 @@ from zeo_core.release.signing.inventory import APPROVER_USER_ID
 MERGE = "a" * 40
 HEAD = "b" * 40
 OTHER = "c" * 40
+REPO_ID = 1337139177
 NUMBER = 1
+MERGED_AT = "2026-10-25T00:00:00Z"
 
 
 def _pull(**changes: Any) -> dict[str, Any]:  # noqa: ANN401
     pull: dict[str, Any] = {
         "number": NUMBER,
-        "merged_at": "2026-10-25T00:00:00Z",
+        "merged_at": MERGED_AT,
         "merge_commit_sha": MERGE,
-        "base": {"ref": "main"},
+        "base": {"ref": "main", "repo": {"full_name": REPOSITORY}},
         "head": {"sha": HEAD},
     }
     pull.update(changes)
@@ -44,8 +46,16 @@ def _status(
     state: str = "success",
     creator: int | None = APPROVER_USER_ID,
     context: str = "council/approve",
+    description: str | None = f"apr1-{REPO_ID}-{NUMBER}-{HEAD}",
+    created_at: str | None = "2026-10-24T23:59:00Z",
 ) -> dict[str, Any]:
-    return {"context": context, "state": state, "creator": {"id": creator}}
+    return {
+        "context": context,
+        "state": state,
+        "creator": {"id": creator},
+        "description": description,
+        "created_at": created_at,
+    }
 
 
 class FakeApi:
@@ -53,7 +63,7 @@ class FakeApi:
 
     def __init__(self, **answers: object) -> None:
         self.answers: dict[str, object] = {
-            "default": {"default_branch": "main"},
+            "default": {"default_branch": "main", "id": REPO_ID},
             "compare": {"status": "ahead"},
             "pulls": [[_pull()]],
             "statuses": [[_status()]],
@@ -110,7 +120,11 @@ def test_the_approval_is_read_at_the_head_never_at_the_merge_commit() -> None:
         [],
         [[_pull(merge_commit_sha=OTHER)]],
         [[_pull(merged_at=None)]],
-        [[_pull(base={"ref": "other"})]],
+        [[_pull(base={"ref": "other", "repo": {"full_name": REPOSITORY}})]],
+        # the pull request must have been merged into THIS repository
+        [[_pull(base={"ref": "main", "repo": {"full_name": "someone/else"}})]],
+        [[_pull(base={"ref": "main"})]],
+        [[_pull(base={"ref": "main", "repo": None})]],
         [[_pull(), _pull(head={"sha": OTHER}, number=2)]],
         # two distinct pull requests that share ONE head are still two
         [[_pull(), _pull(number=2)]],
@@ -270,3 +284,34 @@ def test_the_verb_takes_no_other_field() -> None:
         ["check-approval"], json.dumps({"commit": MERGE, "repo": "x/y"}).encode()
     )
     assert status == EXIT_INVALID
+
+
+# --- the approval's own record: repository id, description, date, branch ---
+
+
+def test_the_status_must_name_this_repository_pull_request_and_head() -> None:
+    for description in (
+        None,
+        f"apr1-{REPO_ID + 1}-{NUMBER}-{HEAD}",
+        f"apr1-{REPO_ID}-{NUMBER + 1}-{HEAD}",
+        f"apr1-{REPO_ID}-{NUMBER}-{OTHER}",
+        f"apr2-{REPO_ID}-{NUMBER}-{HEAD}",
+    ):
+        assert _check(FakeApi(statuses=[[_status(description=description)]]))
+
+
+def test_an_approval_later_than_the_merge_or_undated_is_not_approval() -> None:
+    assert _check(FakeApi(statuses=[[_status(created_at="2026-10-25T00:00:01Z")]]))
+    assert _check(FakeApi(statuses=[[_status(created_at=None)]]))
+    assert _check(FakeApi(statuses=[[_status(created_at=MERGED_AT)]])) is None
+
+
+def test_a_default_branch_that_is_not_main_is_not_approved() -> None:
+    api = FakeApi(default={"default_branch": "develop", "id": REPO_ID})
+    assert "main" in (_check(api) or "")
+
+
+@pytest.mark.parametrize("identifier", [None, "1", True, 1.5])
+def test_a_repository_without_a_numeric_id_is_not_approved(identifier: object) -> None:
+    api = FakeApi(default={"default_branch": "main", "id": identifier})
+    assert _check(api)

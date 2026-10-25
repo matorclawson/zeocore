@@ -268,21 +268,41 @@ class GitHubReadError(RuntimeError):
     """A GitHub read could not be completed or was not what was expected."""
 
 
+@dataclass(frozen=True)
+class MergedPull:
+    """The one pull request merged AS a release commit."""
+
+    number: int
+    head: str
+    merged_at: str  # RFC 3339 UTC, as GitHub prints it
+
+
 class MergeReads(Protocol):
     """GitHub reads that map a release commit to the pull request it merged."""
 
     def default_branch(self, repo: str) -> str: ...
 
+    def repo_id(self, repo: str) -> int: ...
+
     def is_ancestor(self, repo: str, commit: str, branch: str) -> bool: ...
 
-    def pr_head_of_merge_commit(self, repo: str, commit: str) -> str | None:
-        """The head commit of the one pull request merged as ``commit``; None
-        when there is not exactly one such pull request."""
+    def merged_pull(self, repo: str, commit: str) -> MergedPull | None:
+        """The one pull request merged as ``commit`` into the default branch;
+        None when there is not exactly one distinct such pull request."""
         ...
 
     def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
         """``context``'s statuses on ``commit``, NEWEST FIRST."""
         ...
+
+
+DEFAULT_BRANCH: Final = "main"
+
+
+def approval_description(repo_id: int, pull: MergedPull) -> str:
+    """What the approver's status says it approved: this repository, pull request
+    and head (``apr1-<repo id>-<pull number>-<head>``)."""
+    return f"apr1-{repo_id}-{pull.number}-{pull.head}"
 
 
 def check_release_approval(
@@ -296,25 +316,38 @@ def check_release_approval(
 
     The release commit is a merge commit made by the merger; the council's
     approval is on the pull request's HEAD, never on the merge commit, so the
-    head is found first. Authenticity of the event does not imply this.
+    pull request is found first. The newest ``council/approve`` status on that
+    head must be a success by the adopted approver, must say it approved this
+    repository, pull request and head, and must not be later than the merge.
+    Authenticity of the event does not imply any of this.
     """
     try:
         branch = github.default_branch(repo)
+        if branch != DEFAULT_BRANCH:
+            return f"the default branch is not {DEFAULT_BRANCH}"
         if not github.is_ancestor(repo, release_commit, branch):
             return "the release commit is not on the default branch"
-        head = github.pr_head_of_merge_commit(repo, release_commit)
-        if head is None:
+        pull = github.merged_pull(repo, release_commit)
+        if pull is None:
             return "no single merged pull request has this commit as its merge commit"
-        statuses: list[Status] = github.approval_statuses(repo, head, APPROVE_CONTEXT)
+        repo_id = github.repo_id(repo)
+        statuses: list[Status] = github.approval_statuses(
+            repo, pull.head, APPROVE_CONTEXT
+        )
     except GitHubReadError as error:
         return f"a GitHub read did not complete, so nothing is approved: {error}"
-    if not statuses or (statuses[0].state, statuses[0].creator) != (
-        "success",
-        approver,
-    ):
+    newest = statuses[0] if statuses else None
+    if newest is None or (newest.state, newest.creator) != ("success", approver):
         return (
             f"no {APPROVE_CONTEXT} by the adopted approver on the pull request's head"
         )
+    if newest.description != approval_description(repo_id, pull):
+        return (
+            f"the {APPROVE_CONTEXT} status does not name this repository, "
+            "pull request and head"
+        )
+    if newest.created_at is None or newest.created_at > pull.merged_at:
+        return f"the {APPROVE_CONTEXT} status is not dated, or is later than the merge"
     return None
 
 
@@ -330,8 +363,11 @@ __all__ = [
     "Expected",
     "GhResult",
     "GhRunner",
+    "DEFAULT_BRANCH",
     "GitHubReadError",
     "MergeReads",
+    "MergedPull",
+    "approval_description",
     "authenticate_published_event",
     "check_release_approval",
     "gh_arguments",

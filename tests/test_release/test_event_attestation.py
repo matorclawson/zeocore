@@ -29,6 +29,8 @@ from zeo_core.release.signing.event_attestation import (
     Authentication,
     Expected,
     GhResult,
+    MergedPull,
+    approval_description,
     authenticate_published_event,
     check_release_approval,
     gh_arguments,
@@ -36,7 +38,6 @@ from zeo_core.release.signing.event_attestation import (
 from zeo_core.release.signing.event_auth import EVENT_SCHEMA, canonical
 from zeo_core.release.signing.inventory import (
     APPROVER_USER_ID,
-    ChangedFile,
     Status,
 )
 
@@ -339,58 +340,96 @@ def test_a_file_changed_during_verification_is_refused(tmp_path: Path) -> None:
 
 # --- the release commit is a merge commit; approval is on the PR head (M2-6) ---
 
+REPO_ID = 1337139177
+PULL = MergedPull(7, "h" * 40, "2026-10-25T01:00:00Z")
+
+
+def _approval(
+    pull: MergedPull = PULL,
+    repo_id: int = REPO_ID,
+    **changes: Any,  # noqa: ANN401
+) -> Status:
+    fields: dict[str, Any] = {
+        "state": "success",
+        "creator": APPROVER_USER_ID,
+        "description": approval_description(repo_id, pull),
+        "created_at": "2026-10-25T00:30:00Z",
+    }
+    fields.update(changes)
+    return Status(**fields)
+
 
 class FakeGitHub:
     def __init__(
-        self, head: str | None, statuses: list[Status], ancestor: bool = True
+        self,
+        pull: MergedPull | None,
+        statuses: list[Status],
+        ancestor: bool = True,
+        branch: str = "main",
     ) -> None:
-        self.head, self.statuses, self.ancestor = head, statuses, ancestor
+        self.pull, self.statuses, self.ancestor = pull, statuses, ancestor
+        self.branch = branch
         self.status_asked: list[str] = []
 
     def default_branch(self, repo: str) -> str:
-        return "main"
+        return self.branch
+
+    def repo_id(self, repo: str) -> int:
+        return REPO_ID
 
     def is_ancestor(self, repo: str, commit: str, branch: str) -> bool:
         return self.ancestor
 
-    def pr_head_of_merge_commit(self, repo: str, commit: str) -> str | None:
-        return self.head
+    def merged_pull(self, repo: str, commit: str) -> MergedPull | None:
+        return self.pull
 
     def approval_statuses(self, repo: str, commit: str, context: str) -> list[Status]:
         self.status_asked.append(commit)
         return self.statuses
 
-    def merged_pr_files(
-        self, repo: str, head: str, branch: str
-    ) -> list[ChangedFile] | None:
-        return None
-
-
-APPROVED = [Status("success", APPROVER_USER_ID)]
-
 
 def test_approval_is_read_at_the_pull_request_head_not_the_merge_commit() -> None:
-    github = FakeGitHub("h" * 40, APPROVED)
+    github = FakeGitHub(PULL, [_approval()])
     assert (
         check_release_approval(github, repo=REPOSITORY, release_commit=COMMIT) is None
     )
-    assert github.status_asked == ["h" * 40]
+    assert github.status_asked == [PULL.head]
+
+
+def test_an_approval_dated_exactly_at_the_merge_counts() -> None:
+    github = FakeGitHub(PULL, [_approval(created_at=PULL.merged_at)])
+    assert (
+        check_release_approval(github, repo=REPOSITORY, release_commit=COMMIT) is None
+    )
 
 
 @pytest.mark.parametrize(
     "github",
     [
-        FakeGitHub(None, APPROVED),
-        FakeGitHub("h" * 40, []),
-        FakeGitHub("h" * 40, [Status("success", 1)]),
-        FakeGitHub("h" * 40, [Status("failure", APPROVER_USER_ID)]),
-        FakeGitHub("h" * 40, APPROVED, ancestor=False),
+        FakeGitHub(None, [_approval()]),
+        FakeGitHub(PULL, []),
+        FakeGitHub(PULL, [_approval(creator=1)]),
+        FakeGitHub(PULL, [_approval(state="failure")]),
+        FakeGitHub(PULL, [_approval()], ancestor=False),
+        FakeGitHub(PULL, [_approval()], branch="develop"),
+        # the status must name THIS repository, pull request and head
+        FakeGitHub(PULL, [_approval(description=None)]),
+        FakeGitHub(PULL, [_approval(repo_id=1)]),
+        FakeGitHub(PULL, [_approval(pull=MergedPull(8, PULL.head, PULL.merged_at))]),
+        FakeGitHub(PULL, [_approval(pull=MergedPull(7, "x" * 40, PULL.merged_at))]),
+        # an approval that is later than the merge, or undated, authorizes nothing
+        FakeGitHub(PULL, [_approval(created_at="2026-10-25T01:00:01Z")]),
+        FakeGitHub(PULL, [_approval(created_at=None)]),
     ],
 )
 def test_an_unapproved_or_unmapped_release_commit_is_not_approved(
     github: FakeGitHub,
 ) -> None:
-    assert check_release_approval(github, repo=REPOSITORY, release_commit=COMMIT)
+    try:
+        reason = check_release_approval(github, repo=REPOSITORY, release_commit=COMMIT)
+    except Exception as error:  # noqa: BLE001 -- the check must answer, never raise
+        pytest.fail(f"the check raised {type(error).__name__} instead of answering")
+    assert reason
 
 
 def test_authenticity_alone_never_approves() -> None:
