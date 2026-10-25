@@ -562,9 +562,12 @@ def parse_proof_report(data: bytes) -> ProofReport:
     """
     if type(data) is not bytes:
         raise ValueError("expected exact UTF-8 bytes")
-    value = json.loads(
-        data.decode("utf-8", errors="strict"),
-        object_pairs_hook=_strict_pairs,
-        parse_constant=_refuse_constant,
-    )
-    return ProofReport.model_validate(value)
+    try:
+        value = json.loads(
+            data.decode("utf-8", errors="strict"),
+            object_pairs_hook=_strict_pairs,
+            parse_constant=_refuse_constant,
+        )
+        return ProofReport.model_validate(value)
+    except RecursionError:
+        raise ValueError("report nesting exceeds parser limit") from None

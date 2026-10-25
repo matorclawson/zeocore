@@ -34,7 +34,7 @@ JSON already, so `zeocore help` without `--json` answers the same.
 | `validate <name>` | yes | `{"ok": true, "value": …}`, the normalized value, or `{"ok": false, "errors": [{"loc": […], "type": …}]}` |
 | `digest` | yes | the sha256 of the value's RFC 8785 canonical bytes |
 | `login`, `logout`, `whoami`, `connections`, `invoke`, `artifact get` | see below | the ZEOconnect client, for a product running as its own service user; not for seats, which use `zeo` |
-| `release sign`, `release verify`, `release tree-digest`, `release verify-event` | yes | the shared signing step, a bundle's tree digest, and the GitHub attestation of a published release event; see [Sign and verify a release](../how-to/release-signing.md) |
+| `release sign`, `release verify`, `release tree-digest`, `release verify-event`, `release check-approval` | yes | the shared signing step, a bundle's tree digest, the GitHub attestation of a published release event, and whether a release commit was approved; see [Sign and verify a release](../how-to/release-signing.md) |
 | `release pypi plan \| admit \| apply \| approve \| reconcile \| verify` | yes | the PyPI adapter; see [Release to PyPI](../how-to/release-pypi.md) |
 
 ## Is this machine ready? `zeocore doctor`
