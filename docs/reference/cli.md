@@ -226,6 +226,22 @@ A change to these rules is a new `cli_protocol`, announced like a contract chang
 | `revolut.account` | Revolut `Account` |
 | `revolut.transaction-page` | Revolut `TransactionPage` |
 | `ui.result-card` | `UiCardResult`: `zeo.ui-result/v1` with one read-only card (zeocore-SOW-42); `zeo.ui-result/v1` names it too |
+| `proof.report` | Internal `ProofReport`, alias `zeo.proof-report/v1` (sow: zeocore-SOW-45). A valid structure is not verified supporting evidence or current clearance. |
+
+The proof report is internal, not the library-owned outward proof-view. Its
+`prf_` identity hashes RFC8785 of all immutable fields except `proof_id`; the
+returned-byte digest includes that field. The draft binding hashes RFC8785 of
+the exact four strings `from_name`, `subject`, `plain_text`, `html`, without
+Unicode normalization. Item/selection/RAW identifiers are format-checked opaque
+references, never resolved by this model. Markdown hashes bind exact LF UTF-8
+revision bytes, retained hashes exact RAW bytes, and artifact hashes their exact
+representation bytes. Unknown or unresolved evidence stays unchecked, never
+verified because its identifier parsed. Current lifecycle, stop/read outcomes
+and fresh receipts are separate: an unperformed check is `not_checked`.
+This static schema performs no reads or freshness checks
+and authorizes neither creating nor sending a draft. Metadata is NFC with pinned
+Unicode16 codepoint checks; a host predating Unicode16 conservatively refuses
+metadata characters unknown to its normalization database. Evidence is unchanged.
 
 - **`ui.result-card` is the one-card subset of `zeo.ui-result/v1`.** The wire tag
   `zeo.ui-result/v1` selects it in `zeocore validate` and `zeocore schema`. The document
@@ -259,3 +275,14 @@ A change to these rules is a new `cli_protocol`, announced like a contract chang
 `digest` is the sha256 of the value's [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)
 (JCS) canonical bytes, prefixed `sha256:`. Two parties that each canonicalize
 the same JSON value get the same digest without sharing code.
+
+Python consumers of untrusted proof-report bytes use
+`zeo_core.contracts.proof.parse_proof_report(data)`; it refuses duplicate keys,
+invalid UTF-8 and non-JSON constants before model validation. Direct
+`ProofReport.model_validate_json` is not the strict byte entry point. The caller
+must bound transport input. The CLI has its separate 1 MiB input cap; a report
+within all model field bounds can exceed it and cannot use the CLI transport.
+The `valid-maximal` fixture exercises populated fields, not every numeric bound.
+Excerpt-cache digests identify only the cached exact text; they do not establish
+its relation to a claim or a source span. That verification needs the pinned
+view bytes at the producer and is not performed by this data-only model.

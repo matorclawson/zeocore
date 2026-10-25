@@ -1,0 +1,110 @@
+{
+  "schema": "zeo.proof-report/v1",
+  "proof_id": "prf_c6d4af6314757f87d7e32e558ce7ada516008985309bc049a683eb1368e9d72d",
+  "producer": "dt-proofreader",
+  "created_at": "2026-10-24T20:00:00Z",
+  "sow": "zeocore-SOW-45",
+  "reviewer": {
+    "reviewer": "synthetic-reviewer",
+    "model": null,
+    "session": null,
+    "unavailable_reason": "synthetic offline fixture"
+  },
+  "subject": {
+    "draft_issue_digest": "50b702957f746dc25f06fd9f97e1daa70cca6ec7dab87b1bad4d6723c182b812",
+    "artifacts": [
+      {
+        "artifact_id": "plain",
+        "media_type": "text/plain",
+        "sha256": "7a468ce0892de5164176f6d766ab143cfc74bb6e4959a0c6533cbbcee1302f04"
+      }
+    ],
+    "selection_id": null,
+    "item_revisions": []
+  },
+  "claim_total": 501,
+  "inventory_complete": false,
+  "claims": [],
+  "checks": [
+    {
+      "check_id": "attribution",
+      "kind": "attribution",
+      "required": true,
+      "status": "passed",
+      "location": {
+        "view_sha256": "7a468ce0892de5164176f6d766ab143cfc74bb6e4959a0c6533cbbcee1302f04",
+        "start": {
+          "line": 1,
+          "column": 1
+        },
+        "end": {
+          "line": 1,
+          "column": 19
+        }
+      },
+      "reason": "Synthetic declared check, not live verification"
+    },
+    {
+      "check_id": "quote_budget",
+      "kind": "quote_budget",
+      "required": true,
+      "status": "passed",
+      "location": {
+        "view_sha256": "7a468ce0892de5164176f6d766ab143cfc74bb6e4959a0c6533cbbcee1302f04",
+        "start": {
+          "line": 1,
+          "column": 1
+        },
+        "end": {
+          "line": 1,
+          "column": 19
+        }
+      },
+      "reason": "Synthetic declared check, not live verification"
+    },
+    {
+      "check_id": "language",
+      "kind": "language",
+      "required": true,
+      "status": "passed",
+      "location": {
+        "view_sha256": "7a468ce0892de5164176f6d766ab143cfc74bb6e4959a0c6533cbbcee1302f04",
+        "start": {
+          "line": 1,
+          "column": 1
+        },
+        "end": {
+          "line": 1,
+          "column": 19
+        }
+      },
+      "reason": "Synthetic declared check, not live verification"
+    },
+    {
+      "check_id": "hs.style",
+      "kind": "house_style",
+      "required": true,
+      "status": "passed",
+      "location": {
+        "view_sha256": "7a468ce0892de5164176f6d766ab143cfc74bb6e4959a0c6533cbbcee1302f04",
+        "start": {
+          "line": 1,
+          "column": 1
+        },
+        "end": {
+          "line": 1,
+          "column": 19
+        }
+      },
+      "reason": "Synthetic declared check, not live verification"
+    }
+  ],
+  "findings": [],
+  "evidence_digests": [],
+  "per_item_quote_totals": [],
+  "excerpt_cache": [],
+  "house_style_sha256": "57ccec5e5c18d08dc1f94b16a500d29307748a022709cf0291bc368b5f01178b",
+  "scorer_runs": [],
+  "editorial_decision": "blocked",
+  "supersedes": null
+}
