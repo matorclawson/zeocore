@@ -11,6 +11,7 @@ from zeo_core.execution.runner import (
     AttemptError,
     SyncExecutionTarget,
 )
+from zeo_core.integrations.llms.errors import DispatchedReplyError
 from zeo_core.integrations.llms.models import ChatMessage, LLMOptions
 from zeo_core.integrations.llms.protocols import OneAttemptLLMProviderProtocol
 
@@ -44,6 +45,9 @@ def llm_chat_target(
             result = client.chat_once(messages, options)
         except ZeoApiError as error:
             raise AttemptError(_api_failure(error)) from error
+        except DispatchedReplyError as error:
+            # Sent and answered, so the attempt started; the reply is unusable.
+            raise AttemptError(FailureKind.MALFORMED_RESPONSE) from error
         except ZeoIntegrationError as error:
             raise AttemptError(FailureKind.PERMANENT, dispatch_started=False) from error
         if not result.success or result.content is None:

@@ -26,6 +26,7 @@ from typing import Any, ClassVar
 from zeo_core.core.errors import ZeoApiError, ZeoIntegrationError
 from zeo_core.integrations.core.results import IntegrationResult
 from zeo_core.integrations.llms.clients.openai import OpenAIClient
+from zeo_core.integrations.llms.errors import DispatchedReplyError
 from zeo_core.integrations.llms.models import ChatMessage, LLMOptions, RoleType
 
 MOONSHOT_API_BASE = "https://api.moonshot.ai/v1"
@@ -47,8 +48,9 @@ class MoonshotEndingError(ZeoApiError):
 
     ``chat`` retries a ``ZeoApiError``, and a retry would pay for the same
     cut-off reply again and repeat its text to a stream callback, so
-    ``MoonshotClient.chat_once`` re-raises it as a plain ``ZeoIntegrationError``,
-    which is not retried.
+    ``MoonshotClient.chat_once`` re-raises it as a ``DispatchedReplyError``
+    (a ``ZeoIntegrationError``, which is not retried, that also says the
+    request was sent).
     """
 
 
@@ -91,7 +93,7 @@ class MoonshotClient(OpenAIClient):
         try:
             return super().chat_once(messages, options, callback)
         except MoonshotEndingError as error:
-            raise ZeoIntegrationError(str(error), original_error=error) from error
+            raise DispatchedReplyError(str(error), original_error=error) from error
 
     def _check_request(self, messages: list[ChatMessage], options: LLMOptions) -> None:
         carries_tools = bool(options.tools or options.functions) or any(
