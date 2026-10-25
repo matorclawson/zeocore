@@ -171,6 +171,20 @@ def _validate(args: Sequence[str], stdin: bytes) -> Answer:
 
 def _validate_bytes_contract(name: str, stdin: bytes) -> Answer:
     """A contract with byte-level limits: the raw stdin is the document."""
+    if name == "library.view-v2":
+        from zeo_core.contracts.library.view import errors_of as library_errors
+        from zeo_core.contracts.library.view import validate_bytes as library_validate
+
+        if library_errors(stdin):
+            return EXIT_HELD, {
+                "ok": False,
+                "outcome": "invalid",
+                "errors": [{"loc": [], "type": "library_view_refused"}],
+            }
+        return OK, {
+            "ok": True,
+            "value": library_validate(stdin).model_dump(mode="json", by_alias=True),
+        }
     from zeo_core.contracts.ui import errors_of, validate_bytes
 
     errors = errors_of(stdin)
