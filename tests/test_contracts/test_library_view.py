@@ -14,6 +14,7 @@ import pytest
 
 from zeo_core.contracts.library.view import (
     CitationBinding,
+    LibraryView,
     ViewRefused,
     errors_of,
     item_ref,
@@ -119,6 +120,9 @@ def test_view_fixture(name: str) -> None:
             }
             assert item_ref(known["item_id"]) == known["expected_item_ref"]
         assert canonical_bytes(preimage) == known["canonical_utf8"].encode()
+        assert known["expected_item_ref"] == (
+            "ir_" + hashlib.sha256(known["canonical_utf8"].encode()).hexdigest()
+        )
         return
     # Context vectors carry inert contract inputs, not new outward wire fields.
     value: dict[str, Any] | None = None
@@ -128,8 +132,11 @@ def test_view_fixture(name: str) -> None:
         pass
     if isinstance(value, dict) and "binding" in value:
         view = validate_bytes(json.dumps(value["view"]).encode())
-        with pytest.raises(ViewRefused, match="^citation_mismatch$"):
+        if name.startswith("valid-"):
             validate_binding(view, CitationBinding(**value["binding"]))
+        else:
+            with pytest.raises(ViewRefused, match="^citation_mismatch$"):
+                validate_binding(view, CitationBinding(**value["binding"]))
     elif name.startswith("valid-"):
         view = validate_bytes(raw)
         assert view.producer == "dt-library"
@@ -198,3 +205,42 @@ def test_known_answer_is_independent_sha() -> None:
         "ir_" + hashlib.sha256(fixture["canonical_utf8"].encode()).hexdigest()
         == fixture["expected_item_ref"]
     )
+
+
+def test_nonfinite_refuses_before_model_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    known = validate_bytes((FIXTURES / "valid-citation-link-only.json").read_bytes())
+    calls: list[object] = []
+
+    def unexpected(value: object) -> LibraryView:
+        calls.append(value)
+        return known
+
+    monkeypatch.setattr(LibraryView, "model_validate", staticmethod(unexpected))
+    with pytest.raises(ViewRefused, match="^invalid_view$"):
+        validate_bytes((FIXTURES / "refuse-nonfinite.json").read_bytes())
+    assert calls == []
+
+
+def test_schema_url_pattern_and_code_only_byte_annotation() -> None:
+    import re
+
+    from zeo_core.cli.schemas import render_schema
+
+    schema = render_schema("library.view-v2")
+    publisher = schema["$defs"]["Attribution"]["properties"]["publisher"]
+    assert publisher["maxLength"] == 256
+    assert publisher["x-maxUtf8Bytes"] == 256
+    citation = schema["$defs"]["Citation"]["properties"]["url"]
+    pattern = re.compile(citation["pattern"])
+    assert pattern.search("https://example.org/article")
+    for url in [
+        "http://example.org/a",
+        "https://example.org/%40",
+        "https://EXAMPLE.org/a",
+        "https://example.org./a",
+        "https://example.org/a?x",
+        "https://example.org/a\n",
+    ]:
+        assert not pattern.search(url)

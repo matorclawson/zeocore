@@ -7,10 +7,13 @@
           "$ref": "#/$defs/Citation"
         },
         "publisher": {
+          "description": "NFC metadata; UTF-8 byte and Unicode class checks require the validator.",
           "maxLength": 256,
           "minLength": 1,
           "title": "Publisher",
-          "type": "string"
+          "type": "string",
+          "x-maxUtf8Bytes": 256,
+          "x-normalization": "NFC"
         },
         "publisher_map_sha256": {
           "maxLength": 64,
@@ -39,10 +42,14 @@
           "type": "string"
         },
         "url": {
+          "description": "Public https citation data; map, human and stored-byte equality require explicit binding inputs.",
           "maxLength": 512,
           "minLength": 9,
+          "pattern": "^(?!.*[@%?#\\\\])https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*(?:/[\\x21-\\x7e]*)?(?![\\s\\S])",
           "title": "Url",
-          "type": "string"
+          "type": "string",
+          "x-hostMaxBytes": 253,
+          "x-maxUtf8Bytes": 512
         }
       },
       "required": [

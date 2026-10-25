@@ -297,10 +297,13 @@
       "type": "string"
     },
     "reader": {
+      "description": "NFC metadata; UTF-8 byte and Unicode class checks require the validator.",
       "maxLength": 256,
       "minLength": 1,
       "title": "Reader",
-      "type": "string"
+      "type": "string",
+      "x-maxUtf8Bytes": 256,
+      "x-normalization": "NFC"
     },
     "reservation": {
       "maxLength": 64,
