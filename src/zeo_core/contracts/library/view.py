@@ -153,8 +153,8 @@ def validate_bytes(raw: bytes) -> LibraryView:
             parse_constant=_constant,
         )
         return LibraryView.model_validate(value)
-    except (ValueError, UnicodeError, RecursionError) as error:
-        raise ViewRefused("invalid_view") from error
+    except (ValueError, UnicodeError, RecursionError):
+        raise ViewRefused("invalid_view") from None
 
 
 def errors_of(raw: bytes) -> list[dict[str, Any]]:
