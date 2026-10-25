@@ -1,0 +1,395 @@
+{
+  "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/access.receipt-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "view_sha256"
+              ]
+            },
+            {
+              "required": [
+                "view_length"
+              ]
+            },
+            {
+              "required": [
+                "rights_class"
+              ]
+            }
+          ]
+        }
+      },
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "served"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rights_class": {
+            "type": "string"
+          },
+          "state": {
+            "const": "ready"
+          },
+          "view_length": {
+            "type": "integer"
+          },
+          "view_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "view_sha256",
+          "view_length",
+          "rights_class"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "not_found"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "not_found"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "not_retained"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "not_found"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "tombstoned"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "tombstoned"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "withdrawn"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "withdrawn"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "not_ready"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "not_ready"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "unavailable"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "unavailable"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "digest_mismatch"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "inconsistent"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "kind_refused"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "inconsistent"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "use_mismatch"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "inconsistent"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "receipt_mismatch"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "inconsistent"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "citation_mismatch"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "inconsistent"
+          }
+        }
+      }
+    }
+  ],
+  "description": "Shape and digest integrity only; never proof a live F.8 read occurred.",
+  "properties": {
+    "as_of": {
+      "maxLength": 20,
+      "minLength": 20,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+      "title": "As Of",
+      "type": "string"
+    },
+    "code_points_charged": {
+      "const": 0,
+      "title": "Code Points Charged",
+      "type": "integer"
+    },
+    "evaluated_at": {
+      "maxLength": 20,
+      "minLength": 20,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+      "title": "Evaluated At",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 68,
+      "minLength": 68,
+      "pattern": "^rcp_[0-9a-f]{64}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "item_ref": {
+      "maxLength": 67,
+      "minLength": 67,
+      "pattern": "^ir_[0-9a-f]{64}$",
+      "title": "Item Ref",
+      "type": "string"
+    },
+    "markdown_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Markdown Sha256",
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "served",
+        "not_found",
+        "not_retained",
+        "tombstoned",
+        "withdrawn",
+        "not_ready",
+        "unavailable",
+        "digest_mismatch",
+        "kind_refused",
+        "use_mismatch",
+        "receipt_mismatch",
+        "citation_mismatch"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "purpose": {
+      "const": "citation_link",
+      "title": "Purpose",
+      "type": "string"
+    },
+    "reader": {
+      "description": "NFC metadata; UTF-8 byte and Unicode class checks require the validator.",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Reader",
+      "type": "string",
+      "x-maxUtf8Bytes": 256,
+      "x-normalization": "NFC"
+    },
+    "reservation": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Reservation",
+      "type": "string"
+    },
+    "rights_class": {
+      "anyOf": [
+        {
+          "enum": [
+            "citation_link_only",
+            "operator_owned"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rights Class"
+    },
+    "schema": {
+      "const": "zeo.access-receipt/v2",
+      "title": "Schema",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "ready",
+        "withdrawn",
+        "tombstoned",
+        "unavailable",
+        "not_ready",
+        "not_found",
+        "inconsistent"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "view_length": {
+      "anyOf": [
+        {
+          "maximum": 4096,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "View Length"
+    },
+    "view_sha256": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "View Sha256"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "reservation",
+    "reader",
+    "purpose",
+    "item_ref",
+    "markdown_sha256",
+    "state",
+    "as_of",
+    "evaluated_at",
+    "outcome",
+    "code_points_charged"
+  ],
+  "title": "AccessReceipt",
+  "type": "object"
+}
