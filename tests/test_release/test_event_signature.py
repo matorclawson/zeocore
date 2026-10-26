@@ -502,8 +502,8 @@ def test_a_missing_file_is_held_never_authenticated(
 
 def _block_cryptography(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in [n for n in sys.modules if n.split(".")[0] == "cryptography"]:
-        monkeypatch.setitem(sys.modules, name, None)  # type: ignore[arg-type]
-    monkeypatch.setitem(sys.modules, "cryptography", None)  # type: ignore[arg-type]
+        monkeypatch.setitem(sys.modules, name, None)
+    monkeypatch.setitem(sys.modules, "cryptography", None)
 
 
 def test_a_missing_package_is_held_with_the_install_hint(
@@ -544,7 +544,9 @@ class _NoGh:
 
 
 def _verb(
-    tmp_path: Path, gh: _NoGh | None = None, **request: str
+    tmp_path: Path,
+    fields: dict[str, str] | None = None,
+    gh: _NoGh | None = None,
 ) -> tuple[int, dict[str, Any]]:
     document = _event()
     body = {
@@ -555,7 +557,7 @@ def _verb(
         "repository": REPO,
         "tag": TAG,
     }
-    body.update(request)
+    body.update(fields or {})
     status, answer = make_command(gh=gh or _NoGh())(
         ["verify-event"], json.dumps(body).encode()
     )
@@ -564,7 +566,7 @@ def _verb(
 
 def test_the_verb_refuses_the_test_key_and_never_calls_gh(tmp_path: Path) -> None:
     gh = _NoGh()
-    status, answer = _verb(tmp_path, gh)
+    status, answer = _verb(tmp_path, gh=gh)
     assert (status, answer["status"], answer["outcome"]) == (
         EXIT_HELD,
         "refused",
@@ -596,7 +598,7 @@ def test_the_verb_takes_no_time_and_uses_the_system_clock(
         "pinned_key",
     )
     assert abs((seen[0] - datetime.now(UTC)).total_seconds()) < 60
-    status, answer = _verb(tmp_path, now="2026-02-01T00:00:00Z")
+    status, answer = _verb(tmp_path, {"now": "2026-02-01T00:00:00Z"})
     assert status == EXIT_INVALID
 
 
@@ -610,7 +612,7 @@ def test_the_verb_takes_no_time_and_uses_the_system_clock(
 def test_an_unknown_mechanism_is_an_invalid_request(
     tmp_path: Path, request_fields: dict[str, str]
 ) -> None:
-    status, answer = _verb(tmp_path, **request_fields)
+    status, answer = _verb(tmp_path, request_fields)
     assert (status, answer["outcome"]) == (EXIT_INVALID, "invalid_request")
     assert "github_attestation or pinned_key" in answer["message"]
 
