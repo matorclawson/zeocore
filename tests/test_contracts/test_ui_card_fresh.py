@@ -1,8 +1,9 @@
 """zeocore-SOW-46: the ``ui.result-card-fresh`` profile, vector by vector.
 
-The vectors are files in ``fixtures/ui_result_card/fresh/`` so a consumer can run the same
-ones: every ``valid-*`` file is accepted, every ``refused-*`` file is refused, by the model,
-the byte entry and the CLI alike. The default profile must keep accepting what it accepted.
+The vectors are files in ``fixtures/ui_result_card/fresh/`` so a consumer can run the
+same ones: every ``valid-*`` file is accepted and every ``refused-*`` file is refused,
+by the model, the byte entry and the CLI alike. The default profile must keep
+accepting what it accepted.
 """
 
 from __future__ import annotations

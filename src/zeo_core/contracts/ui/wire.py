@@ -166,7 +166,7 @@ def _loc(parts: tuple[str | int, ...]) -> tuple[str | int, ...]:
 
 
 def _model(profile: Profile) -> type[UiCardResult]:
-    """The model of ``profile``: ``fresh`` requires the card's snapshot (zeocore-SOW-46)."""
+    """The model of ``profile``; ``fresh`` requires the snapshot (zeocore-SOW-46)."""
     return UiFreshCardResult if profile == "fresh" else UiCardResult
 
 
