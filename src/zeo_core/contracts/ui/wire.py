@@ -166,8 +166,15 @@ def _loc(parts: tuple[str | int, ...]) -> tuple[str | int, ...]:
 
 
 def _model(profile: Profile) -> type[UiCardResult]:
-    """The model of ``profile``; ``fresh`` requires the snapshot (zeocore-SOW-46)."""
-    return UiFreshCardResult if profile == "fresh" else UiCardResult
+    """The model of ``profile``; ``fresh`` requires the snapshot (zeocore-SOW-46).
+
+    An unknown profile raises: a mistyped name must never fall back to the looser model.
+    """
+    if profile == "fresh":
+        return UiFreshCardResult
+    if profile == "default":
+        return UiCardResult
+    raise ValueError(f"unknown profile: {profile!r}")
 
 
 def validate_value(value: dict[str, Any], profile: Profile = "default") -> UiCardResult:

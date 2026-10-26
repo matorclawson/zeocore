@@ -453,6 +453,12 @@ class UiFreshCardResult(UiCardResult):
     validator checks shape and order only, reads no clock and does no I/O, so
     whether a card is stale now is the consumer's check (``expires_at`` can only
     shorten the host's policy).
+
+    Like the default contract, this JSON Schema is STRUCTURAL ONLY: it cannot say that
+    ``expires_at`` is later than ``observed_at`` or that ``observed_at`` is not after
+    ``produced_at``, and it does not check the byte limits or the text classes. A card
+    is accepted only when ``zeocore validate ui.result-card-fresh`` (or the Python
+    ``validate_bytes(raw, "fresh")``) accepts it; schema-valid is not accepted.
     """
 
     components: Annotated[list[FreshCardComponent], Field(min_length=1, max_length=1)]

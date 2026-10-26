@@ -16,6 +16,7 @@ import pytest
 from zeo_core.cli.__main__ import _validate_bytes_contract
 from zeo_core.cli.schemas import BYTE_CONTRACTS, render_schema, resolve
 from zeo_core.contracts.ui import UiRefused, errors_of, validate_bytes
+from zeo_core.contracts.ui.wire import validate_value
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ui_result_card"
 VECTORS = sorted((FIXTURES / "fresh").glob("*.json"))
@@ -110,3 +111,22 @@ def test_the_exported_schema_requires_the_snapshot_and_keeps_the_wire_tag() -> N
         "snapshot"
         not in render_schema("ui.result-card")["$defs"]["CardComponent"]["required"]
     )
+
+
+@pytest.mark.parametrize("profile", ["Fresh", "strict", "", "FRESH", " fresh"])
+def test_an_unknown_profile_raises_and_never_falls_back_to_the_default(
+    profile: str,
+) -> None:
+    raw = (FIXTURES / "fresh" / "refused-no-snapshot.json").read_bytes()
+    with pytest.raises(ValueError, match="unknown profile"):
+        validate_bytes(raw, profile)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="unknown profile"):
+        errors_of(raw, profile)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="unknown profile"):
+        validate_value(json.loads(raw), profile)  # type: ignore[arg-type]
+
+
+def test_the_schema_says_it_is_structural_only() -> None:
+    description = render_schema("ui.result-card-fresh")["description"]
+    assert "STRUCTURAL ONLY" in description
+    assert "schema-valid is not accepted" in description
