@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, Literal, Protocol
 
@@ -275,6 +277,8 @@ class MergedPull:
     number: int
     head: str
     merged_at: str  # RFC 3339 UTC, as GitHub prints it
+    base_ref: str  # the branch it was merged into
+    base_repo_id: int  # the repository it was merged into
 
 
 class MergeReads(Protocol):
@@ -297,6 +301,21 @@ class MergeReads(Protocol):
 
 
 DEFAULT_BRANCH: Final = "main"
+_UTC_SECOND: Final = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
+)
+
+
+def parse_utc(text: object) -> datetime | None:
+    """A strict RFC 3339 UTC time at second precision (``YYYY-MM-DDTHH:MM:SSZ``),
+    or None for anything else, the empty string included. Times are compared as
+    times, never as text."""
+    if not isinstance(text, str) or _UTC_SECOND.fullmatch(text) is None:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return None
 
 
 def approval_description(repo_id: int, pull: MergedPull) -> str:
@@ -346,7 +365,12 @@ def check_release_approval(
             f"the {APPROVE_CONTEXT} status does not name this repository, "
             "pull request and head"
         )
-    if newest.created_at is None or newest.created_at > pull.merged_at:
+    if (pull.base_ref, pull.base_repo_id) != (DEFAULT_BRANCH, repo_id):
+        return (
+            f"the pull request was not merged into {DEFAULT_BRANCH} of this repository"
+        )
+    approved, merged = parse_utc(newest.created_at), parse_utc(pull.merged_at)
+    if approved is None or merged is None or approved > merged:
         return f"the {APPROVE_CONTEXT} status is not dated, or is later than the merge"
     return None
 
@@ -368,6 +392,7 @@ __all__ = [
     "MergeReads",
     "MergedPull",
     "approval_description",
+    "parse_utc",
     "authenticate_published_event",
     "check_release_approval",
     "gh_arguments",
