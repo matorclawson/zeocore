@@ -47,12 +47,15 @@ MAX_TRUST_BYTES: Final = 4096
 MAX_EVENT_BYTES: Final = 1 << 20
 MAX_KEYS: Final = 2
 MAX_WINDOW: Final = timedelta(days=90)
-#: The public key (hex) and ``key_id`` of the seed that is a public constant of
-#: the tests. A trust file that pins either is refused by ``verify_pinned_event``.
+#: The public key (hex) and ``key_id`` of EVERY seed that is a public constant of
+#: the tests (anyone can sign with them). A trust file that pins any of them is
+#: refused by ``verify_pinned_event``.
 TEST_KEY_DENYLIST: Final = frozenset(
     {
         "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
         "rk_56475aa75463474c0285df5dbf2bcab7",
+        "29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7",
+        "rk_24f6ed6acbfe1009c030d7ca567c33ca",
     }
 )
 INSTALL_HINT: Final = "install the extra: pip install 'zeocore[release-keys]'"
@@ -105,6 +108,11 @@ def _hold(message: str) -> _Stop:
     return _Stop(
         PinnedAuthentication("held", "event_authentication_unavailable", message)
     )
+
+
+def _is_public(repository: str) -> bool:
+    """GitHub names are case-insensitive, so the refusal is too."""
+    return repository.lower() == PUBLIC_REPOSITORY.lower()
 
 
 def derive_key_id(public_key_hex: str) -> str:
@@ -181,7 +189,7 @@ def _parse_trust(
     repository = document["repository"]
     if not isinstance(repository, str) or _REPOSITORY.fullmatch(repository) is None:
         raise _refuse("the trust file's repository is not one owner/name")
-    if repository == PUBLIC_REPOSITORY:
+    if _is_public(repository):
         raise _refuse(_PUBLIC_MESSAGE)
     entries = document["keys"]
     if not isinstance(entries, list) or not 1 <= len(entries) <= MAX_KEYS:
@@ -227,7 +235,7 @@ def _identify(
     try:
         event = read_event(content)
         body = json.loads(event.payload)
-    except (EventRefusalError, ValueError) as error:
+    except (EventRefusalError, ValueError, RecursionError) as error:
         raise _refuse(str(error), "event_invalid") from None
     if body.get("repository") != repository:
         raise _refuse(
@@ -277,7 +285,7 @@ def _verify(
                 "name the tag or the commit you expect; the event has no freshness",
                 "expected_release_missing",
             )
-        if repository == PUBLIC_REPOSITORY:
+        if _is_public(repository):
             raise _refuse(_PUBLIC_MESSAGE)
         if _REPOSITORY.fullmatch(repository) is None:
             raise _refuse("repository is one owner/name")

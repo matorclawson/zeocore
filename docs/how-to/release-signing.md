@@ -383,8 +383,7 @@ $ echo '{"event": "release-event.json", "mechanism": "pinned_key",
     "trust": "trust/release-event-trust.json", "tag": "v1.2.3"}' | zeocore release verify-event
 ```
 
-- **Who signs.** The signer is the repository owner's own (for the Engine,
-  Root's, under a role account no agent can reach). It signs the domain string
+- **Who signs.** The signer is the repository owner's own (under a role account no agent can reach). It signs the domain string
   `zeo.release-event-signature/v1\nrelease_event_signing/v1\n` followed by the
   event's canonical payload, and writes `release-event.sig.json`
   (`zeo.release-event-signature/v1`, at most 512 bytes, no key inside).
@@ -403,9 +402,17 @@ $ echo '{"event": "release-event.json", "mechanism": "pinned_key",
   answer adds `mechanism: pinned_key` and the `key_id` that authenticated. Name
   the `tag` or `commit` you expect: the event has no freshness of its own.
 - **Where the pin comes from is the consumer's rule, not Core's.** Pass a trust
-  file read from the INSTALLED copy, never from the candidate release. A trust
-  file that differs from the installed one is held for the host owner's attended
-  step (bootstrap and rotation are theirs); a release must never change the pin.
+  file read from the INSTALLED copy, never from the candidate release. The
+  consumer's binding rule (F1) is that a candidate whose trust file differs from
+  the installed one installs only if ALL FOUR hold, else it is held: (a) it is
+  authenticated against the INSTALLED pin; (b) its approval
+  `apr1-<repo id>-<pull number>-<head>` is verified at install time, by a reader
+  with access to the private repository, as merged as the event's commit on
+  `main`; (c) the candidate trust file is byte-equal to the git blob
+  `<event commit>:<trust path>` read from GitHub, never from the archive; (d) no
+  step replaces every installed key (that is an attended step by the host owner).
+  F1 closes the swap of the PIN. It does not close the swap of ARTIFACTS: see
+  the residual below. Core cannot check F1; it never sees the installed copy.
 - **No revocation, and a residual.** There is no revocation list and no online
   check. Whoever holds a leaked signing key can sign any event inside the key's
   window; `authenticated` binds the bytes to the key holder, not the artifacts to

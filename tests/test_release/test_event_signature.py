@@ -47,7 +47,7 @@ from zeo_core.release.signing.event_signature import (
 
 FIXTURES = Path(__file__).parent / "fixtures" / "event_signature"
 SEED = bytes(range(32))  # the public test key
-SEED_TWO = bytes(range(32, 64))  # a second public test key, not on the denylist
+SEED_TWO = bytes(range(32, 64))  # a second public test key, also on the denylist
 REPO = "acme/private-engine"
 TAG = "v1.2.3"
 COMMIT = "b" * 40
@@ -62,6 +62,14 @@ def _public(seed: bytes) -> str:
     return key.public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
     ).hex()
+
+
+def _unknown(n: int) -> str:
+    """A public key no one holds a private key for (a hash, not a derived key):
+    the 'non-test' entry of a fixture, which can authenticate nothing."""
+    return hashlib.sha256(
+        f"zeocore fixture key with no private half {n}".encode()
+    ).hexdigest()
 
 
 def _sign(seed: bytes, payload: bytes) -> str:
@@ -106,6 +114,15 @@ def _key_entry(seed: bytes, **changes: str) -> dict[str, str]:
     return entry
 
 
+def _unknown_entry(n: int) -> dict[str, str]:
+    return _key_entry(bytes(32), **_unknown_fields(n))
+
+
+def _unknown_fields(n: int) -> dict[str, str]:
+    public = _unknown(n)
+    return {"public_key": public, "key_id": derive_key_id(public)}
+
+
 def _trust(*entries: dict[str, str], **changes: Any) -> bytes:  # noqa: ANN401
     document: dict[str, Any] = {
         "schema": TRUST_SCHEMA,
@@ -143,7 +160,7 @@ def build_fixtures() -> dict[str, bytes]:
     other = _event(repository="acme/other-engine")
     changed = dict(event)
     changed["notes_sha256"] = "6" * 64  # the payload changes, event_sha256 does not
-    three = [_key_entry(SEED), _key_entry(SEED_TWO), _key_entry(bytes(32))]
+    three = [_key_entry(SEED), _key_entry(SEED_TWO), _unknown_entry(2)]
     fixtures: dict[str, bytes] = {
         "event-valid.json": _json(event),
         "event-changed-payload-byte.json": _json(changed),
@@ -198,9 +215,7 @@ def build_fixtures() -> dict[str, bytes]:
         ),
         # A key that is not a test key first and the test key second, so the
         # denylist is shown to look at every entry, not the first.
-        "trust-denylisted-test-key.json": _trust(
-            _key_entry(SEED_TWO), _key_entry(SEED)
-        ),
+        "trust-denylisted-test-key.json": _trust(_unknown_entry(1), _key_entry(SEED)),
         "trust-too-long.json": _padded(_trust(), MAX_TRUST_BYTES + 1),
         "trust-extra-field.json": _json({**json.loads(_trust()), "x": "1"}),
         "trust-duplicate-key.json": _trust()[:-1] + b',"purpose":"x"}',
@@ -277,8 +292,14 @@ def test_each_fixture_is_what_this_file_builds() -> None:
 
 
 def test_the_denylist_is_what_the_seed_derives() -> None:
-    assert {_public(SEED), derive_key_id(_public(SEED))} == set(TEST_KEY_DENYLIST)
-    assert not {_public(SEED_TWO), derive_key_id(_public(SEED_TWO))} & TEST_KEY_DENYLIST
+    derived = {
+        value
+        for seed in (SEED, SEED_TWO)
+        for value in (_public(seed), derive_key_id(_public(seed)))
+    }
+    assert derived == set(TEST_KEY_DENYLIST)
+    for n in (1, 2):  # the keys with no private half are not test keys
+        assert not set(_unknown_fields(n).values()) & TEST_KEY_DENYLIST
 
 
 def test_the_cross_language_vector() -> None:
@@ -411,7 +432,7 @@ def test_the_public_function_refuses_the_test_key(tmp_path: Path) -> None:
 
 
 def test_the_denylist_refuses_either_entry_of_the_trust_file(tmp_path: Path) -> None:
-    both = _trust(_key_entry(SEED_TWO), _key_entry(SEED))
+    both = _trust(_unknown_entry(1), _key_entry(SEED))
     result = _run(tmp_path, trust=both, public=True)
     assert result.reason == "trust_key_is_a_test_key"
     assert _run(tmp_path, trust=both).status == "authenticated"  # empty denylist
@@ -666,3 +687,128 @@ def test_the_attestation_mechanism_may_be_named_and_is_unchanged(
         EXIT_HELD,
         "event_authentication_unavailable",
     )
+
+
+# --- guards the first review found unexercised ---
+
+
+def test_the_denylist_fixture_is_refused_by_the_public_function_only(
+    tmp_path: Path,
+) -> None:
+    event = FIXTURES / "event-valid.json"
+    signature = FIXTURES / "signature-valid.json"
+    trust = FIXTURES / "trust-denylisted-test-key.json"
+    public = verify_pinned_event(
+        event=event,
+        signature=signature,
+        trust=trust,
+        repository=REPO,
+        expected=Expected(tag=TAG),
+        now=lambda: NOW,
+    )
+    assert (public.status, public.reason) == ("refused", "trust_key_is_a_test_key")
+    private = _verify(
+        event=event,
+        signature=signature,
+        trust=trust,
+        repository=REPO,
+        expected=Expected(tag=TAG),
+        now=lambda: NOW,
+        denylist=EMPTY,
+    )
+    assert private.status == "authenticated"
+
+
+def test_the_second_test_key_is_on_the_denylist(tmp_path: Path) -> None:
+    both = _trust(_key_entry(SEED_TWO), _unknown_entry(1))
+    result = _run(tmp_path, trust=both, public=True)
+    assert result.reason == "trust_key_is_a_test_key"
+
+
+def test_a_signature_of_127_hex_characters_is_refused(tmp_path: Path) -> None:
+    document = _event()
+    short = _sign(SEED, _payload(document))[:-1]
+    result = _run(tmp_path, signature=_signature(document, signature=short))
+    assert (result.status, "128 hex" in result.message) == ("refused", True)
+
+
+def test_a_non_hex_public_key_is_refused(tmp_path: Path) -> None:
+    entry = _key_entry(SEED, public_key="Z" * 64)
+    result = _run(tmp_path, trust=_trust(entry))
+    assert result.status == "refused"
+    assert "64-hex Ed25519" in result.message
+
+
+def test_the_same_key_twice_is_refused(tmp_path: Path) -> None:
+    result = _run(tmp_path, trust=_trust(_key_entry(SEED), _key_entry(SEED)))
+    assert result.status == "refused"
+    assert "same key twice" in result.message
+
+
+@pytest.mark.parametrize(
+    "until,ok",
+    [("2026-04-01T00:00:00Z", True), ("2026-04-01T00:00:01Z", False)],
+)
+def test_the_exact_90_day_boundary(tmp_path: Path, until: str, ok: bool) -> None:
+    trust = _trust(_key_entry(SEED, valid_until=until))
+    result = _run(tmp_path, trust=trust)
+    assert (result.status == "authenticated") is ok
+    if not ok:
+        assert "within 90 days" in result.message
+
+
+def test_a_trust_file_that_is_not_an_object_or_not_json_is_refused(
+    tmp_path: Path,
+) -> None:
+    for content in (b"[]", b"not json", b'{"a":' * 3000):
+        result = _run(tmp_path, trust=content[:4096])
+        assert result.status == "refused", content[:20]
+
+
+def test_a_deeply_nested_event_is_refused_not_a_crash(tmp_path: Path) -> None:
+    nested = b"[" * 20000 + b"]" * 20000
+    result = _run(tmp_path, event=nested)
+    assert result.status == "refused"
+    assert result.reason in {"event_invalid", "event_authentication_failed"}
+
+
+@pytest.mark.parametrize("name", ["ZeroEmployeeOrg/ZeoCore", "zeroemployeeorg/ZEOCORE"])
+def test_the_public_repository_refusal_ignores_case(tmp_path: Path, name: str) -> None:
+    result = _run(tmp_path, repository=name)
+    assert result.status == "refused"
+    assert "only by attestation" in result.message
+    trust = _trust(repository=name)
+    assert "only by attestation" in _run(tmp_path, trust=trust).message
+
+
+def test_a_repository_that_is_not_owner_name_is_refused(tmp_path: Path) -> None:
+    result = _run(tmp_path, repository="no-slash")
+    assert (result.status, "owner/name" in result.message) == ("refused", True)
+
+
+def test_a_trust_file_with_the_wrong_schema_or_zero_keys_is_refused(
+    tmp_path: Path,
+) -> None:
+    assert _run(tmp_path, trust=_trust(schema="x")).status == "refused"
+    empty = json.loads(_trust())
+    empty["keys"] = []
+    assert _run(tmp_path, trust=_json(empty)).status == "refused"
+    bad_repo = _trust(repository="not a repo")
+    assert "owner/name" in _run(tmp_path, trust=bad_repo).message
+
+
+def test_an_event_with_a_malformed_tag_or_commit_is_refused(tmp_path: Path) -> None:
+    document = _event(commit="xyz")
+    result = _run(
+        tmp_path,
+        event=_json(document),
+        signature=_signature(document),
+        expected=Expected(tag=TAG),
+    )
+    assert (result.status, result.reason) == ("refused", "event_invalid")
+
+
+def test_a_signature_that_is_not_an_object_is_refused(tmp_path: Path) -> None:
+    assert _run(tmp_path, signature=b"[]").status == "refused"
+    wrong = _signature(_event(), schema="zeo.other/v1")
+    assert "schema" in _run(tmp_path, signature=wrong).message
