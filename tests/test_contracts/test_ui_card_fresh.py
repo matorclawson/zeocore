@@ -34,6 +34,7 @@ REFUSED_BY_BOTH = {
     "refused-null-expires-at.json",
     "refused-null-snapshot.json",
     "refused-no-source.json",
+    "refused-no-observed-at.json",
 }
 
 
