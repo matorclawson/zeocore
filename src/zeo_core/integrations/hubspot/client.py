@@ -1,8 +1,9 @@
 """Forwards `client` to the zeo-integration-hubspot package.
 
-`EMAILS` and the private `_id` stay importable from here. This module IS the package's module, so a patch on either
-import path is the same patch. Credential discovery, the service and the
-`hubspot.marketing` entry point stay in zeocore (zeointegrations-SOW-02).
+`EMAILS` and the private `_id` stay importable from here.
+This module IS the package's module, so a patch through either import path is
+the same patch. Credential discovery, the service and the `hubspot.marketing`
+entry point stay in zeocore (zeointegrations-SOW-02).
 """
 
 from __future__ import annotations

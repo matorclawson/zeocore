@@ -1,8 +1,9 @@
 """Forwards `workflow` to the zeo-integration-hubspot package.
 
-The workflow validator. This module IS the package's module, so a patch on either
-import path is the same patch. Credential discovery, the service and the
-`hubspot.marketing` entry point stay in zeocore (zeointegrations-SOW-02).
+The workflow validator keeps its identity.
+This module IS the package's module, so a patch through either import path is
+the same patch. Credential discovery, the service and the `hubspot.marketing`
+entry point stay in zeocore (zeointegrations-SOW-02).
 """
 
 from __future__ import annotations
