@@ -407,7 +407,7 @@
     },
     "FreshSnapshot": {
       "additionalProperties": false,
-      "description": "The snapshot of the ``ui.result-card-fresh`` profile: ``expires_at`` is required.",
+      "description": "The ``ui.result-card-fresh`` snapshot: ``expires_at`` is required.",
       "properties": {
         "expires_at": {
           "maxLength": 20,
@@ -555,7 +555,7 @@
   "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/ui.result-card-fresh.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "The opt-in ``ui.result-card-fresh`` profile of ``zeo.ui-result/v1`` (zeocore-SOW-46).\n\nThe wire tag and every rule of :class:`UiCardResult` are unchanged; the one\ndifference is that the card MUST carry ``snapshot`` with ``source``, ``observed_at``\nand ``expires_at``. A timestamp is not fresh authority: the validator checks shape\nand order only, reads no clock and does no I/O, so whether a card is stale now is the\nconsumer's check (``expires_at`` can only shorten the host's policy).",
+  "description": "The opt-in ``ui.result-card-fresh`` profile of ``zeo.ui-result/v1`` (SOW-46).\n\nThe wire tag and every rule of :class:`UiCardResult` are unchanged; the one\ndifference is that the card MUST carry ``snapshot`` with ``source``,\n``observed_at`` and ``expires_at``. A timestamp is not fresh authority: the\nvalidator checks shape and order only, reads no clock and does no I/O, so\nwhether a card is stale now is the consumer's check (``expires_at`` can only\nshorten the host's policy).",
   "properties": {
     "complete": {
       "title": "Complete",
