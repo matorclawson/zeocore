@@ -27,7 +27,6 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from zeo_core.cli.protocol import EXIT_DONE, EXIT_HELD, EXIT_INVALID
 from zeo_core.cli.release import make_command
-from zeo_core.release.signing import event_signature
 from zeo_core.release.signing.event_attestation import Expected, GhResult
 from zeo_core.release.signing.event_auth import EVENT_SCHEMA, canonical
 from zeo_core.release.signing.event_signature import (
