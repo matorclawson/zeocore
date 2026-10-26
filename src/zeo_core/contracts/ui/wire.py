@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import json
 from functools import cache
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from pydantic import ValidationError
 
-from zeo_core.contracts.ui.card import UiCardResult
+from zeo_core.contracts.ui.card import UiCardResult, UiFreshCardResult
 
+Profile = Literal["default", "fresh"]
 MAX_RESPONSE_BYTES: Final = 262_144
 MAX_COMPONENT_BYTES: Final = 65_536
 MAX_DEPTH: Final = 9
@@ -164,28 +165,33 @@ def _loc(parts: tuple[str | int, ...]) -> tuple[str | int, ...]:
     )
 
 
-def validate_value(value: dict[str, Any]) -> UiCardResult:
+def _model(profile: Profile) -> type[UiCardResult]:
+    """The model of ``profile``: ``fresh`` requires the card's snapshot (zeocore-SOW-46)."""
+    return UiFreshCardResult if profile == "fresh" else UiCardResult
+
+
+def validate_value(value: dict[str, Any], profile: Profile = "default") -> UiCardResult:
     """The closed model of an already parsed object; :class:`UiRefused` on any error."""
     try:
-        return UiCardResult.model_validate(value)
+        return _model(profile).model_validate(value)
     except ValidationError as error:
         first = error.errors(include_url=False, include_input=False)[0]
         raise UiRefused(str(first["type"]), _loc(tuple(first["loc"]))) from None
 
 
-def validate_bytes(raw: bytes) -> UiCardResult:
+def validate_bytes(raw: bytes, profile: Profile = "default") -> UiCardResult:
     """Validate the JSON text ``raw`` as a ``zeo.ui-result/v1`` card result."""
-    return validate_value(parse(raw))
+    return validate_value(parse(raw), profile)
 
 
-def errors_of(raw: bytes) -> list[dict[str, Any]]:
+def errors_of(raw: bytes, profile: Profile = "default") -> list[dict[str, Any]]:
     """Every refusal of ``raw`` as ``{"loc", "type"}``, with no input value in it."""
     try:
         value = parse(raw)
     except UiRefused as refusal:
         return [{"loc": list(refusal.loc), "type": refusal.code}]
     try:
-        UiCardResult.model_validate(value)
+        _model(profile).model_validate(value)
     except ValidationError as error:
         return [
             {"loc": list(_loc(tuple(item["loc"]))), "type": item["type"]}
@@ -196,6 +202,7 @@ def errors_of(raw: bytes) -> list[dict[str, Any]]:
 
 __all__ = [
     "MAX_COMPONENT_BYTES",
+    "Profile",
     "MAX_DEPTH",
     "MAX_RESPONSE_BYTES",
     "UiRefused",

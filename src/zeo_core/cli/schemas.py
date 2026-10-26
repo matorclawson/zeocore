@@ -44,6 +44,7 @@ SCHEMAS: Final[dict[str, str]] = {
         "zeo_core.integrations.hosted.client:HostedOperationResponse"
     ),
     "ui.result-card": "zeo_core.contracts.ui.card:UiCardResult",
+    "ui.result-card-fresh": "zeo_core.contracts.ui.card:UiFreshCardResult",
     "ui.widget-upsert": "zeo_core.contracts.ui.widgets:WidgetUpsert",
     "ui.widget-data-ref": "zeo_core.contracts.ui.widgets:DataRef",
     "proof.report": "zeo_core.contracts.proof.report:ProofReport",
@@ -66,7 +67,9 @@ ALIASES: Final[dict[str, str]] = {
 
 #: Contracts whose limits are properties of the bytes as received: ``zeocore
 #: validate`` hands them the raw stdin, not a parsed value.
-BYTE_CONTRACTS: Final = frozenset({"ui.result-card", "library.view-v2"})
+BYTE_CONTRACTS: Final = frozenset(
+    {"ui.result-card", "ui.result-card-fresh", "library.view-v2"}
+)
 
 
 def resolve(name: str) -> str | None:

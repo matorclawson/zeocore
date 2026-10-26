@@ -1,0 +1,2 @@
+bump: minor
+**New `ui.result-card-fresh` profile for `zeo.ui-result/v1`: the card must carry a snapshot (sow: zeocore-SOW-46).** `zeocore validate ui.result-card-fresh` and `validate_bytes(raw, "fresh")` refuse a card without `snapshot.source`, `observed_at` and `expires_at`. The wire tag and the default `ui.result-card` contract are unchanged. The profile checks shape and order only; it reads no clock, so whether a card is stale now stays the consumer's check.

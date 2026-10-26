@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from zeo_core.contracts.ui.card import SCHEMA_TAG, UiCardResult
+from zeo_core.contracts.ui.card import SCHEMA_TAG, UiCardResult, UiFreshCardResult
 from zeo_core.contracts.ui.widgets import (
     DataRef,
     WidgetBoard,
@@ -14,6 +14,7 @@ from zeo_core.contracts.ui.wire import UiRefused, errors_of, validate_bytes
 __all__ = [
     "SCHEMA_TAG",
     "UiCardResult",
+    "UiFreshCardResult",
     "UiRefused",
     "DataRef",
     "WidgetBoard",

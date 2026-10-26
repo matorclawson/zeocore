@@ -429,3 +429,29 @@ class UiCardResult(_Closed):
                 "ui_observed_after_produced", "observed_at is later than produced_at"
             )
         return self
+
+
+class FreshSnapshot(Snapshot):
+    """The snapshot of the ``ui.result-card-fresh`` profile: ``expires_at`` is required."""
+
+    expires_at: Timestamp
+
+
+class FreshCardComponent(CardComponent):
+    """A card whose snapshot is required (zeocore-SOW-46)."""
+
+    snapshot: FreshSnapshot
+
+
+class UiFreshCardResult(UiCardResult):
+    """
+    The opt-in ``ui.result-card-fresh`` profile of ``zeo.ui-result/v1`` (zeocore-SOW-46).
+
+    The wire tag and every rule of :class:`UiCardResult` are unchanged; the one
+    difference is that the card MUST carry ``snapshot`` with ``source``, ``observed_at``
+    and ``expires_at``. A timestamp is not fresh authority: the validator checks shape
+    and order only, reads no clock and does no I/O, so whether a card is stale now is the
+    consumer's check (``expires_at`` can only shorten the host's policy).
+    """
+
+    components: Annotated[list[FreshCardComponent], Field(min_length=1, max_length=1)]

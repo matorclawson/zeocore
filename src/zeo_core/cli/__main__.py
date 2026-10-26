@@ -187,7 +187,9 @@ def _validate_bytes_contract(name: str, stdin: bytes) -> Answer:
         }
     from zeo_core.contracts.ui import errors_of, validate_bytes
 
-    errors = errors_of(stdin)
+    # ui.result-card-fresh: the same wire, the card's snapshot required (zeocore-SOW-46)
+    profile = "fresh" if name == "ui.result-card-fresh" else "default"
+    errors = errors_of(stdin, profile)
     if errors:
         declared = _field_names(render_schema(name))
         return EXIT_HELD, {
@@ -206,7 +208,7 @@ def _validate_bytes_contract(name: str, stdin: bytes) -> Answer:
         }
     return OK, {
         "ok": True,
-        "value": validate_bytes(stdin).model_dump(
+        "value": validate_bytes(stdin, profile).model_dump(
             mode="json", by_alias=True, exclude_none=True
         ),
     }
