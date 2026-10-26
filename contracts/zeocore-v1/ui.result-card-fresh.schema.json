@@ -555,7 +555,7 @@
   "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/ui.result-card-fresh.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "The opt-in ``ui.result-card-fresh`` profile of ``zeo.ui-result/v1`` (SOW-46).\n\nThe wire tag and every rule of :class:`UiCardResult` are unchanged; the one\ndifference is that the card MUST carry ``snapshot`` with ``source``,\n``observed_at`` and ``expires_at``. A timestamp is not fresh authority: the\nvalidator checks shape and order only, reads no clock and does no I/O, so\nwhether a card is stale now is the consumer's check (``expires_at`` can only\nshorten the host's policy).",
+  "description": "The opt-in ``ui.result-card-fresh`` profile of ``zeo.ui-result/v1`` (SOW-46).\n\nThe wire tag and every rule of :class:`UiCardResult` are unchanged; the one\ndifference is that the card MUST carry ``snapshot`` with ``source``,\n``observed_at`` and ``expires_at``. A timestamp is not fresh authority: the\nvalidator checks shape and order only, reads no clock and does no I/O, so\nwhether a card is stale now is the consumer's check (``expires_at`` can only\nshorten the host's policy).\n\nLike the default contract, this JSON Schema is STRUCTURAL ONLY: it cannot say that\n``expires_at`` is later than ``observed_at`` or that ``observed_at`` is not after\n``produced_at``, and it does not check the byte limits or the text classes. A card\nis accepted only when ``zeocore validate ui.result-card-fresh`` (or the Python\n``validate_bytes(raw, \"fresh\")``) accepts it; schema-valid is not accepted.",
   "properties": {
     "complete": {
       "title": "Complete",
