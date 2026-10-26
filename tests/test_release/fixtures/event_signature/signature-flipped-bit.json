@@ -1,0 +1,1 @@
+{"algorithm":"ed25519","event_sha256":"f41197ef530c08d3e85a460b1f01629857d6191704f4e0cff8fc99a7899aeff0","key_id":"rk_56475aa75463474c0285df5dbf2bcab7","purpose":"release_event_signing/v1","schema":"zeo.release-event-signature/v1","signature":"cecfd12ed08bd21ecda486092f7fdc82dfe5a85cfbb59f6712ef0f56bf679b9269a13714e4415ad3e369a14d9f1aa51deffccef222abfe44633137ed916e6600"}

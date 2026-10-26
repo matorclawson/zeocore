@@ -369,6 +369,62 @@ A successful `verify-event` makes no build eligible.
   for public repositories only, so private gold is not covered; a different trust
   model for it is the Architect's to name.
 
+### The published release event: a pinned key (a private repository)
+
+A private repository has no attestation on the current plan, so its event is
+signed by the repository's release signer with an Ed25519 key, and the CONSUMER
+pins the public half. Core ships the verifier only; it holds no key and has no
+code that makes one. Install the extra first: `pip install 'zeocore[release-keys]'`
+(a missing package is `held` and says so).
+
+```console
+$ echo '{"event": "release-event.json", "mechanism": "pinned_key",
+    "repository": "owner/name", "signature": "release-event.sig.json",
+    "trust": "trust/release-event-trust.json", "tag": "v1.2.3"}' | zeocore release verify-event
+```
+
+- **Who signs.** The signer is the repository owner's own (under a role account no agent can reach). It signs the domain string
+  `zeo.release-event-signature/v1\nrelease_event_signing/v1\n` followed by the
+  event's canonical payload, and writes `release-event.sig.json`
+  (`zeo.release-event-signature/v1`, at most 512 bytes, no key inside).
+- **The trust file** (`zeo.release-trust/v1`, at most 4096 bytes) names the one
+  `repository`, the `purpose` `release_event_signing/v1` and at most two keys,
+  each with `valid_from` and a REQUIRED `valid_until` at most 90 days later
+  (RFC 3339 UTC with a `Z`). The request must name the same `repository` as the
+  event and the trust file. `zeroemployeeorg/zeocore` is refused: the public
+  repository is authenticated only by attestation, and a failure of one
+  mechanism never falls back to the other.
+- **The clock** is this machine's own UTC clock. The verb takes no time.
+- **Outcomes** are the three of the attestation check: `authenticated`;
+  `refused` (`event_authentication_failed`, or a more specific reason such as
+  `event_not_expected`, `expected_release_missing`, `event_other_repository`);
+  `held` (`event_authentication_unavailable`: a missing file or package). The
+  answer adds `mechanism: pinned_key` and the `key_id` that authenticated. Name
+  the `tag` or `commit` you expect: the event has no freshness of its own.
+- **Where the pin comes from is the consumer's rule, not Core's.** Pass a trust
+  file read from the INSTALLED copy, never from the candidate release. The
+  consumer's binding rule (F1) is that a candidate whose trust file differs from
+  the installed one installs only if ALL FOUR hold, else it is held: (a) it is
+  authenticated against the INSTALLED pin; (b) its approval
+  `apr1-<repo id>-<pull number>-<head>` is verified at install time, by a reader
+  with access to the private repository, as merged as the event's commit on
+  `main`; (c) the candidate trust file is byte-equal to the git blob
+  `<event commit>:<trust path>` read from GitHub, never from the archive or its sidecars; (d) no
+  step replaces every installed key (that is an attended step by the host owner).
+  Bootstrap (the first pin) and a rotation that replaces every key are the host
+  owner's attended steps, not a release's.
+  F1 closes the swap of the PIN. It does not close the swap of ARTIFACTS: see
+  the residual below. Core cannot check F1; it never sees the installed copy.
+- **No revocation, and a residual.** There is no revocation list and no online
+  check. Whoever holds a leaked signing key can sign any event inside the key's
+  window; `authenticated` binds the bytes to the key holder, not the artifacts to
+  an approved commit. The 90-day window bounds an honest key, not a thief. When
+  every pinned key is past `valid_until`, every candidate is refused until the
+  host owner's attended step renews the pin.
+- **This is not release authorization.** Use `release check-approval` for that;
+  it reads the public repository only, and nothing here claims a private release
+  is authorized.
+
 ## What verify checks
 
 A valid Apple signature alone is not enough. For every executable:
