@@ -409,8 +409,10 @@ $ echo '{"event": "release-event.json", "mechanism": "pinned_key",
   `apr1-<repo id>-<pull number>-<head>` is verified at install time, by a reader
   with access to the private repository, as merged as the event's commit on
   `main`; (c) the candidate trust file is byte-equal to the git blob
-  `<event commit>:<trust path>` read from GitHub, never from the archive; (d) no
+  `<event commit>:<trust path>` read from GitHub, never from the archive or its sidecars; (d) no
   step replaces every installed key (that is an attended step by the host owner).
+  Bootstrap (the first pin) and a rotation that replaces every key are the host
+  owner's attended steps, not a release's.
   F1 closes the swap of the PIN. It does not close the swap of ARTIFACTS: see
   the residual below. Core cannot check F1; it never sees the installed copy.
 - **No revocation, and a residual.** There is no revocation list and no online

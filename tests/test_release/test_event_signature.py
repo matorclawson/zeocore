@@ -115,7 +115,12 @@ def _key_entry(seed: bytes, **changes: str) -> dict[str, str]:
 
 
 def _unknown_entry(n: int) -> dict[str, str]:
-    return _key_entry(bytes(32), **_unknown_fields(n))
+    return {
+        **_unknown_fields(n),
+        "algorithm": "ed25519",
+        "valid_from": FROM,
+        "valid_until": UNTIL,
+    }
 
 
 def _unknown_fields(n: int) -> dict[str, str]:
@@ -218,6 +223,7 @@ def build_fixtures() -> dict[str, bytes]:
         "trust-denylisted-test-key.json": _trust(_unknown_entry(1), _key_entry(SEED)),
         "trust-too-long.json": _padded(_trust(), MAX_TRUST_BYTES + 1),
         "trust-extra-field.json": _json({**json.loads(_trust()), "x": "1"}),
+        "trust-key-extra-field.json": _trust({**_key_entry(SEED), "x": "1"}),
         "trust-duplicate-key.json": _trust()[:-1] + b',"purpose":"x"}',
     }
     return fixtures
@@ -375,6 +381,7 @@ def test_the_second_of_two_keys_authenticates(tmp_path: Path) -> None:
         ({"trust": "trust-key-id-mismatch.json"}, "not derived"),
         ({"trust": "trust-too-long.json"}, "larger than 4096"),
         ({"trust": "trust-extra-field.json"}, "exactly its fields"),
+        ({"trust": "trust-key-extra-field.json"}, "trust key does not have exactly"),
         ({"trust": "trust-duplicate-key.json"}, "repeats a key"),
     ],
 )
