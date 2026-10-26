@@ -93,11 +93,17 @@ from zeo_core.release.signing import (
 from zeo_core.release.signing.admission import GhCli, Limits
 from zeo_core.release.signing.event_attestation import (
     REPOSITORY,
+    Authentication,
     Expected,
     GhResult,
     GhRunner,
     authenticate_published_event,
     check_release_approval,
+)
+from zeo_core.release.signing.event_signature import (
+    PinnedAuthentication,
+    system_utc,
+    verify_pinned_event,
 )
 from zeo_core.release.signing.github_reads import GhApiReader
 from zeo_core.release.signing.service import (
@@ -168,6 +174,17 @@ _OPTIONAL: Final = {
 }
 
 
+#: ``verify-event`` with ``mechanism: pinned_key`` (SOW-44 amendment): the
+#: required and the optional fields. Any other request keeps ``_FIELDS`` and
+#: ``_OPTIONAL``, which this table does not edit.
+_KEY_FIELDS: Final = (
+    {"event", "mechanism", "repository", "signature", "trust"},
+    {"tag", "commit"},
+)
+_ATTESTATION: Final = "github_attestation"
+_PINNED_KEY: Final = "pinned_key"
+
+
 def _default_gh(argv: Sequence[str]) -> GhResult:
     """Run ``gh`` for the event check: no shell, a bounded time, no input."""
     try:
@@ -185,17 +202,29 @@ def _default_gh(argv: Sequence[str]) -> GhResult:
 
 
 def _verify_event(request: dict[str, str], gh: GhRunner) -> Answer:
-    result = authenticate_published_event(
-        Path(request["event"]),
-        Expected(tag=request.get("tag"), commit=request.get("commit")),
-        gh,
-    )
+    expected = Expected(tag=request.get("tag"), commit=request.get("commit"))
+    result: Authentication | PinnedAuthentication
+    if request.get("mechanism") == _PINNED_KEY:
+        result = verify_pinned_event(
+            event=Path(request["event"]),
+            signature=Path(request["signature"]),
+            trust=Path(request["trust"]),
+            repository=request["repository"],
+            expected=expected,
+            now=system_utc,
+        )
+    else:
+        result = authenticate_published_event(Path(request["event"]), expected, gh)
     body: dict[str, object] = {
         "ok": result.status == "authenticated",
         "outcome": result.reason,
         "status": result.status,
         "message": result.message,
     }
+    if isinstance(result, PinnedAuthentication):
+        body["mechanism"] = result.mechanism
+        if result.key_id is not None:
+            body["key_id"] = result.key_id
     if result.tag is not None:
         body["tag"] = result.tag
     if result.commit is not None:
@@ -436,24 +465,49 @@ def _serve_forever(
         service.close()
 
 
+def _field_sets(verb: str, request: object) -> tuple[set[str], set[str]] | None:
+    """The required and optional fields a request may carry; None for a
+    ``verify-event`` mechanism that is neither of the two."""
+    required, optional = _FIELDS[verb], _OPTIONAL.get(verb, set())
+    if verb != "verify-event" or not isinstance(request, dict):
+        return required, optional
+    if "mechanism" not in request:
+        return required, optional
+    if request["mechanism"] == _PINNED_KEY:
+        return _KEY_FIELDS
+    if request["mechanism"] == _ATTESTATION:
+        return required, optional | {"mechanism"}
+    return None
+
+
 def _parse(verb: str, stdin: bytes) -> dict[str, str] | Answer:
     try:
         request = parse_json(stdin)
     except ProtocolError as error:
         return invalid(str(error))
+    sets = _field_sets(verb, request)
+    if sets is None:
+        return invalid(own_action(f"mechanism is {_ATTESTATION} or {_PINNED_KEY}"))
+    required, allowed = sets
     if (
         not isinstance(request, dict)
-        or not _FIELDS[verb]
-        <= set(request)
-        <= _FIELDS[verb] | _OPTIONAL.get(verb, set())
+        or not required <= set(request) <= required | allowed
         or not all(isinstance(value, str) and value for value in request.values())
     ):
-        optional = sorted(_OPTIONAL.get(verb, set()))
+        optional = sorted(allowed)
+        keyed = (
+            "; with mechanism pinned_key it takes "
+            f"{', '.join(sorted(_KEY_FIELDS[0]))}, and optionally "
+            f"{', '.join(sorted(_KEY_FIELDS[1]))}"
+            if verb == "verify-event"
+            else ""
+        )
         return invalid(
             own_action(
                 f"stdin has the wrong fields; pipe a JSON object with exactly: "
-                f"{', '.join(sorted(_FIELDS[verb]))}"
+                f"{', '.join(sorted(required))}"
                 + (f", and optionally {', '.join(optional)}" if optional else "")
+                + keyed
             )
         )
     return request
