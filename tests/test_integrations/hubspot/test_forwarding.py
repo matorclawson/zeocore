@@ -22,8 +22,9 @@ def test_the_old_submodule_is_the_packages_module(name: str) -> None:
 
 
 def test_the_private_names_the_broker_uses_are_the_same_objects() -> None:
-    from zeo_core.integrations.hubspot import client as old
     from zeo_integrations.hubspot import client as new
+
+    from zeo_core.integrations.hubspot import client as old
 
     assert old.EMAILS is new.EMAILS
     assert old._id is new._id  # noqa: SLF001 -- the compatibility surface under test
@@ -47,8 +48,9 @@ def test_public_classes_have_one_identity_through_both_paths(
 
 
 def test_the_package_root_names_are_the_packages_classes() -> None:
-    from zeo_core.integrations import hubspot as root
     from zeo_integrations.hubspot import client, models, transport
+
+    from zeo_core.integrations import hubspot as root
 
     assert root.HubSpotClient is client.HubSpotClient
     assert root.EmailDraft is models.EmailDraft
@@ -58,8 +60,9 @@ def test_the_package_root_names_are_the_packages_classes() -> None:
 def test_a_patch_through_the_old_path_is_the_patch_the_client_sees(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from zeo_core.integrations.hubspot import client as old
     from zeo_integrations.hubspot import client as new
+
+    from zeo_core.integrations.hubspot import client as old
 
     monkeypatch.setattr(old, "EMAILS", "/patched")
     assert new.EMAILS == "/patched"

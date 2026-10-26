@@ -376,6 +376,12 @@ strict_optional = true
 module = ["googleapiclient.*", "google_auth_oauthlib.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# zeo-integration-hubspot 0.1.0 ships no py.typed marker. Core's forwarding modules
+# need its annotations, so mypy follows the package as typed (scoped, no ignores).
+module = ["zeo_integrations.*"]
+follow_untyped_imports = true
+
 [tool.coverage.run]
 # Include the real host CLI and other supervised Python children.
 patch = ["subprocess"]

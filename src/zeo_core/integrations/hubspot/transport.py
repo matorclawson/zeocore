@@ -1,8 +1,8 @@
-"""Forwards `transport` to the zeo-integration-hubspot package (zeointegrations-SOW-02).
+"""Forwards `transport` to the zeo-integration-hubspot package.
 
-The transport and `HubSpotAPIError`. This module IS the package's module (same object, so the classes keep their
-identity and a patch on either import path is the same patch). Credential discovery,
-the service and the `hubspot.marketing` entry point stay in zeocore.
+`HubSpotAPIError` and `HubSpotTransport` keep their identity. This module IS the package's module, so a patch on either
+import path is the same patch. Credential discovery, the service and the
+`hubspot.marketing` entry point stay in zeocore (zeointegrations-SOW-02).
 """
 
 from __future__ import annotations
