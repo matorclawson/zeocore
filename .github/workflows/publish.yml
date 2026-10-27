@@ -83,7 +83,18 @@ jobs:
       # aren't PyPI files. tests/test_release_metadata.py runs this step and
       # the check below.
       - name: Record the built files' digests
-        run: ( cd dist && sha256sum -- *.whl *.tar.gz ) | sort > built.sha256
+        run: |
+          set -euo pipefail
+          # GNU sha256sum where it exists (Ubuntu runners), else the macOS
+          # `shasum -a 256`; both print "<digest>  <file>". No tool, no file or
+          # an empty list fails the step instead of recording nothing.
+          if command -v sha256sum >/dev/null 2>&1; then
+            digest() { sha256sum -- "$@"; }
+          else
+            digest() { shasum -a 256 -- "$@"; }
+          fi
+          ( cd dist && digest *.whl *.tar.gz ) | sort > built.sha256
+          test -s built.sha256
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
