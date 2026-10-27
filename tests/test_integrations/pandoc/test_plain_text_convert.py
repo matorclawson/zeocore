@@ -178,7 +178,7 @@ def test_metadata_and_kind_refuse_before_engine(
 
     monkeypatch.setattr(newsletter, "convert_newsletter", forbidden)
     with pytest.raises(NewsletterRefusalError) as error:
-        _convert(**{field: bad})
+        _convert(**{field: cast(Any, bad)})
     assert error.value.code == "metadata_invalid"
     assert "secret-source" not in str(error.value)
 
