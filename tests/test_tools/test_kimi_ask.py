@@ -44,7 +44,9 @@ def _ctx() -> ToolContext:
 class FakeClient:
     model = "kimi-k3.1-pro"
 
-    def __init__(self, reply: str | None = "an answer", error: Exception | None = None):
+    def __init__(
+        self, reply: str | None = "an answer", error: Exception | None = None
+    ) -> None:
         self.reply, self.error, self.sent = reply, error, []
 
     def chat_once(
