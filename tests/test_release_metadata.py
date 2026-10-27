@@ -11,6 +11,7 @@ import http.server
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -121,6 +122,68 @@ def test_the_digests_are_recorded_before_the_upload() -> None:
     assert names.index("Record the built files' digests") < names.index(
         "Publish to PyPI"
     )
+
+
+def _run_digest_step(
+    tmp_path: Path, tools: tuple[str, ...], *, files: bool = True
+) -> subprocess.CompletedProcess[bytes]:
+    """Run the workflow's digest step with only `tools` (plus sort) on PATH."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for tool in ("sort", *tools):
+        found = shutil.which(tool)
+        assert found, f"{tool} is not installed on this host"
+        if not (bin_dir / tool).exists():
+            (bin_dir / tool).symlink_to(found)
+    dist = tmp_path / "dist"
+    dist.mkdir(exist_ok=True)
+    if files:
+        (dist / "demo-1.2.4-py3-none-any.whl").write_bytes(b"wheel")
+        (dist / "demo-1.2.4.tar.gz").write_bytes(b"sdist")
+    bash = shutil.which("bash")
+    assert bash is not None
+    return subprocess.run(  # noqa: S603 - the workflow's own step
+        [bash, "-c", _publish_step("Record the built files' digests")["run"]],
+        cwd=tmp_path,
+        env={"PATH": str(bin_dir)},
+        capture_output=True,
+        check=False,
+    )
+
+
+_WANTED = {"demo-1.2.4-py3-none-any.whl": b"wheel", "demo-1.2.4.tar.gz": b"sdist"}
+
+
+@pytest.mark.parametrize("tool", ["sha256sum", "shasum"])
+def test_the_digests_are_recorded_with_either_checksum_tool(
+    tmp_path: Path, tool: str
+) -> None:
+    """GNU `sha256sum` on Linux, `shasum -a 256` on macOS: the same manifest."""
+    if shutil.which(tool) is None:
+        pytest.skip(f"{tool} is not installed on this host")
+    done = _run_digest_step(tmp_path, (tool,))
+    assert done.returncode == 0, done.stderr
+    assert (tmp_path / "built.sha256").read_text().splitlines() == sorted(
+        f"{hashlib.sha256(content).hexdigest()}  {name}"
+        for name, content in _WANTED.items()
+    )
+
+
+def test_the_digest_step_fails_without_a_checksum_tool(tmp_path: Path) -> None:
+    done = _run_digest_step(tmp_path, ())
+    assert done.returncode != 0
+    assert (
+        not (tmp_path / "built.sha256").exists()
+        or not (tmp_path / "built.sha256").read_text()
+    )
+
+
+def test_the_digest_step_fails_when_there_is_nothing_to_record(
+    tmp_path: Path,
+) -> None:
+    tool = "sha256sum" if shutil.which("sha256sum") else "shasum"
+    done = _run_digest_step(tmp_path, (tool,), files=False)
+    assert done.returncode != 0
 
 
 @pytest.mark.parametrize("tampered,status", [(False, 0), (True, 1)])

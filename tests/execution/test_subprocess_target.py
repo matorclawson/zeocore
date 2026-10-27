@@ -178,7 +178,9 @@ def test_invocation_factory_can_change_target_between_attempts() -> None:
     )
 
     result = run_sync(
-        policy("provider", "provider", total=1, attempt=0.1),
+        # The attempt bound covers the fallback's interpreter start-up too, so it
+        # is wide enough for a loaded host; the first attempt sleeps far past it.
+        policy("provider", "provider", total=30, attempt=2),
         {"provider": target},
     )
 
