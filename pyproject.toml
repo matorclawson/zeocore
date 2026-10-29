@@ -20,7 +20,13 @@ keywords = [
 ]
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT AND Apache-2.0"  # the rest is MIT; src/zeo_core/voice is derived Apache-2.0 code (PEP 639)
+license-files = [
+    "LICENSE",
+    "src/zeo_core/voice/LICENSE",
+    "src/zeo_core/voice/NOTICE",
+    "tests/test_voice/NOTICE",
+]
 authors = [
     { name = "Rod Rivera", email = "rod@aiproduct.engineer" }
 ]
@@ -52,6 +58,8 @@ dependencies = [
     # RFC 8785 canonical JSON: `zeocore digest` and every Broker request's
     # digest need it, so the zeocore command can't run without it.
     "rfc8785==0.1.4",
+    # zeo_core.voice: the stdlib audioop was removed in Python 3.13 (PSF-2.0 backport, no dependencies).
+    "audioop-lts; python_version >= \"3.13\"",
 ]
 
 [project.scripts]
