@@ -34,6 +34,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import httpx
 
+from zeo_core.integrations.google.youtube.media_source import MediaSource, digest_of
 from zeo_core.integrations.google.youtube.service import UPLOAD_PREFIX
 
 #: Resumable chunks must be multiples of this (except the last).
@@ -133,6 +134,14 @@ class FileIdentity:
             and stat.st_mtime_ns // 1_000_000 == self.mtime_ms
         )
 
+    def read_range(self, offset: int, length: int) -> bytes:
+        with open(self.path, "rb") as handle:
+            handle.seek(offset)
+            return handle.read(length)
+
+    def sha256(self) -> str:
+        return digest_of(self)
+
 
 class _TransientError(Exception):
     pass
@@ -152,7 +161,7 @@ class ResumableTransfer:
         self,
         *,
         url: str,
-        file: FileIdentity,
+        file: MediaSource,
         mime_type: str,
         http: ByteHttp | None = None,
         chunk_bytes: int = DEFAULT_CHUNK_BYTES,
@@ -252,9 +261,7 @@ class ResumableTransfer:
     def _send(self, offset: int) -> _Step:
         size = self._file.size_bytes
         length = min(self._chunk, size - offset)
-        with open(self._file.path, "rb") as handle:
-            handle.seek(offset)
-            data = handle.read(length)
+        data = self._file.read_range(offset, length)
         if len(data) != length:
             return _Step(
                 offset, terminal=TransferOutcome(TransferState.FILE_CHANGED, offset)

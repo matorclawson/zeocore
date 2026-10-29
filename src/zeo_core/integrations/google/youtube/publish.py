@@ -65,6 +65,11 @@ from zeo_core.integrations.google.youtube.links import (
     KeychainUploadLinkStore,
     UploadLinkStore,
 )
+from zeo_core.integrations.google.youtube.media_source import (
+    MediaSource,
+    ObjectReader,
+    ObjectSource,
+)
 from zeo_core.integrations.google.youtube.relay import RELAY_CHUNK_BYTES, RelayByteHttp
 from zeo_core.integrations.google.youtube.service import UPLOAD_PREFIX
 from zeo_core.integrations.google.youtube.transfer import (
@@ -189,8 +194,10 @@ class PublishExecutor:
         approval_poll: float = 3.0,
         verify_hash: bool = True,
         relay: Callable[[str, str], ByteHttp] | None = None,
+        object_reader: ObjectReader | None = None,
     ) -> None:
         self.dir = JobDirectory(job_dir)
+        self._objects = object_reader
         self._relay = relay
         self._broker = broker
         self._links = links
@@ -460,11 +467,38 @@ class PublishExecutor:
             self._new_attempt(step, self._state().step(step).attempt)
         raise self._hold("no_upload_link", step)
 
-    def _check_hash(self, step: str, media: MediaFile) -> None:
+    def _source(self, step: str, media: MediaFile, mtime_ms: int | None) -> MediaSource:
+        """Where this job's bytes are read from: its local file or its staged object."""
+        if media.object is not None:
+            if self._objects is None:
+                raise self._hold(
+                    "no_object_store", f"{step}: this job names a staged object"
+                )
+            return ObjectSource(
+                self._objects,
+                media.object.store,
+                media.object.key,
+                media.object.version,
+                media.size_bytes,
+            )
+        path = media.path
+        if path is None:  # unreachable: MediaFile names a path or an object
+            raise self._hold("no_media_location", step)
+        if mtime_ms is None:
+            mtime_ms = os.stat(path).st_mtime_ns // 1_000_000
+        return FileIdentity(path, media.size_bytes, mtime_ms)
+
+    def _check_hash(self, step: str, media: MediaFile, source: MediaSource) -> None:
         """The file must still be the one the operator approved (once per run)."""
         if step == "video" and (self._hashed or not self._verify_hash):
             return
-        if sha256_file(media.path) != media.sha256:
+        if isinstance(source, ObjectSource):
+            stored = source.metadata_sha256()
+            if stored is not None and stored != media.sha256:
+                raise self._hold(
+                    "file_changed", f"{step}: the stored sha256 differs from the job"
+                )
+        if source.sha256() != media.sha256:
             raise self._hold(
                 "file_changed", f"{step}: sha256 no longer matches the job"
             )
@@ -479,9 +513,8 @@ class PublishExecutor:
         mtime_ms: int | None,
     ) -> dict[str, Any] | None:
         """Send the file; the completed resource, or None when the session expired."""
-        if mtime_ms is None:
-            mtime_ms = os.stat(media.path).st_mtime_ns // 1_000_000
-        self._check_hash(step, media)
+        identity = self._source(step, media, mtime_ms)
+        self._check_hash(step, media, identity)
         last_percent = [-1]
 
         def progress(received: int, size: int) -> None:
@@ -497,7 +530,6 @@ class PublishExecutor:
                 )
 
         url, seal = link
-        identity = FileIdentity(media.path, media.size_bytes, mtime_ms)
 
         def attempt(http: ByteHttp | None, chunk: int) -> TransferOutcome:
             return ResumableTransfer(

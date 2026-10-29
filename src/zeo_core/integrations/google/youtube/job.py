@@ -80,17 +80,56 @@ def loop_id_for(job_id: str) -> str:
     return "loop_" + hashlib.sha256(job_id.encode()).digest()[:12].hex()
 
 
-class MediaFile(BaseModel):
+class ObjectRef(BaseModel):
+    """One staging-store object version: a store label, a key and the version.
+
+    It names no address and holds no credential; the executor's injected object reader
+    turns the label into a store.
+    """
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    path: Path
+    store: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]{0,62}$")
+    key: str = Field(min_length=1, max_length=1024)
+    version: str = Field(min_length=1, max_length=200)
+
+    @field_validator("key")
+    @classmethod
+    def _key(cls, value: str) -> str:
+        if value.startswith("/") or any(ord(c) < 32 for c in value):
+            raise ValueError("an object key is relative and has no control characters")
+        if ".." in value.split("/"):
+            raise ValueError("an object key may not contain a '..' segment")
+        return value
+
+
+class MediaFile(BaseModel):
+    """A local file (``path``) or a staging-store object (``object``), never both."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: Path | None = None
+    object: ObjectRef | None = None
     size_bytes: int = Field(gt=0)
     sha256: str = Field(pattern=_SHA256)
     mime_type: str
 
+    @model_validator(mode="after")
+    def _one_location(self) -> MediaFile:
+        if (self.path is None) == (self.object is None):
+            raise ValueError("a media file names exactly one of path or object")
+        return self
+
 
 class VideoFile(MediaFile):
-    mtime_ms: int = Field(ge=0)
+    #: Required for a local file (its modification time); an object carries a version.
+    mtime_ms: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _local_needs_mtime(self) -> VideoFile:
+        if self.path is not None and self.mtime_ms is None:
+            raise ValueError("a local video records its mtime_ms")
+        return self
 
     @field_validator("mime_type")
     @classmethod

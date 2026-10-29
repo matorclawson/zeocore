@@ -366,7 +366,9 @@ def test_a_scheduled_time_that_passed_is_held(tmp_path: Path, world: tuple) -> N
 def test_a_changed_video_is_held(tmp_path: Path, world: tuple) -> None:
     yt, broker, links = world
     directory = make_job(tmp_path)
-    video = Path(JobDirectory(directory).job().video.path)
+    local = JobDirectory(directory).job().video.path
+    assert local is not None
+    video = Path(local)
     data = bytearray(video.read_bytes())
     data[0] ^= 0xFF
     stat = video.stat()
