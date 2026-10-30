@@ -1871,6 +1871,144 @@
       "title": "Session",
       "type": "object"
     },
+    "SourceItem": {
+      "additionalProperties": false,
+      "description": "A read-only item shown as its source states it. Its identity is the source's id.\n\nIt has no work id, no revision counter and no action: a front end shows it and\noffers to copy it. The digest names the exact source bytes it was read from.",
+      "properties": {
+        "copy_line": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Line"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deadline"
+        },
+        "freshness": {
+          "items": {
+            "$ref": "#/$defs/Freshness"
+          },
+          "maxItems": 8,
+          "title": "Freshness",
+          "type": "array"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "next_action": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Action"
+        },
+        "observed_at": {
+          "maxLength": 40,
+          "title": "Observed At",
+          "type": "string"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "project": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Project",
+          "type": "string"
+        },
+        "situation": {
+          "const": "source_item",
+          "title": "Situation",
+          "type": "string"
+        },
+        "source_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Source Digest",
+          "type": "string"
+        },
+        "source_id": {
+          "pattern": "^[A-Za-z0-9._:/#-]{1,128}$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "pattern": "^https://[^\\s<>\\\"']{1,500}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Url"
+        },
+        "state": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "situation",
+        "source_id",
+        "source_digest",
+        "observed_at",
+        "project",
+        "label",
+        "title",
+        "state"
+      ],
+      "title": "SourceItem",
+      "type": "object"
+    },
     "SourceStatus": {
       "additionalProperties": false,
       "properties": {
@@ -2199,6 +2337,7 @@
       "outcome": "#/$defs/Outcome",
       "project_checkpoint": "#/$defs/ProjectCheckpoint",
       "request_status": "#/$defs/RequestStatus",
+      "source_item": "#/$defs/SourceItem",
       "work_location": "#/$defs/WorkLocation"
     },
     "propertyName": "situation"
@@ -2224,6 +2363,9 @@
     },
     {
       "$ref": "#/$defs/ProjectCheckpoint"
+    },
+    {
+      "$ref": "#/$defs/SourceItem"
     }
   ],
   "title": "InterventionCardPayload"

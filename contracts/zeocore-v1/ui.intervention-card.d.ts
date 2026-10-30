@@ -245,6 +245,23 @@ export interface Session {
   duration_minutes: number;
 }
 
+export interface SourceItem {
+  situation: "source_item";
+  source_id: string;
+  source_digest: string;
+  observed_at: string;
+  project: string;
+  label: string;
+  title: string;
+  state: string;
+  next_action?: string;
+  copy_line?: string;
+  owner?: string;
+  deadline?: string;
+  source_url?: string;
+  freshness?: Freshness[];
+}
+
 export interface SourceStatus {
   source: "seat_answers" | "git_org_main" | "git_branches" | "github_prs" | "seat_state_local" | "org_chart" | "operator_tasks";
   observed_at?: string;
@@ -288,4 +305,4 @@ export interface WorkRef {
   revision: string;
 }
 
-export type InterventionCard = WorkLocation | Checkpoint | Blocker | Decision | RequestStatus | Outcome | ProjectCheckpoint;
+export type InterventionCard = WorkLocation | Checkpoint | Blocker | Decision | RequestStatus | Outcome | ProjectCheckpoint | SourceItem;

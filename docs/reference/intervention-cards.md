@@ -13,6 +13,7 @@
 | `request_status` | delivery, response, outcome and an explicit deadline |
 | `outcome` | `verified` (with evidence and the verification ref), `failed` or `cancelled` |
 | `project_checkpoint` | one project: seat answers, last product vs administrative progress, wait, local-only work, per-source freshness |
+| `source_item` | a read-only item as its source states it: its own id, the digest of the bytes read, project, label, title, state, next action and the line to copy. No work id, no counter, no action |
 
 ## Rules that hold everywhere
 

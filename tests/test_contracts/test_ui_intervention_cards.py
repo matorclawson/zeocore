@@ -32,8 +32,8 @@ def _load(path: Path) -> dict[str, Any]:
 
 
 def test_the_fixture_sets_are_not_empty() -> None:
-    assert len(VALID) == 15
-    assert len(NEGATIVE) == 184
+    assert len(VALID) == 17
+    assert len(NEGATIVE) == 215
 
 
 @pytest.mark.parametrize("path", VALID, ids=lambda p: p.name.split(".")[0])
@@ -170,6 +170,7 @@ def test_the_typescript_names_every_situation_and_marks_optional_keys() -> None:
             "RequestStatus",
             "Outcome",
             "ProjectCheckpoint",
+            "SourceItem",
         ]
     )
     assert "  work_ref?: WorkRef;" in text

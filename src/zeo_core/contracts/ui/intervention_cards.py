@@ -56,6 +56,7 @@ __all__ = [
     "Outcome",
     "ProjectCheckpoint",
     "RequestStatus",
+    "SourceItem",
     "WorkLocation",
 ]
 
@@ -789,6 +790,33 @@ class ProjectCheckpoint(_Opt):
         return self
 
 
+class SourceItem(_Opt):
+    """A read-only item shown as its source states it. Its identity is the source's id.
+
+    It has no work id, no revision counter and no action: a front end shows it and
+    offers to copy it. The digest names the exact source bytes it was read from.
+    """
+
+    situation: Literal["source_item"]
+    source_id: SourceRef
+    source_digest: Digest  # sha256 of the source bytes observed, not a revision
+    observed_at: DateTime
+    project: Text
+    label: Text
+    title: Text
+    state: Text  # the source's own word; the contract does not list its values
+    next_action: LongText | None = None
+    copy_line: LongText | None = None
+    owner: LongText | None = None
+    deadline: DateTime | None = None
+    source_url: Annotated[str, Field(pattern=r"^https://[^\s<>\"']{1,500}$")] | None = (
+        None
+    )
+    freshness: Annotated[list[Freshness], Field(max_length=8)] = Field(
+        default_factory=list
+    )
+
+
 InterventionCard = Annotated[
     WorkLocation
     | Checkpoint
@@ -796,7 +824,8 @@ InterventionCard = Annotated[
     | Decision
     | RequestStatus
     | Outcome
-    | ProjectCheckpoint,
+    | ProjectCheckpoint
+    | SourceItem,
     Field(discriminator="situation"),
 ]
 
