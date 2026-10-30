@@ -30,14 +30,24 @@ from pydantic import (
     model_validator,
 )
 
-COMPONENTS: Final = (
+from zeo_core.contracts.ui.intervention_cards import InterventionCardPayload
+
+#: The four components of the locked rasa-ops spec: byte-compatible, never extended.
+RASA_OPS_COMPONENTS: Final = (
     "flight_status",
     "weather_hourly",
     "arrival_timeline",
     "market_watchlist",
 )
+#: Core's own profile: the locked four plus the operator-situation card. The locked
+#: rasa-ops schema refuses ``intervention_card``; Core's published v1 schema allows it.
+COMPONENTS: Final = (*RASA_OPS_COMPONENTS, "intervention_card")
 Component = Literal[
-    "flight_status", "weather_hourly", "arrival_timeline", "market_watchlist"
+    "flight_status",
+    "weather_hourly",
+    "arrival_timeline",
+    "market_watchlist",
+    "intervention_card",
 ]
 
 _DATE_TIME: Final = re.compile(
@@ -214,13 +224,13 @@ class MarketWatchlistPayload(_Closed):
         return self
 
 
-class _Registry(Mapping[str, type[_Closed]]):
+class _Registry(Mapping[str, type[BaseModel]]):
     """The component registry: read-only, so no fifth component can be added."""
 
-    def __init__(self, items: dict[str, type[_Closed]]) -> None:
+    def __init__(self, items: dict[str, type[BaseModel]]) -> None:
         self._items = dict(items)
 
-    def __getitem__(self, key: str) -> type[_Closed]:
+    def __getitem__(self, key: str) -> type[BaseModel]:
         return self._items[key]
 
     def __iter__(self) -> Iterator[str]:
@@ -237,6 +247,7 @@ REGISTRY: Final = _Registry(
         "weather_hourly": WeatherHourlyPayload,
         "arrival_timeline": ArrivalTimelinePayload,
         "market_watchlist": MarketWatchlistPayload,
+        "intervention_card": InterventionCardPayload,
     }
 )
 

@@ -1,0 +1,76 @@
+{
+ "expect": "refused",
+ "why": "a confirm slot has no bound",
+ "payload": {
+  "situation": "decision",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 10,
+  "evidence": [
+   {
+    "kind": "source",
+    "ref": "git:fake-repo/issue/77"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:35:00Z",
+    "collected_at": "2026-10-30T09:36:00Z",
+    "state": "healthy"
+   }
+  ],
+  "primary_action": {
+   "route": "intervention",
+   "action_id": "act-explain",
+   "type": "explain_blocker",
+   "label": "Ask what the choice blocks",
+   "enabled": true
+  },
+  "secondary_actions": [],
+  "question": "Run the read-only inventory in the SQL editor and enter the three results",
+  "ask_type": "do",
+  "why_operator": "physical_presence",
+  "work_ref": {
+   "work_id": "wi_01J8Z3Q4R5S6T7V8W9X0Y1Z2A3",
+   "source_ref": "repo:fake-repo/pr/41",
+   "revision": "sha256:ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12"
+  },
+  "intervention_ref": "wi_01J8Z3Q4R5S6T7V8W9X0Y1Z2A3",
+  "checklist": [
+   {
+    "text": "Open the SQL editor for the venue database",
+    "done": false
+   },
+   {
+    "text": "Paste the pinned query and run it once (read only)",
+    "done": false
+   },
+   {
+    "text": "Enter the three results below",
+    "done": false
+   }
+  ],
+  "pinned_texts": [
+   {
+    "label": "Pinned read-only inventory (the exact 808-byte file)",
+    "language": "sql",
+    "text": "-- zeoconnect-ops SOW-11, for the Architect's one-package-set ruling (04:53Z) and pomar's request for the ACTUAL source inventory (msg-pomar-pomar-shared-PG-package-actual-inventory-input-20261029). AUTHORED ON THE MAC MINI, NOT RUN. For council read; then on the operator's page beside backup_role_v5.sql STEP 0, to be run in the Supabase SQL editor.\n-- READ ONLY: three SELECT statements and no setting is changed. They print version strings, extension names, versions and schema names and platform settings only. No row of any table, no secret, no key, no ciphertext. Send me the three results as text.\nselect version();\nselect current_setting('server_version_num');\nselect e.extname, e.extversion, n.nspname as schema from pg_extension e join pg_namespace n on n.oid = e.extnamespace order by e.extname;\n",
+    "sha256": "sha256:38d2fbbdf600c8108e7a43f3e68b004c5ff7317645857b3e1e4c800c2ca455a8"
+   }
+  ],
+  "result_slots": [
+   {
+    "slot_id": "a",
+    "label": "x",
+    "value_type": "confirm",
+    "max_utf8_bytes": 5
+   }
+  ],
+  "result_max_total_bytes": 254208,
+  "target_label": "Production database (label supplied by the task, fake here)"
+ }
+}

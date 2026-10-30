@@ -1,0 +1,49 @@
+{
+ "expect": "refused",
+ "why": "Action.enabled must be a JSON boolean",
+ "payload": {
+  "situation": "blocker",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 9,
+  "intervention_ref": "req-fake-002",
+  "evidence": [
+   {
+    "kind": "document",
+    "ref": "mail:fake-msg-0421"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "seat-report",
+    "observed_at": "2026-10-30T09:30:00Z",
+    "collected_at": "2026-10-30T09:31:00Z",
+    "state": "healthy"
+   }
+  ],
+  "primary_action": {
+   "route": "intervention",
+   "action_id": "act-unblock",
+   "type": "request_unblock",
+   "label": "Ask who can unblock",
+   "enabled": "true"
+  },
+  "secondary_actions": [
+   {
+    "route": "intervention",
+    "action_id": "act-escalate",
+    "type": "escalate",
+    "label": "Escalate",
+    "enabled": false,
+    "reason": "Already escalated"
+   }
+  ],
+  "reported_blocker": "Waiting for the tax-code table",
+  "since": "2026-10-30T08:00:00Z",
+  "depends_on": "fake-service",
+  "release_condition": "Table published"
+ }
+}

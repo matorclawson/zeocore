@@ -1,0 +1,60 @@
+{
+ "id": "data-work_location",
+ "source": "fake-app",
+ "fetched_at": "2026-10-30T09:56:30Z",
+ "as_of": "2026-10-30T09:56:00Z",
+ "replay": false,
+ "payload": {
+  "situation": "work_location",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 7,
+  "evidence": [
+   {
+    "kind": "source",
+    "ref": "git:fake-repo/main"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:02:00Z",
+    "collected_at": "2026-10-30T09:03:10Z",
+    "state": "healthy"
+   },
+   {
+    "source": "seat-report",
+    "observed_at": "2026-10-29T14:00:00Z",
+    "collected_at": "2026-10-30T09:03:10Z",
+    "state": "stale"
+   }
+  ],
+  "primary_action": {
+   "route": "intervention",
+   "action_id": "act-locate",
+   "type": "locate_work",
+   "label": "Locate the work",
+   "enabled": true
+  },
+  "secondary_actions": [
+   {
+    "route": "intervention",
+    "action_id": "act-checkpoint",
+    "type": "request_checkpoint",
+    "label": "Request a checkpoint",
+    "enabled": true
+   }
+  ],
+  "claimed_work": "Invoice export",
+  "artifact_refs": [
+   {
+    "kind": "local_only",
+    "ref": "seat-working-tree"
+   }
+  ],
+  "location_state": "local_only"
+ }
+}

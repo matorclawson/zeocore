@@ -1,0 +1,37 @@
+{
+ "expect": "accepted",
+ "why": "failed with a plain reason and no success-implying evidence",
+ "payload": {
+  "situation": "outcome",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 12,
+  "intervention_ref": "req-fake-001",
+  "evidence": [
+   {
+    "kind": "receipt",
+    "ref": "git:fake-repo/commit/d4e5f6a"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:55:00Z",
+    "collected_at": "2026-10-30T09:56:00Z",
+    "state": "healthy"
+   }
+  ],
+  "secondary_actions": [],
+  "outcome": "failed",
+  "closed_at": "2026-10-30T09:56:00Z",
+  "reason": "Delivery not found",
+  "work_ref": {
+   "work_id": "req-fake-001",
+   "source_ref": "repo:fake-repo/pr/41",
+   "revision": "sha256:ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12"
+  }
+ }
+}

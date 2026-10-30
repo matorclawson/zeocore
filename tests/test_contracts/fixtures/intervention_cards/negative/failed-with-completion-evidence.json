@@ -1,0 +1,38 @@
+{
+ "expect": "refused",
+ "why": "failed/cancelled must not carry completion evidence",
+ "payload": {
+  "situation": "outcome",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 12,
+  "intervention_ref": "req-fake-001",
+  "evidence": [
+   {
+    "kind": "receipt",
+    "ref": "git:fake-repo/commit/d4e5f6a"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:55:00Z",
+    "collected_at": "2026-10-30T09:56:00Z",
+    "state": "healthy"
+   }
+  ],
+  "secondary_actions": [],
+  "outcome": "failed",
+  "completion_evidence": [
+   {
+    "kind": "source",
+    "ref": "git:fake-repo/pr/41/merged"
+   }
+  ],
+  "closed_at": "2026-10-30T09:56:00Z",
+  "verification_ref": "verify:fake-req-001"
+ }
+}

@@ -1,0 +1,50 @@
+{
+ "id": "data-request_status",
+ "source": "fake-app",
+ "fetched_at": "2026-10-30T09:56:30Z",
+ "as_of": "2026-10-30T09:56:00Z",
+ "replay": false,
+ "payload": {
+  "situation": "request_status",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 11,
+  "intervention_ref": "wi_01J8Z3Q4R5S6T7V8W9X0Y1Z2A3",
+  "evidence": [
+   {
+    "kind": "source",
+    "ref": "git:fake-repo/pr/41"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:50:00Z",
+    "collected_at": "2026-10-30T09:51:00Z",
+    "state": "healthy"
+   }
+  ],
+  "primary_action": {
+   "route": "intervention",
+   "action_id": "act-verify",
+   "type": "verify_delivery",
+   "label": "Verify delivery",
+   "enabled": true
+  },
+  "secondary_actions": [],
+  "delivery": "delivered",
+  "response": "evidence_returned",
+  "outcome": "verifying",
+  "overdue": false,
+  "deadline": "2026-10-30T10:10:00Z",
+  "summary": "Evidence returned, being verified",
+  "work_ref": {
+   "work_id": "wi_01J8Z3Q4R5S6T7V8W9X0Y1Z2A3",
+   "source_ref": "repo:fake-repo/pr/41",
+   "revision": "sha256:ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12"
+  }
+ }
+}

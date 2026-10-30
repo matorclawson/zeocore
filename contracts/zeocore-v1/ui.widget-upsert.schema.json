@@ -9,7 +9,8 @@
         "flight_status",
         "weather_hourly",
         "arrival_timeline",
-        "market_watchlist"
+        "market_watchlist",
+        "intervention_card"
       ],
       "title": "Component",
       "type": "string"
