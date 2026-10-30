@@ -33,7 +33,7 @@ def _load(path: Path) -> dict[str, Any]:
 
 def test_the_fixture_sets_are_not_empty() -> None:
     assert len(VALID) == 17
-    assert len(NEGATIVE) == 215
+    assert len(NEGATIVE) == 217
 
 
 @pytest.mark.parametrize("path", VALID, ids=lambda p: p.name.split(".")[0])
@@ -181,3 +181,23 @@ def test_the_published_schema_accepts_every_valid_fixture() -> None:
     for path in VALID:
         InterventionCardPayload.model_validate(_load(path)["payload"])
     assert "ui.intervention-card" in SCHEMAS
+
+
+def test_no_published_pattern_escapes_a_quote() -> None:
+    # An escaped quote is valid in Python and invalid in an ECMAScript ``u`` regex.
+    patterns: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            patterns.extend(
+                v for k, v in node.items() if k == "pattern" and isinstance(v, str)
+            )
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(InterventionCardPayload.model_json_schema())
+    assert patterns
+    assert not [p for p in patterns if '\\"' in p or "\\'" in p]

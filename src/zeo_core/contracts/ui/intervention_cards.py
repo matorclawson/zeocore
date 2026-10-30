@@ -130,6 +130,8 @@ WorkId = Annotated[
 #: Display data for a pre-existing source: the work-id class, never ``@``.
 SourceRef = Annotated[str, Field(pattern=r"^[A-Za-z0-9._:/#-]{1,128}$")]
 #: ``sha256:`` and 64 lowercase hex: an artifact digest, never a counter.
+# Quotes are written as \x22 and \x27: valid in Python and in an ECMAScript ``u`` regex.
+_HTTPS_URL: Final = r"^https://[^\s<>\x22\x27]{1,500}$"
 Digest = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
 #: An opaque media reference of the App: no ``:`` and no ``/``, so a URL or a path
 #: cannot satisfy it.
@@ -809,9 +811,7 @@ class SourceItem(_Opt):
     copy_line: LongText | None = None
     owner: LongText | None = None
     deadline: DateTime | None = None
-    source_url: Annotated[str, Field(pattern=r"^https://[^\s<>\"']{1,500}$")] | None = (
-        None
-    )
+    source_url: Annotated[str, Field(pattern=_HTTPS_URL)] | None = None
     freshness: Annotated[list[Freshness], Field(max_length=8)] = Field(
         default_factory=list
     )

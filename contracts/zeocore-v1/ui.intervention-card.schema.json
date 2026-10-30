@@ -1973,7 +1973,7 @@
         "source_url": {
           "anyOf": [
             {
-              "pattern": "^https://[^\\s<>\\\"']{1,500}$",
+              "pattern": "^https://[^\\s<>\\x22\\x27]{1,500}$",
               "type": "string"
             },
             {
