@@ -1,0 +1,71 @@
+"""TypeScript types for the ``intervention_card`` payload (zeocore-SOW-54).
+
+The types are rendered from the published JSON Schema, so a front end that only reads
+``contracts/zeocore-v1/ui.intervention-card.d.ts`` sees exactly what the registry
+accepts. A key that is optional on the wire is optional in the type and never
+``null``: the contract says an absent key is absent, not null.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Final
+
+from zeo_core.cli.schemas import render_schema
+
+SCHEMA_NAME: Final = "ui.intervention-card"
+
+_PRIMITIVES: Final = {
+    "string": "string",
+    "integer": "number",
+    "number": "number",
+    "boolean": "boolean",
+}
+
+
+def _type(node: dict[str, Any]) -> str:
+    if "$ref" in node:
+        return str(node["$ref"]).rsplit("/", 1)[-1]
+    if "const" in node:
+        return json.dumps(node["const"])
+    if "enum" in node:
+        return " | ".join(json.dumps(value) for value in node["enum"])
+    for key in ("anyOf", "oneOf"):
+        if key in node:
+            parts = [_type(part) for part in node[key] if part.get("type") != "null"]
+            return " | ".join(parts)
+    if node.get("type") == "array":
+        item = _type(node["items"])
+        if node.get("minItems") == node.get("maxItems") is not None:
+            return "[" + ", ".join([item] * node["minItems"]) + "]"
+        return f"{item}[]" if "|" not in item else f"({item})[]"
+    return _PRIMITIVES[node["type"]]
+
+
+def _interface(name: str, node: dict[str, Any]) -> str:
+    required = set(node.get("required", ()))
+    lines = [f"export interface {name} {{"]
+    for key, prop in node["properties"].items():
+        mark = "" if key in required else "?"
+        lines.append(f"  {key}{mark}: {_type(prop)};")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def render_typescript() -> str:
+    """The exact committed bytes of ``ui.intervention-card.d.ts``."""
+    schema = render_schema(SCHEMA_NAME)
+    header = "\n".join(
+        [
+            "// Generated from ui.intervention-card.schema.json. Do not edit by hand.",
+            f"// Schema: {schema['$id']}",
+            "// Rules that tie fields together (for example intervention_ref equal to",
+            "// work_ref.work_id) are enforced by the validator, not by these types.",
+        ]
+    )
+    blocks = [header]
+    for name, node in sorted(schema["$defs"].items()):
+        blocks.append(_interface(name, node))
+    cards = " | ".join(part["$ref"].rsplit("/", 1)[-1] for part in schema["oneOf"])
+    blocks.append(f"export type InterventionCard = {cards};")
+    return "\n\n".join(blocks) + "\n"

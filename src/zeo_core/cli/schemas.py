@@ -46,6 +46,9 @@ SCHEMAS: Final[dict[str, str]] = {
     "ui.result-card": "zeo_core.contracts.ui.card:UiCardResult",
     "ui.widget-upsert": "zeo_core.contracts.ui.widgets:WidgetUpsert",
     "ui.widget-data-ref": "zeo_core.contracts.ui.widgets:DataRef",
+    "ui.intervention-card": (
+        "zeo_core.contracts.ui.intervention_cards:InterventionCardPayload"
+    ),
     "proof.report": "zeo_core.contracts.proof.report:ProofReport",
     "revolut.account": "zeo_core.integrations.revolut.models:Account",
     # TransactionQuery waits for its wire alias ("from", contract §6): its

@@ -15,8 +15,10 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from zeo_core.cli.schemas import SCHEMAS
 from zeo_core.contracts.ui import intervention_cards as cards
 from zeo_core.contracts.ui import widgets
+from zeo_core.contracts.ui.intervention_card_types import render_typescript
 from zeo_core.contracts.ui.intervention_cards import InterventionCardPayload
 
 FIXTURES = Path(__file__).parent / "fixtures" / "intervention_cards"
@@ -141,3 +143,40 @@ def test_a_project_card_offers_only_the_three_interventions() -> None:
         "request_unblock",
         "explain_blocker",
     )
+
+
+def test_the_committed_typescript_types_match_the_schema() -> None:
+    # On drift, write render_typescript() to
+    # contracts/zeocore-v1/ui.intervention-card.d.ts and review the diff.
+    path = (
+        Path(__file__).parents[2]
+        / "contracts"
+        / "zeocore-v1"
+        / "ui.intervention-card.d.ts"
+    )
+    assert path.read_text(encoding="utf-8") == render_typescript()
+
+
+def test_the_typescript_names_every_situation_and_marks_optional_keys() -> None:
+    text = render_typescript()
+    union = "export type InterventionCard = "
+    named = text.split(union, 1)[1].split(";", 1)[0].split(" | ")
+    assert sorted(named) == sorted(
+        [
+            "WorkLocation",
+            "Checkpoint",
+            "Blocker",
+            "Decision",
+            "RequestStatus",
+            "Outcome",
+            "ProjectCheckpoint",
+        ]
+    )
+    assert "  work_ref?: WorkRef;" in text
+    assert "null" not in text
+
+
+def test_the_published_schema_accepts_every_valid_fixture() -> None:
+    for path in VALID:
+        InterventionCardPayload.model_validate(_load(path)["payload"])
+    assert "ui.intervention-card" in SCHEMAS

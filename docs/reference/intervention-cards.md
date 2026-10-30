@@ -43,3 +43,14 @@ a consumer validating against it refuses `intervention_card`, and that is correc
 Core emits no card itself. A service that sends `widget.upsert` events to a consumer
 pinned to the locked four must not send it this component: the card belongs to boards
 that read the Core profile.
+
+## For a front end
+
+A front end reads the card as JSON and does not import Python.
+
+- **Schema:** `contracts/zeocore-v1/ui.intervention-card.schema.json`, also printed by `zeocore schema ui.intervention-card`. It is JSON Schema 2020-12 and closed: no unknown keys.
+- **TypeScript types:** `contracts/zeocore-v1/ui.intervention-card.d.ts`, generated from the schema. `InterventionCard` is a union discriminated by `situation`. A key that may be absent is optional in the type and is never `null` on the wire.
+- **What the types cannot say:** rules that tie fields together, such as `intervention_ref` equal to `work_ref.work_id`, are checked by the validator. A front end shows what it is given and does not rely on the types for those rules.
+- **Examples:** `tests/test_contracts/fixtures/intervention_cards/valid/*.dataref.json` holds one valid card for each situation and shape. All data is fake.
+
+Both files are regenerated from the model; a test fails when they drift.

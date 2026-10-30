@@ -1,0 +1,2230 @@
+{
+  "$defs": {
+    "Action": {
+      "additionalProperties": false,
+      "description": "One typed action id. The route says which closed list the name belongs to.",
+      "properties": {
+        "action_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "title": "Action Id",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "reserved_operation": {
+          "anyOf": [
+            {
+              "enum": [
+                "decision.publishing_notice",
+                "decision.public_release",
+                "decision.spend",
+                "decision.repo_visibility",
+                "decision.production_go",
+                "decision.gold_tag",
+                "decision.external_application",
+                "decision.outside_org_write",
+                "decision.brand_rule",
+                "review.own_content"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reserved Operation"
+        },
+        "route": {
+          "enum": [
+            "intervention",
+            "reserved",
+            "task"
+          ],
+          "title": "Route",
+          "type": "string"
+        },
+        "task_operation": {
+          "anyOf": [
+            {
+              "enum": [
+                "task.create_request",
+                "task.acknowledge",
+                "task.report_blocker",
+                "task.submit_evidence",
+                "task.record_answer",
+                "day.propose",
+                "day.accept",
+                "day.add_today",
+                "day.schedule",
+                "day.defer",
+                "day.delegate",
+                "day.decline",
+                "day.session_propose",
+                "day.session_accept"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Operation"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "enum": [
+                "locate_work",
+                "request_checkpoint",
+                "request_update",
+                "explain_blocker",
+                "request_unblock",
+                "verify_delivery",
+                "request_recovery_plan",
+                "escalate"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": [
+        "route",
+        "action_id",
+        "label",
+        "enabled"
+      ],
+      "title": "Action",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "repo",
+            "branch",
+            "commit",
+            "pr",
+            "deployment",
+            "local_only"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ArtifactToReview": {
+      "additionalProperties": false,
+      "description": "What an approval would bind to; the binding itself is the service's.",
+      "properties": {
+        "ref": {
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+          "title": "Ref",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "revision"
+      ],
+      "title": "ArtifactToReview",
+      "type": "object"
+    },
+    "Blocker": {
+      "additionalProperties": false,
+      "properties": {
+        "depends_on": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Depends On"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 8,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "freshness": {
+          "items": {
+            "$ref": "#/$defs/Freshness"
+          },
+          "maxItems": 8,
+          "title": "Freshness",
+          "type": "array"
+        },
+        "intervention_ref": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:/#-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intervention Ref"
+        },
+        "primary_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Action"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "release_condition": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Condition"
+        },
+        "reported_blocker": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Reported Blocker",
+          "type": "string"
+        },
+        "secondary_actions": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "maxItems": 3,
+          "title": "Secondary Actions",
+          "type": "array"
+        },
+        "since": {
+          "maxLength": 40,
+          "title": "Since",
+          "type": "string"
+        },
+        "situation": {
+          "const": "blocker",
+          "title": "Situation",
+          "type": "string"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/SubjectRef"
+        },
+        "subject_revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Subject Revision",
+          "type": "integer"
+        },
+        "work_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "subject_ref",
+        "subject_revision",
+        "evidence",
+        "freshness",
+        "situation",
+        "reported_blocker",
+        "since"
+      ],
+      "title": "Blocker",
+      "type": "object"
+    },
+    "ChecklistStep": {
+      "additionalProperties": false,
+      "description": "Read data: the step text and whether it is done; nothing executes from here.",
+      "properties": {
+        "done": {
+          "title": "Done",
+          "type": "boolean"
+        },
+        "text": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "done"
+      ],
+      "title": "ChecklistStep",
+      "type": "object"
+    },
+    "Checkpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery": {
+          "enum": [
+            "pending",
+            "delivered",
+            "uncertain",
+            "refused"
+          ],
+          "title": "Delivery",
+          "type": "string"
+        },
+        "due_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Due At"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 8,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "freshness": {
+          "items": {
+            "$ref": "#/$defs/Freshness"
+          },
+          "maxItems": 8,
+          "title": "Freshness",
+          "type": "array"
+        },
+        "intervention_ref": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:/#-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intervention Ref"
+        },
+        "primary_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Action"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "requested_at": {
+          "maxLength": 40,
+          "title": "Requested At",
+          "type": "string"
+        },
+        "response": {
+          "enum": [
+            "awaiting",
+            "acknowledged",
+            "evidence_returned"
+          ],
+          "title": "Response",
+          "type": "string"
+        },
+        "secondary_actions": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "maxItems": 3,
+          "title": "Secondary Actions",
+          "type": "array"
+        },
+        "situation": {
+          "const": "checkpoint",
+          "title": "Situation",
+          "type": "string"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/SubjectRef"
+        },
+        "subject_revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Subject Revision",
+          "type": "integer"
+        },
+        "work_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "subject_ref",
+        "subject_revision",
+        "evidence",
+        "freshness",
+        "situation",
+        "requested_at",
+        "delivery",
+        "response"
+      ],
+      "title": "Checkpoint",
+      "type": "object"
+    },
+    "ChoiceAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "choice",
+          "title": "Kind",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/Option"
+          },
+          "maxItems": 4,
+          "minItems": 2,
+          "title": "Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "options"
+      ],
+      "title": "ChoiceAnswer",
+      "type": "object"
+    },
+    "Decision": {
+      "additionalProperties": false,
+      "description": "The ask card: ``ask_type`` picks ONE typed shape; other shapes are refused.",
+      "properties": {
+        "answer": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "bounded_integer": "#/$defs/IntegerAnswer",
+                  "choice": "#/$defs/ChoiceAnswer"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/ChoiceAnswer"
+                },
+                {
+                  "$ref": "#/$defs/IntegerAnswer"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer"
+        },
+        "artifact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactToReview"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ask_type": {
+          "enum": [
+            "decide",
+            "review",
+            "do",
+            "session"
+          ],
+          "title": "Ask Type",
+          "type": "string"
+        },
+        "checklist": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ChecklistStep"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checklist"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 8,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "freshness": {
+          "items": {
+            "$ref": "#/$defs/Freshness"
+          },
+          "maxItems": 8,
+          "title": "Freshness",
+          "type": "array"
+        },
+        "intervention_ref": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:/#-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intervention Ref"
+        },
+        "pinned_texts": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PinnedText"
+              },
+              "maxItems": 3,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pinned Texts"
+        },
+        "primary_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Action"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "question": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "result_max_total_bytes": {
+          "anyOf": [
+            {
+              "maximum": 1048576,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Max Total Bytes"
+        },
+        "result_slots": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ResultSlot"
+              },
+              "maxItems": 6,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Slots"
+        },
+        "review_images": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ReviewImage"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Images"
+        },
+        "secondary_actions": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "maxItems": 3,
+          "title": "Secondary Actions",
+          "type": "array"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Session"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "situation": {
+          "const": "decision",
+          "title": "Situation",
+          "type": "string"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/SubjectRef"
+        },
+        "subject_revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Subject Revision",
+          "type": "integer"
+        },
+        "target_label": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Label"
+        },
+        "why_operator": {
+          "enum": [
+            "judgment",
+            "credentials",
+            "physical_presence",
+            "reserved_authority"
+          ],
+          "title": "Why Operator",
+          "type": "string"
+        },
+        "work_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "subject_ref",
+        "subject_revision",
+        "evidence",
+        "freshness",
+        "situation",
+        "ask_type",
+        "question",
+        "why_operator"
+      ],
+      "title": "Decision",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "operation",
+            "receipt",
+            "document",
+            "source"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "Flags": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked": {
+          "enum": [
+            "yes",
+            "no",
+            "unknown"
+          ],
+          "title": "Blocked",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "stale": {
+          "enum": [
+            "yes",
+            "no",
+            "unknown"
+          ],
+          "title": "Stale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stale",
+        "blocked"
+      ],
+      "title": "Flags",
+      "type": "object"
+    },
+    "Freshness": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "maxLength": 40,
+          "title": "Collected At",
+          "type": "string"
+        },
+        "observed_at": {
+          "maxLength": 40,
+          "title": "Observed At",
+          "type": "string"
+        },
+        "source": {
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+          "title": "Source",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "healthy",
+            "degraded",
+            "error",
+            "unknown",
+            "stale",
+            "unavailable"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "observed_at",
+        "collected_at",
+        "state"
+      ],
+      "title": "Freshness",
+      "type": "object"
+    },
+    "IntegerAnswer": {
+      "additionalProperties": false,
+      "description": "A bounded whole number with presets and, optionally, another number.\n\n``recommended`` is display data: never a default, never pre-filled. The chosen\nvalue goes to the backend through the typed answer action, not through the card.",
+      "properties": {
+        "allow_other": {
+          "title": "Allow Other",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "bounded_integer",
+          "title": "Kind",
+          "type": "string"
+        },
+        "maximum": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Maximum",
+          "type": "integer"
+        },
+        "minimum": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Minimum",
+          "type": "integer"
+        },
+        "presets": {
+          "items": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 6,
+          "title": "Presets",
+          "type": "array"
+        },
+        "recommended": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recommended"
+        },
+        "unit": {
+          "enum": [
+            "minutes",
+            "hours",
+            "days",
+            "count"
+          ],
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "unit",
+        "minimum",
+        "maximum",
+        "presets",
+        "allow_other"
+      ],
+      "title": "IntegerAnswer",
+      "type": "object"
+    },
+    "LatestCheckpoint": {
+      "additionalProperties": false,
+      "description": "A seat's latest KNOWN checkpoint, kept apart from the current run's slot.\n\nA seat that missed the current slot keeps the real time and reference of its last\ncheckpoint, and that earlier evidence NEVER makes the current slot answered.",
+      "properties": {
+        "age_h": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Age H"
+        },
+        "answered_at": {
+          "maxLength": 40,
+          "title": "Answered At",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+          "title": "Ref",
+          "type": "string"
+        },
+        "run_ref": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "pattern": "^run-[0-9]{8}T[0-9]{4}Z$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Ref"
+        }
+      },
+      "required": [
+        "ref",
+        "answered_at"
+      ],
+      "title": "LatestCheckpoint",
+      "type": "object"
+    },
+    "LocalOnly": {
+      "additionalProperties": false,
+      "properties": {
+        "flag": {
+          "enum": [
+            "yes",
+            "no",
+            "unknown"
+          ],
+          "title": "Flag",
+          "type": "string"
+        },
+        "git_unpushed_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Git Unpushed Count"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "required": [
+        "flag"
+      ],
+      "title": "LocalOnly",
+      "type": "object"
+    },
+    "Milestone": {
+      "additionalProperties": false,
+      "description": "``last_product`` and ``last_administrative`` share this shape, kept apart.",
+      "properties": {
+        "evidence_ref": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "pattern": "^https://[A-Za-z0-9][A-Za-z0-9._~:/?#@!$&()*+,;=%\\[\\]-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Ref"
+        },
+        "stage": {
+          "enum": [
+            "implemented",
+            "qualified",
+            "reviewed",
+            "merged",
+            "delivered",
+            "installed",
+            "consumer_accepted",
+            "unknown"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "what": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "What"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "When"
+        }
+      },
+      "required": [
+        "stage"
+      ],
+      "title": "Milestone",
+      "type": "object"
+    },
+    "NextAct": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Action",
+          "type": "string"
+        },
+        "owner": {
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._-]{1,64}$",
+          "title": "Owner",
+          "type": "string"
+        },
+        "time": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time"
+        },
+        "time_quality": {
+          "enum": [
+            "due",
+            "target",
+            "unknown"
+          ],
+          "title": "Time Quality",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "owner",
+        "time_quality"
+      ],
+      "title": "NextAct",
+      "type": "object"
+    },
+    "Option": {
+      "additionalProperties": false,
+      "description": "Read data: no action executes a choice until an owner operation is agreed.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "Option",
+      "type": "object"
+    },
+    "Outcome": {
+      "additionalProperties": false,
+      "properties": {
+        "closed_at": {
+          "maxLength": 40,
+          "title": "Closed At",
+          "type": "string"
+        },
+        "completion_evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 8,
+          "title": "Completion Evidence",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 8,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "freshness": {
+          "items": {
+            "$ref": "#/$defs/Freshness"
+          },
+          "maxItems": 8,
+          "title": "Freshness",
+          "type": "array"
+        },
+        "intervention_ref": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:/#-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intervention Ref"
+        },
+        "outcome": {
+          "enum": [
+            "verified",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "primary_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Action"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "secondary_actions": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "maxItems": 3,
+          "title": "Secondary Actions",
+          "type": "array"
+        },
+        "situation": {
+          "const": "outcome",
+          "title": "Situation",
+          "type": "string"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/SubjectRef"
+        },
+        "subject_revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Subject Revision",
+          "type": "integer"
+        },
+        "verification_ref": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verification Ref"
+        },
+        "work_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "subject_ref",
+        "subject_revision",
+        "evidence",
+        "freshness",
+        "situation",
+        "outcome",
+        "closed_at"
+      ],
+      "title": "Outcome",
+      "type": "object"
+    },
+    "PinnedText": {
+      "additionalProperties": false,
+      "description": "Display-only text the person is told to use, pinned by the sha256 of its bytes.\n\nNever run, never an instruction: the card has no execute action. The text is\ncard.py's class L (at most 4096 UTF-8 BYTES, LF allowed).",
+      "properties": {
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "language": {
+          "enum": [
+            "sql",
+            "text"
+          ],
+          "title": "Language",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F]*$",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "language",
+        "text",
+        "sha256"
+      ],
+      "title": "PinnedText",
+      "type": "object"
+    },
+    "ProjectCheckpoint": {
+      "additionalProperties": false,
+      "description": "One card per canonical project. Its identity is NOT a work id.",
+      "properties": {
+        "flags": {
+          "$ref": "#/$defs/Flags"
+        },
+        "index_revision": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Index Revision"
+        },
+        "last_administrative": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Milestone"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "last_product": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Milestone"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "local_only": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalOnly"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "next_act": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NextAct"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "primary_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Action"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "project_checkpoint_age_h": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Checkpoint Age H"
+        },
+        "project_ref": {
+          "maxLength": 64,
+          "pattern": "^[a-z0-9-]{1,64}$",
+          "title": "Project Ref",
+          "type": "string"
+        },
+        "run_ref": {
+          "maxLength": 40,
+          "pattern": "^run-[0-9]{8}T[0-9]{4}Z$",
+          "title": "Run Ref",
+          "type": "string"
+        },
+        "seats": {
+          "items": {
+            "$ref": "#/$defs/SeatAnswer"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Seats",
+          "type": "array"
+        },
+        "secondary_actions": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "maxItems": 3,
+          "title": "Secondary Actions",
+          "type": "array"
+        },
+        "situation": {
+          "const": "project_checkpoint",
+          "title": "Situation",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceStatus"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        },
+        "subject_revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Subject Revision",
+          "type": "integer"
+        },
+        "wait": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Wait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "situation",
+        "run_ref",
+        "project_ref",
+        "subject_revision",
+        "seats",
+        "sources",
+        "flags"
+      ],
+      "title": "ProjectCheckpoint",
+      "type": "object"
+    },
+    "RequestStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "deadline": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deadline"
+        },
+        "delivery": {
+          "enum": [
+            "pending",
+            "delivered",
+            "uncertain",
+            "refused"
+          ],
+          "title": "Delivery",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 8,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "freshness": {
+          "items": {
+            "$ref": "#/$defs/Freshness"
+          },
+          "maxItems": 8,
+          "title": "Freshness",
+          "type": "array"
+        },
+        "intervention_ref": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:/#-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intervention Ref"
+        },
+        "outcome": {
+          "enum": [
+            "open",
+            "verifying",
+            "verified",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "overdue": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Overdue"
+        },
+        "primary_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Action"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "response": {
+          "enum": [
+            "awaiting",
+            "acknowledged",
+            "evidence_returned"
+          ],
+          "title": "Response",
+          "type": "string"
+        },
+        "secondary_actions": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "maxItems": 3,
+          "title": "Secondary Actions",
+          "type": "array"
+        },
+        "situation": {
+          "const": "request_status",
+          "title": "Situation",
+          "type": "string"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/SubjectRef"
+        },
+        "subject_revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Subject Revision",
+          "type": "integer"
+        },
+        "summary": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "work_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "subject_ref",
+        "subject_revision",
+        "evidence",
+        "freshness",
+        "situation",
+        "delivery",
+        "response",
+        "outcome",
+        "summary"
+      ],
+      "title": "RequestStatus",
+      "type": "object"
+    },
+    "ResultSlot": {
+      "additionalProperties": false,
+      "description": "One typed, bounded field the person fills in; its VALUE is never on the card.\n\nThe value goes to the backend through the typed answer action, which re-reads\nthe bounds from the owning task policy (a client-supplied bound is never\ntrusted). Over a bound the backend refuses; the card only states it.",
+      "properties": {
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "max_data_rows": {
+          "anyOf": [
+            {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Data Rows"
+        },
+        "max_utf8_bytes": {
+          "anyOf": [
+            {
+              "maximum": 262144,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Utf8 Bytes"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "slot_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "title": "Slot Id",
+          "type": "string"
+        },
+        "value_type": {
+          "enum": [
+            "text",
+            "timestamp",
+            "confirm"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot_id",
+        "label",
+        "value_type"
+      ],
+      "title": "ResultSlot",
+      "type": "object"
+    },
+    "ReviewImage": {
+      "additionalProperties": false,
+      "description": "Metadata of one image the App serves behind sign-in; never bytes, never a URL.",
+      "properties": {
+        "alt": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Alt",
+          "type": "string"
+        },
+        "byte_length": {
+          "maximum": 8388608,
+          "minimum": 1,
+          "title": "Byte Length",
+          "type": "integer"
+        },
+        "content_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "title": "Content Type",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "media_ref": {
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$",
+          "title": "Media Ref",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "width": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "media_ref",
+        "label",
+        "alt",
+        "sha256",
+        "byte_length",
+        "content_type",
+        "width",
+        "height"
+      ],
+      "title": "ReviewImage",
+      "type": "object"
+    },
+    "SeatAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "answer_age_h": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer Age H"
+        },
+        "answer_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer At"
+        },
+        "answer_ref": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:/-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer Ref"
+        },
+        "answer_state": {
+          "enum": [
+            "answered",
+            "not_answered",
+            "unknown"
+          ],
+          "title": "Answer State",
+          "type": "string"
+        },
+        "latest_checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LatestCheckpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "seat": {
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._-]{1,64}$",
+          "title": "Seat",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seat",
+        "answer_state"
+      ],
+      "title": "SeatAnswer",
+      "type": "object"
+    },
+    "Session": {
+      "additionalProperties": false,
+      "properties": {
+        "duration_minutes": {
+          "maximum": 1440,
+          "minimum": 1,
+          "title": "Duration Minutes",
+          "type": "integer"
+        },
+        "start": {
+          "maxLength": 40,
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "duration_minutes"
+      ],
+      "title": "Session",
+      "type": "object"
+    },
+    "SourceStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Collected At"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "source": {
+          "enum": [
+            "seat_answers",
+            "git_org_main",
+            "git_branches",
+            "github_prs",
+            "seat_state_local",
+            "org_chart",
+            "operator_tasks"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "stale",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "state"
+      ],
+      "title": "SourceStatus",
+      "type": "object"
+    },
+    "SubjectRef": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id"
+        },
+        "assignment_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "title": "Assignment Id",
+          "type": "string"
+        },
+        "project_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "seat_id": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "title": "Seat Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "seat_id",
+        "assignment_id"
+      ],
+      "title": "SubjectRef",
+      "type": "object"
+    },
+    "Wait": {
+      "additionalProperties": false,
+      "properties": {
+        "owner": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "since": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Since"
+        },
+        "source": {
+          "enum": [
+            "seat_answer",
+            "sow_your_next",
+            "unknown"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "Wait",
+      "type": "object"
+    },
+    "WorkLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 8,
+          "title": "Artifact Refs",
+          "type": "array"
+        },
+        "claimed_work": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Claimed Work",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 8,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "freshness": {
+          "items": {
+            "$ref": "#/$defs/Freshness"
+          },
+          "maxItems": 8,
+          "title": "Freshness",
+          "type": "array"
+        },
+        "intervention_ref": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:/#-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intervention Ref"
+        },
+        "location_state": {
+          "enum": [
+            "published",
+            "local_only",
+            "unknown"
+          ],
+          "title": "Location State",
+          "type": "string"
+        },
+        "primary_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Action"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "secondary_actions": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "maxItems": 3,
+          "title": "Secondary Actions",
+          "type": "array"
+        },
+        "situation": {
+          "const": "work_location",
+          "title": "Situation",
+          "type": "string"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/SubjectRef"
+        },
+        "subject_revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Subject Revision",
+          "type": "integer"
+        },
+        "work_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "subject_ref",
+        "subject_revision",
+        "evidence",
+        "freshness",
+        "situation",
+        "claimed_work",
+        "artifact_refs",
+        "location_state"
+      ],
+      "title": "WorkLocation",
+      "type": "object"
+    },
+    "WorkRef": {
+      "additionalProperties": false,
+      "description": "One id for a work item on every view; ``intervention_ref`` is the SAME id.",
+      "properties": {
+        "revision": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "source_ref": {
+          "pattern": "^[A-Za-z0-9._:/#-]{1,128}$",
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "work_id": {
+          "pattern": "^[A-Za-z0-9._:/#-]{1,128}$",
+          "title": "Work Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "work_id",
+        "source_ref",
+        "revision"
+      ],
+      "title": "WorkRef",
+      "type": "object"
+    }
+  },
+  "$id": "https://zeocore.zeo.ac/contracts/zeocore-v1/ui.intervention-card.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "What the widget registry validates: one card, chosen by ``situation``.",
+  "discriminator": {
+    "mapping": {
+      "blocker": "#/$defs/Blocker",
+      "checkpoint": "#/$defs/Checkpoint",
+      "decision": "#/$defs/Decision",
+      "outcome": "#/$defs/Outcome",
+      "project_checkpoint": "#/$defs/ProjectCheckpoint",
+      "request_status": "#/$defs/RequestStatus",
+      "work_location": "#/$defs/WorkLocation"
+    },
+    "propertyName": "situation"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/WorkLocation"
+    },
+    {
+      "$ref": "#/$defs/Checkpoint"
+    },
+    {
+      "$ref": "#/$defs/Blocker"
+    },
+    {
+      "$ref": "#/$defs/Decision"
+    },
+    {
+      "$ref": "#/$defs/RequestStatus"
+    },
+    {
+      "$ref": "#/$defs/Outcome"
+    },
+    {
+      "$ref": "#/$defs/ProjectCheckpoint"
+    }
+  ],
+  "title": "InterventionCardPayload"
+}
