@@ -1,0 +1,8 @@
+{
+ "type": "widget.upsert",
+ "request_id": "req-board-1",
+ "widget_id": "fake-asg-0142",
+ "component": "intervention_card",
+ "data_ref": "data-work_location",
+ "revision": 1
+}

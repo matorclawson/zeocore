@@ -1,0 +1,45 @@
+{
+ "expect": "accepted",
+ "why": "no deadline: deadline and overdue both absent (unknown)",
+ "payload": {
+  "situation": "request_status",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 11,
+  "intervention_ref": "req-fake-001",
+  "evidence": [
+   {
+    "kind": "source",
+    "ref": "git:fake-repo/pr/41"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:50:00Z",
+    "collected_at": "2026-10-30T09:51:00Z",
+    "state": "healthy"
+   }
+  ],
+  "primary_action": {
+   "route": "intervention",
+   "action_id": "act-verify",
+   "type": "verify_delivery",
+   "label": "Verify delivery",
+   "enabled": true
+  },
+  "secondary_actions": [],
+  "delivery": "delivered",
+  "response": "evidence_returned",
+  "outcome": "verifying",
+  "summary": "Evidence returned, being verified",
+  "work_ref": {
+   "work_id": "req-fake-001",
+   "source_ref": "repo:fake-repo/pr/41",
+   "revision": "sha256:ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12"
+  }
+ }
+}

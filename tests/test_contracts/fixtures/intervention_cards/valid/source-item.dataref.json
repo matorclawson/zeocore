@@ -1,0 +1,30 @@
+{
+ "id": "data-source-item",
+ "source": "fake-app",
+ "fetched_at": "2026-10-30T21:43:30Z",
+ "as_of": "2026-10-30T21:43:00Z",
+ "replay": false,
+ "payload": {
+  "situation": "source_item",
+  "source_id": "do-fake-0001",
+  "source_digest": "sha256:ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12",
+  "observed_at": "2026-10-30T21:42:09Z",
+  "project": "Fake newsletter",
+  "label": "Do 1",
+  "title": "Check the fake newsletter, two minutes",
+  "state": "open",
+  "next_action": "Check the fake newsletter.\nSend the fake images to fake design.",
+  "copy_line": "Please confirm the fake layouts.",
+  "owner": "fake-seat writes, fake-builder builds",
+  "deadline": "2026-11-02T09:00:00Z",
+  "source_url": "https://example.invalid/fake/todo",
+  "freshness": [
+   {
+    "source": "fake-tasks-json",
+    "observed_at": "2026-10-30T21:42:09Z",
+    "collected_at": "2026-10-30T21:43:00Z",
+    "state": "healthy"
+   }
+  ]
+ }
+}

@@ -1,0 +1,8 @@
+{
+ "type": "widget.upsert",
+ "request_id": "req-board-1",
+ "widget_id": "fake-project",
+ "component": "intervention_card",
+ "data_ref": "data-project-checkpoint",
+ "revision": 1
+}

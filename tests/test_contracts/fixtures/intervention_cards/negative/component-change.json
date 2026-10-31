@@ -1,0 +1,7 @@
+{
+ "expect": "refused",
+ "why": "WidgetBoard.apply: same widget_id with another component is refused (component_changed); under R1 the component never changes",
+ "payload": {
+  "component": "blocker_card"
+ }
+}

@@ -1,0 +1,57 @@
+{
+ "expect": "refused",
+ "why": "a task action carries task_operation, not an intervention type",
+ "payload": {
+  "situation": "decision",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 10,
+  "evidence": [
+   {
+    "kind": "source",
+    "ref": "git:fake-repo/issue/77"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:35:00Z",
+    "collected_at": "2026-10-30T09:36:00Z",
+    "state": "healthy"
+   }
+  ],
+  "primary_action": {
+   "route": "task",
+   "action_id": "a1",
+   "type": "escalate",
+   "label": "x",
+   "enabled": true
+  },
+  "secondary_actions": [],
+  "question": "Ship the narrow invoice export now?",
+  "ask_type": "decide",
+  "why_operator": "judgment",
+  "work_ref": {
+   "work_id": "wi_01J8Z3Q4R5S6T7V8W9X0Y1Z2A3",
+   "source_ref": "repo:fake-repo/pr/41",
+   "revision": "sha256:ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12"
+  },
+  "intervention_ref": "wi_01J8Z3Q4R5S6T7V8W9X0Y1Z2A3",
+  "answer": {
+   "kind": "choice",
+   "options": [
+    {
+     "id": "narrow",
+     "label": "Ship narrow"
+    },
+    {
+     "id": "full",
+     "label": "Wait for full"
+    }
+   ]
+  }
+ }
+}

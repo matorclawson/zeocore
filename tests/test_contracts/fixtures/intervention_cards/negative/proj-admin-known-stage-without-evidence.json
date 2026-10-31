@@ -1,0 +1,102 @@
+{
+ "expect": "refused",
+ "why": "the same rule for the administrative row",
+ "payload": {
+  "situation": "project_checkpoint",
+  "run_ref": "run-20261030T0600Z",
+  "index_revision": "sha256:7ccddf4fb0076bf7571b9ab8767c1c85f3bbec419cd5df073e1db42223ed32d6",
+  "project_ref": "fake-project",
+  "subject_revision": 14,
+  "seats": [
+   {
+    "seat": "fake-seat-a",
+    "answer_state": "answered",
+    "answer_at": "2026-10-30T04:12:00Z",
+    "answer_age_h": 1.8,
+    "answer_ref": "msg-fake-seat-a-ckpt"
+   },
+   {
+    "seat": "fake-seat-b",
+    "answer_state": "not_answered",
+    "latest_checkpoint": {
+     "ref": "msg-fake-seat-b-old-ckpt",
+     "answered_at": "2026-10-27T10:00:00Z",
+     "age_h": 68.0
+    }
+   }
+  ],
+  "last_product": {
+   "what": "Fake export slice merged to main",
+   "when": "2026-10-29T18:51:00Z",
+   "evidence_ref": "https://example.invalid/fake/pull/41",
+   "stage": "merged"
+  },
+  "last_administrative": {
+   "what": "Filed",
+   "when": "2026-10-30T05:40:00Z",
+   "stage": "delivered"
+  },
+  "wait": {
+   "owner": "fake-owner",
+   "since": "2026-10-30T04:12:00Z",
+   "text": "Waiting for the review answer",
+   "source": "seat_answer"
+  },
+  "local_only": {
+   "flag": "yes",
+   "note": "One branch not pushed (fake)",
+   "git_unpushed_count": 3
+  },
+  "sources": [
+   {
+    "source": "seat_answers",
+    "observed_at": "2026-10-30T05:00:00Z",
+    "collected_at": "2026-10-30T05:01:00Z",
+    "state": "partial",
+    "reason": "One seat has not answered"
+   },
+   {
+    "source": "git_org_main",
+    "observed_at": "2026-10-30T05:59:00Z",
+    "collected_at": "2026-10-30T06:00:00Z",
+    "state": "ok"
+   }
+  ],
+  "flags": {
+   "stale": "yes",
+   "blocked": "yes",
+   "reason": "A seat has not answered; a wait names an owner"
+  },
+  "next_act": {
+   "action": "Answer the checkpoint",
+   "owner": "fake-seat-b",
+   "time": "2026-10-30T09:00:00Z",
+   "time_quality": "target"
+  },
+  "primary_action": {
+   "route": "intervention",
+   "action_id": "act-ckpt",
+   "type": "request_checkpoint",
+   "label": "Request checkpoint",
+   "enabled": true
+  },
+  "secondary_actions": [
+   {
+    "route": "intervention",
+    "action_id": "act-unblock",
+    "type": "request_unblock",
+    "label": "Request unblock",
+    "enabled": true
+   },
+   {
+    "route": "intervention",
+    "action_id": "act-explain",
+    "type": "explain_blocker",
+    "label": "Explain blocker",
+    "enabled": false,
+    "reason": "No blocker reported"
+   }
+  ],
+  "project_checkpoint_age_h": 68.0
+ }
+}

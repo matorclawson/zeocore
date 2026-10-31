@@ -15,6 +15,7 @@ from zeo_core.cli.schemas import render_schema
 from zeo_core.contracts.ui import widgets
 from zeo_core.contracts.ui.widgets import (
     COMPONENTS,
+    LOCKED_COMPONENTS,
     REGISTRY,
     Assumption,
     DataRef,
@@ -116,18 +117,20 @@ def upsert(
     )
 
 
-def test_the_registry_has_the_four_components() -> None:
-    assert set(REGISTRY) == set(COMPONENTS) == set(PAYLOADS)
+def test_the_registry_has_the_four_components_and_the_card() -> None:
+    assert set(REGISTRY) == set(COMPONENTS)
+    assert set(COMPONENTS) == set(PAYLOADS) | {"intervention_card"}
+    assert set(LOCKED_COMPONENTS) == set(PAYLOADS)
 
 
-@pytest.mark.parametrize("component", COMPONENTS)
+@pytest.mark.parametrize("component", LOCKED_COMPONENTS)
 def test_each_component_accepts_its_sample(component: str) -> None:
     ref(component).check(component)
 
 
-@pytest.mark.parametrize("component", COMPONENTS)
+@pytest.mark.parametrize("component", LOCKED_COMPONENTS)
 def test_a_payload_for_another_component_is_refused(component: str) -> None:
-    other = next(name for name in COMPONENTS if name != component)
+    other = next(name for name in LOCKED_COMPONENTS if name != component)
     with pytest.raises(WidgetRefused) as refused:
         ref(other).check(component)
     assert refused.value.code in {
@@ -289,7 +292,7 @@ def load(name: str) -> dict[str, Any]:
     return json.loads((FIXTURES / f"rasa-ops-{name}.schema.json").read_text())  # type: ignore[no-any-return]
 
 
-@pytest.mark.parametrize("component", COMPONENTS)
+@pytest.mark.parametrize("component", LOCKED_COMPONENTS)
 def test_what_we_accept_conforms_to_the_rasa_ops_schemas(component: str) -> None:
     jsonschema.validate(ref(component).model_dump(by_alias=True), load("data-ref"))
     jsonschema.validate(upsert(component).model_dump(), load("widget-upsert"))
@@ -770,3 +773,39 @@ def test_the_combinations_that_would_show_two_freshness_lines_or_none_are_refuse
             payload=_market(**over),
             delayed=bool(over.get("delayed")),
         ).check("market_watchlist")
+
+
+def _card_upsert() -> dict[str, Any]:
+    return upsert().model_dump() | {"component": "intervention_card"}
+
+
+def test_the_locked_schema_refuses_the_intervention_card() -> None:
+    # The card is Core's profile only: a consumer pinned to the locked spec must
+    # never receive it, and the locked schema says so by refusing the name.
+    assert "intervention_card" not in LOCKED_COMPONENTS
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(_card_upsert(), load("widget-upsert"))
+    assert WidgetUpsert(**_card_upsert()).component == "intervention_card"
+
+
+def test_check_still_refuses_an_unregistered_component_and_a_wrong_payload() -> None:
+    with pytest.raises(WidgetRefused) as unknown:
+        ref("flight_status").check("iframe")
+    assert unknown.value.code == "unknown_component"
+    with pytest.raises(WidgetRefused) as wrong:
+        ref("flight_status").check("intervention_card")
+    assert wrong.value.code == "payload_does_not_match_component"
+
+
+def test_no_briefing_source_can_emit_the_intervention_card() -> None:
+    # The briefing route feeds consumers pinned to the locked four; the card is
+    # Core's profile only. A source module that names it fails here.
+    import zeo_core.integrations.briefing_sources as sources
+
+    root = Path(sources.__file__).parent
+    names = sorted(root.rglob("*.py"))
+    assert names
+    for path in names:
+        text = path.read_text(encoding="utf-8")
+        assert "intervention_card" not in text, path.name
+        assert "intervention_cards" not in text, path.name
