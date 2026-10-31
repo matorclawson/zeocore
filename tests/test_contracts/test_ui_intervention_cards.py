@@ -15,10 +15,10 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from zeo_core.cli.intervention_card_types import render_typescript
 from zeo_core.cli.schemas import SCHEMAS
 from zeo_core.contracts.ui import intervention_cards as cards
 from zeo_core.contracts.ui import widgets
-from zeo_core.contracts.ui.intervention_card_types import render_typescript
 from zeo_core.contracts.ui.intervention_cards import InterventionCardPayload
 
 FIXTURES = Path(__file__).parent / "fixtures" / "intervention_cards"
