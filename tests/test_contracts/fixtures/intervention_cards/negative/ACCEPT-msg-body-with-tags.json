@@ -1,6 +1,6 @@
 {
- "expect": "refused",
- "why": "no markup in a body",
+ "expect": "accepted",
+ "why": "a body may hold < and >: a consumer shows every string as text",
  "payload": {
   "situation": "message",
   "message_id": "am-fake-0001",

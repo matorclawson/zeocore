@@ -1,6 +1,6 @@
 {
- "expect": "refused",
- "why": "no markup in a preview",
+ "expect": "accepted",
+ "why": "a preview may hold < and >: it quotes what the person approves",
  "payload": {
   "situation": "approval",
   "approval_id": "apr_0b6f2c1e-3a4d-4e57-9c1a-2f8d5b7e9a10",

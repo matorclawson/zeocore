@@ -96,10 +96,10 @@
     },
     "Approval": {
       "additionalProperties": false,
-      "description": "An approval request, read-only and display only. ZEOconnect owns the decision.\n\nThe card carries what the person is shown and the digest of exactly what is\napproved. It holds no identity of the person, no audit and no action: a button\nwould be a request that ZEOconnect checks and records, never the decision.",
+      "description": "An approval request, read-only and display only. The owning service decides.\n\nThe card carries what the person is shown and the digest of exactly what is\napproved. It holds no identity of the person, no audit and no action: a button\nwould be a request that the owning service checks and records, never the decision.",
       "properties": {
         "approval_id": {
-          "pattern": "^apr_[0-9a-f-]{36}$",
+          "pattern": "^apr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
           "title": "Approval Id",
           "type": "string"
         },

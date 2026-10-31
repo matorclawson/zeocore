@@ -99,9 +99,13 @@ def _plain(value: str) -> str:
 
 
 def _plain_long(value: str) -> str:
-    """Long text that is still plain: the ``Text`` refusals, with line feed allowed."""
-    if not _NO_MARKUP.fullmatch(value) or _REFUSED.search(value.replace("\n", "")):
-        msg = "text holds a control or format character, or markup"
+    """Long text with no control or format character; ``<`` and ``>`` are fine.
+
+    A body or a preview may quote an address in angle brackets. Nothing here is markup:
+    a consumer shows every string as text.
+    """
+    if _REFUSED.search(value.replace("\n", "")):
+        msg = "text holds a control or format character"
         raise ValueError(msg)
     return value
 
@@ -109,7 +113,8 @@ def _plain_long(value: str) -> str:
 DateTime = Annotated[str, Field(max_length=40), AfterValidator(_date_time)]
 Text = Annotated[str, Field(min_length=1, max_length=200), AfterValidator(_plain)]
 #: A message body or an approval preview: S1 ``LongText`` (at most 4096 UTF-8 bytes,
-#: line feed allowed) plus the ``Text`` refusals, so it is plain text and never markup.
+#: line feed allowed) plus the ``Text`` refusals of control and format characters.
+#: Unlike ``Text`` it allows ``<`` and ``>``.
 PlainLong = Annotated[LongText, Field(min_length=1), AfterValidator(_plain_long)]
 Text120 = Annotated[str, Field(min_length=1, max_length=120), AfterValidator(_plain)]
 Text300 = Annotated[str, Field(min_length=1, max_length=300), AfterValidator(_plain)]
@@ -833,8 +838,13 @@ class SourceItem(_Opt):
 # -- messages and approvals ------------------------------------------------------
 
 Priority = Literal["p0", "p1", "p2"]
-#: ZEOconnect's id for an approval request: ``apr_`` and a lowercase uuid.
-ApprovalId = Annotated[str, Field(pattern=r"^apr_[0-9a-f-]{36}$")]
+#: The id of an approval request: ``apr_`` and a canonical lowercase uuid (8-4-4-4-12).
+ApprovalId = Annotated[
+    str,
+    Field(
+        pattern=r"^apr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    ),
+]
 ApprovalStatus = Literal["pending", "approved", "consumed", "refused"]
 
 
@@ -923,11 +933,11 @@ class Message(_Opt):
 
 
 class Approval(_Opt):
-    """An approval request, read-only and display only. ZEOconnect owns the decision.
+    """An approval request, read-only and display only. The owning service decides.
 
     The card carries what the person is shown and the digest of exactly what is
     approved. It holds no identity of the person, no audit and no action: a button
-    would be a request that ZEOconnect checks and records, never the decision.
+    would be a request that the owning service checks and records, never the decision.
     """
 
     situation: Literal["approval"]
