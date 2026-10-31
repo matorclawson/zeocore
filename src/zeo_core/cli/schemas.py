@@ -15,6 +15,8 @@ import json
 from typing import Any, Final
 
 from pydantic import TypeAdapter
+from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
+from pydantic_core import core_schema
 
 JSON_SCHEMA_DIALECT: Final = "https://json-schema.org/draft/2020-12/schema"
 
@@ -46,6 +48,9 @@ SCHEMAS: Final[dict[str, str]] = {
     "ui.result-card": "zeo_core.contracts.ui.card:UiCardResult",
     "ui.widget-upsert": "zeo_core.contracts.ui.widgets:WidgetUpsert",
     "ui.widget-data-ref": "zeo_core.contracts.ui.widgets:DataRef",
+    "ui.intervention-card": (
+        "zeo_core.contracts.ui.intervention_cards:InterventionCardPayload"
+    ),
     "proof.report": "zeo_core.contracts.proof.report:ProofReport",
     "revolut.account": "zeo_core.integrations.revolut.models:Account",
     # TransactionQuery waits for its wire alias ("from", contract §6): its
@@ -81,8 +86,31 @@ def adapter(name: str) -> TypeAdapter[Any]:
     return TypeAdapter(getattr(importlib.import_module(module), attribute))
 
 
+class _AbsentOnly(GenerateJsonSchema):
+    """A key that may be absent is not a key that may be null.
+
+    The default says a field typed ``X | None`` accepts ``null`` and defaults to it.
+    A contract whose models refuse an explicit ``null`` publishes the key as ``X``,
+    optional, with no ``default: null``.
+    """
+
+    def nullable_schema(self, schema: core_schema.NullableSchema) -> JsonSchemaValue:
+        return self.generate_inner(schema["schema"])
+
+    def default_schema(self, schema: core_schema.WithDefaultSchema) -> JsonSchemaValue:
+        out = super().default_schema(schema)
+        if out.get("default", 0) is None:
+            del out["default"]
+        return out
+
+
+#: Schemas whose models refuse ``null`` for every optional key (published absent-only).
+ABSENT_ONLY: Final = frozenset({"ui.intervention-card"})
+
+
 def render_schema(name: str) -> dict[str, Any]:
-    schema = adapter(name).json_schema(by_alias=True)
+    generator = _AbsentOnly if name in ABSENT_ONLY else GenerateJsonSchema
+    schema = adapter(name).json_schema(by_alias=True, schema_generator=generator)
     schema["$schema"] = JSON_SCHEMA_DIALECT
     schema["$id"] = f"https://zeocore.zeo.ac/contracts/zeocore-v1/{name}.schema.json"
     return schema

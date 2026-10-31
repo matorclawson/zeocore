@@ -1,0 +1,40 @@
+{
+ "expect": "refused",
+ "why": "facet enum",
+ "payload": {
+  "situation": "checkpoint",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 8,
+  "intervention_ref": "req-fake-001",
+  "evidence": [
+   {
+    "kind": "source",
+    "ref": "git:fake-repo/pr/41"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:20:00Z",
+    "collected_at": "2026-10-30T09:21:00Z",
+    "state": "healthy"
+   }
+  ],
+  "primary_action": {
+   "route": "intervention",
+   "action_id": "act-update",
+   "type": "request_update",
+   "label": "Ask for an update",
+   "enabled": true
+  },
+  "secondary_actions": [],
+  "requested_at": "2026-10-30T09:10:00Z",
+  "due_at": "2026-10-30T09:40:00Z",
+  "delivery": "done",
+  "response": "acknowledged"
+ }
+}

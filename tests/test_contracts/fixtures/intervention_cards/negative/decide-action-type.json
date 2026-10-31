@@ -1,0 +1,51 @@
+{
+ "expect": "refused",
+ "why": "only the eight action types exist",
+ "payload": {
+  "situation": "decision",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 10,
+  "evidence": [
+   {
+    "kind": "source",
+    "ref": "git:fake-repo/issue/77"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:35:00Z",
+    "collected_at": "2026-10-30T09:36:00Z",
+    "state": "healthy"
+   }
+  ],
+  "primary_action": {
+   "route": "intervention",
+   "action_id": "act-d",
+   "type": "decide",
+   "label": "Ship narrow",
+   "enabled": true
+  },
+  "secondary_actions": [],
+  "question": "Ship the narrow invoice export now?",
+  "ask_type": "decide",
+  "why_operator": "judgment",
+  "answer": {
+   "kind": "choice",
+   "options": [
+    {
+     "id": "narrow",
+     "label": "Ship narrow"
+    },
+    {
+     "id": "full",
+     "label": "Wait for full"
+    }
+   ]
+  }
+ }
+}

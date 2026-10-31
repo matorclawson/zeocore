@@ -1,0 +1,8 @@
+{
+ "type": "widget.upsert",
+ "request_id": "req-source-item",
+ "widget_id": "fake-do-0001",
+ "component": "intervention_card",
+ "data_ref": "data-source-item",
+ "revision": 1
+}

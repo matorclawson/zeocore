@@ -1,0 +1,75 @@
+{
+ "expect": "refused",
+ "why": "a text slot has max_utf8_bytes",
+ "payload": {
+  "situation": "decision",
+  "subject_ref": {
+   "project_id": "fake-project",
+   "seat_id": "fake-seat",
+   "assignment_id": "fake-asg-0142"
+  },
+  "subject_revision": 10,
+  "evidence": [
+   {
+    "kind": "source",
+    "ref": "git:fake-repo/issue/77"
+   }
+  ],
+  "freshness": [
+   {
+    "source": "git",
+    "observed_at": "2026-10-30T09:35:00Z",
+    "collected_at": "2026-10-30T09:36:00Z",
+    "state": "healthy"
+   }
+  ],
+  "primary_action": {
+   "route": "intervention",
+   "action_id": "act-explain",
+   "type": "explain_blocker",
+   "label": "Ask what the choice blocks",
+   "enabled": true
+  },
+  "secondary_actions": [],
+  "question": "Run the read-only inventory in the SQL editor and enter the three results",
+  "ask_type": "do",
+  "why_operator": "physical_presence",
+  "work_ref": {
+   "work_id": "wi_01J8Z3Q4R5S6T7V8W9X0Y1Z2A3",
+   "source_ref": "repo:fake-repo/pr/41",
+   "revision": "sha256:ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12"
+  },
+  "intervention_ref": "wi_01J8Z3Q4R5S6T7V8W9X0Y1Z2A3",
+  "checklist": [
+   {
+    "text": "Open the SQL editor for the venue database",
+    "done": false
+   },
+   {
+    "text": "Paste the pinned query and run it once (read only)",
+    "done": false
+   },
+   {
+    "text": "Enter the three results below",
+    "done": false
+   }
+  ],
+  "pinned_texts": [
+   {
+    "label": "Pinned read-only inventory (the exact 235-byte text)",
+    "language": "sql",
+    "text": "-- Fake inventory query for a test fixture. It is never run.\n-- READ ONLY: three SELECT statements.\nselect version();\nselect current_setting('server_version_num');\nselect e.extname, e.extversion from pg_extension e order by e.extname;\n",
+    "sha256": "sha256:8957c64e1fa59cc89460eaf51ee71eb0554e386eb7b20ed9aa572696450135de"
+   }
+  ],
+  "result_slots": [
+   {
+    "slot_id": "a",
+    "label": "x",
+    "value_type": "text"
+   }
+  ],
+  "result_max_total_bytes": 254208,
+  "target_label": "Production database (label supplied by the task, fake here)"
+ }
+}
