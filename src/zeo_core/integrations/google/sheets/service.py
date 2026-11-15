@@ -146,6 +146,43 @@ class GoogleSheetsService(BaseIntegrationService, SheetsIntegrationProtocol):
         self.sheets_service: Any = None
         self.config: dict[str, object] = {}
 
+    @classmethod
+    def from_credentials(
+        cls,
+        credentials: GoogleCredentials,
+        *,
+        log_level: int = logging.INFO,
+    ) -> "GoogleSheetsService":
+        """
+        Build an initialized service from credentials already in memory.
+
+        No client-secrets file, credentials file, config file or browser flow
+        is used, so a host that keeps its Google credentials in its own
+        environment (for example a service-account key or an OAuth refresh
+        token held in a secret store) can use Sheets directly. Build the
+        credentials with `google.oauth2.service_account.Credentials.
+        from_service_account_info(info, scopes=GoogleSheetsService.SCOPES)` or
+        `google.oauth2.credentials.Credentials(None, refresh_token=...,
+        token_uri=..., client_id=..., client_secret=..., scopes=...)`.
+
+        Raises:
+            ZeoApiError: If the Sheets API client cannot be built.
+        """
+        service = cls(log_level=log_level)
+        try:
+            from googleapiclient.discovery import build
+
+            service.sheets_service = build("sheets", "v4", credentials=credentials)
+        except Exception as api_error:
+            raise ZeoApiError(
+                "Failed to initialize Google Sheets API from credentials",
+                service="Google Sheets",
+                api_method="build",
+                original_error=api_error,
+            ) from api_error
+        service._initialized = True
+        return service
+
     @property
     def name(self) -> str:
         """Get the name of the integration."""

@@ -191,6 +191,13 @@ Seed cell A1 and read with `spreadsheets.readonly`. For E2E writes use
 range, read and compare the values, then trash it in Drive. Keep production
 spreadsheet IDs and ranges in production-only application configuration.
 
+To use credentials your host already holds in memory (a service-account key or
+an OAuth refresh token in a secret store), skip the files and the browser flow:
+build a google-auth `Credentials` object yourself and call
+`GoogleSheetsService.from_credentials(credentials)`. It returns an initialized
+service and reads no client-secrets, credentials or config file. To expose
+Sheets to an MCP client, see `examples/sheets_mcp_usage.py`.
+
 ### Slides
 
 Use `google.slides`, script name `slides`, and the presentation URL's `/d/` ID.

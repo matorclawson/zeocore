@@ -1,2 +1,2 @@
-bump: patch
-Example: `examples/sheets_mcp_usage.py` serves Google Sheets read and append as MCP tools through `zeo_core.adapters.mcp`. It runs offline against an in-memory stand-in, and its docstring shows the real `GoogleSheetsService` wiring. No library code changes.
+bump: minor
+Google Sheets: `GoogleSheetsService.from_credentials(credentials)` builds an initialized service from google-auth credentials held in memory, with no client-secrets, credentials or config file and no browser flow. A new example, `examples/sheets_mcp_usage.py`, serves Sheets read and append as MCP tools through `zeo_core.adapters.mcp`.
