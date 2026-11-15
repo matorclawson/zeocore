@@ -30,6 +30,7 @@ ZeoCore 0.11.0 or newer. Earlier wheels do not include this complete surface.
 | `zeoconnect` | [Hosted connection and pairing](zeoconnect.md) | Fake service or separately paired test identity/resources |
 | `gemini.images` | [Gemini keys and host custody](gemini-images.md) | Offline request/provider fixtures or separate Google project |
 | `notebook` | [Notebook execution](notebook-execution.md) | Local synthetic notebook; no account or key |
+| `telegram` | [Telegram](telegram.md) | Separate test bot and a private test chat |
 
 The first seventeen rows are package entry points. ZEOconnect, Gemini images and
 notebook execution are additional composition APIs. Their launcher selections

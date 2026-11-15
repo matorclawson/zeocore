@@ -1,0 +1,2 @@
+bump: minor
+Telegram: a minimal typed Telegram Bot API integration, `zeo_core.integrations.telegram`, with get updates, send message and answer callback query. The bot token is a `SecretStr` that never reaches logs, errors or dumps, nothing is retried, and tests use a fake HTTP transport. A new example, `examples/sheets_mcp_usage.py`, serves Google Sheets read and append as MCP tools through `zeo_core.adapters.mcp`.
